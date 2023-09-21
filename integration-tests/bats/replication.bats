@@ -397,6 +397,71 @@ SQL
     [[ "${lines[1]}" =~ "t2" ]] || false
 }
 
+@test "replication: pull with wildcard branch heads" {
+    dolt clone file://./rem1 repo2
+    cd repo2
+    dolt checkout -b feature1
+    dolt sql -q "create table feature1 (a int)"
+    dolt commit -Am "cm"
+    dolt push origin feature1
+    dolt checkout main
+    dolt checkout -b feature22
+    dolt sql -q "create table feature22 (a int)"
+    dolt commit -Am "cm"
+    dolt push origin feature22
+    dolt checkout main
+    dolt checkout -b myfeature
+    dolt sql -q "create table myfeature (a int)"
+    dolt commit -Am "cm"
+    dolt push origin myfeature
+    dolt checkout main
+    dolt checkout -b releases
+    dolt sql -q "create table releases (a int)"
+    dolt commit -Am "cm"
+    dolt push origin releases
+    dolt checkout main
+    dolt sql -q "create table main (a int)"
+    dolt commit -Am "cm"
+    dolt push origin main
+
+    cd ../repo1
+    dolt config --local --add sqlserver.global.dolt_replicate_heads main,*feature*
+    dolt config --local --add sqlserver.global.dolt_read_replica_remote remote1
+
+    run dolt sql -q "show tables as of hashof('feature1')" -r csv
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    [[ "${lines[0]}" =~ "Table" ]] || false
+    [[ "${lines[1]}" =~ "feature1" ]] || false
+
+    run dolt sql -q "show tables as of hashof('feature22')" -r csv
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    [[ "${lines[0]}" =~ "Table" ]] || false
+    [[ "${lines[1]}" =~ "feature22" ]] || false
+
+    run dolt sql -q "show tables as of hashof('myfeature')" -r csv
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    [[ "${lines[0]}" =~ "Table" ]] || false
+    [[ "${lines[1]}" =~ "myfeature" ]] || false
+
+    run dolt sql -q "show tables as of hashof('main')" -r csv
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    [[ "${lines[0]}" =~ "Table" ]] || false
+    [[ "${lines[1]}" =~ "main" ]] || false
+
+    run dolt sql -q "select count(*) from dolt_branches where name='releases'" -r csv
+    [ $status -eq 0 ]
+    [[ "${lines[0]}" =~ "count(*)" ]] || false
+    [[ "${lines[1]}" =~ "0" ]] || false
+
+    run dolt sql -q "show tables as of hashof('releases')" -r csv
+    [ $status -ne 0 ]
+    [[ "${lines[0]}" =~ "invalid ref spec" ]] || false
+}
+
 @test "replication: pull with unknown head" {
     dolt clone file://./rem1 repo2
     cd repo2
@@ -613,7 +678,7 @@ SQL
     [ "$status" -eq 0 ]
 }
 
-@test "replication: non-fast-forward pull fails replication" {
+@test "replication: non-fast-forward pull fails with force turned off" {
     dolt clone file://./rem1 clone1
     cd clone1
     dolt sql -q "create table t1 (a int primary key)"
@@ -625,6 +690,7 @@ SQL
     cd ../repo1
     dolt config --local --add sqlserver.global.dolt_read_replica_remote remote1
     dolt config --local --add sqlserver.global.dolt_replicate_heads main
+    dolt sql -q "set @@persist.dolt_read_replica_force_pull = off"
 
     run dolt sql -q "show tables"
     [ "$status" -eq 0 ]
@@ -633,12 +699,15 @@ SQL
     cd ../clone1
     dolt checkout -b new-main HEAD~
     dolt sql -q "create table t1 (a int primary key)"
-    dolt sql -q "insert into t1 values (1), (2), (3);"
+    dolt sql -q "insert into t1 values (1);"
     dolt add .
     dolt commit -am "new commit"
     dolt push -f origin new-main:main
 
     cd ../repo1
+    
+    # with dolt_read_replica_force_pull set to false (not default), this fails with a replication
+    # error
     run dolt sql -q "show tables"
     [ "$status" -ne 0 ]
     [[ "$output" =~ "replication" ]] || false
@@ -656,7 +725,6 @@ SQL
     cd ../repo1
     dolt config --local --add sqlserver.global.dolt_read_replica_remote remote1
     dolt config --local --add sqlserver.global.dolt_replicate_heads main
-    dolt config --local --add sqlserver.global.dolt_read_replica_force_pull 1
 
     run dolt sql -q "select sum(a) from t1"
     [ "$status" -eq 0 ]
@@ -684,7 +752,7 @@ SQL
 
     run dolt sql -q "show tables"
     [ "$status" -eq 0 ]
-    [[ ! "$output" =~ "panic" ]]
+    [[ ! "$output" =~ "panic" ]] || false
     [[ "$output" =~ "remote not found: 'unknown'" ]] || false
 }
 
@@ -756,4 +824,38 @@ SQL
     run dolt ls
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "replication: commit --amend" {
+    mkdir test_commit_amend_replication_primary
+    dolt init --fun
+
+    dolt remote add origin file://./test_commit_amend_replication
+    dolt push origin main
+
+    dolt sql -q "set @@persist.dolt_replicate_all_heads = 1"
+    dolt sql -q "set @@persist.dolt_replicate_to_remote = 'origin'"
+
+    dolt sql << SQL
+create table foo (pk int primary key, c1 int);
+insert into foo values (1,1);
+SQL
+    
+    dolt commit -Am "Created Table"
+
+    mkdir clone && cd clone
+    dolt clone file://../test_commit_amend_replication
+    cd test_commit_amend_replication
+    dolt sql -q "set @@persist.dolt_replicate_heads = 'main'"
+    dolt sql -q "set @@persist.dolt_read_replica_remote = 'origin'"
+    dolt sql -q "select * from foo"
+
+    cd ../../
+    dolt commit --amend -m "inserted 0,0. amended"
+    dolt push origin main
+
+    cd clone/test_commit_amend_replication
+    run dolt sql -q "select * from foo" -r csv
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "1,1" ]] || false 
 }

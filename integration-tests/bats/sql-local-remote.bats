@@ -1091,9 +1091,9 @@ SQL
 @test "sql-local-remote: verify unmigrated command will fail with warning" {
     cd altDB
     start_sql_server altDB
-    run dolt --user dolt log
+    run dolt --user dolt profile
     [ $status -eq 1 ]
-    [[ "$output" =~ "Global arguments are not supported for this command" ]]
+    [[ "$output" =~ "Global arguments are not supported for this command" ]] || false
 }
 
 @test "sql-local-remote: verify commands without global arg support will fail with warning" {
@@ -1101,5 +1101,57 @@ SQL
     start_sql_server altDB
     run dolt --user dolt version
     [ $status -eq 1 ]
-    [[ "$output" =~ "This command does not support global arguments." ]]
+    [[ "$output" =~ "This command does not support global arguments." ]] || false
+}
+
+@test "sql-local-remote: verify dolt log behavior" {
+    cd altDB
+
+    run dolt --verbose-engine-setup log
+    [ $status -eq 0 ]
+    [[ "$output" =~ "starting local mode" ]] || false
+    [[ "$output" =~ "tables table1, table2" ]] || false
+
+    run dolt log
+    [ $status -eq 0 ]
+    localOutput=$output
+
+    start_sql_server altDB
+    run dolt --verbose-engine-setup log
+    [ $status -eq 0 ]
+    [[ "$output" =~ "starting remote mode" ]] || false
+    [[ "$output" =~ "tables table1, table2" ]] || false
+
+    run dolt log
+    [ $status -eq 0 ]
+    remoteOutput=$output
+
+    [[ "$localOutput" == "$remoteOutput" ]] || false
+}
+
+@test "sql-local-remote: verify dolt fetch behavior" {
+    mkdir remote
+    cd altDB
+    dolt remote add origin file://../remote
+    dolt commit --allow-empty -m "cm1"
+    dolt push origin main
+
+    cd ../defaultDB
+    dolt remote add origin file://../remote
+
+    dolt fetch
+    run dolt log origin/main
+    [ $status -eq 0 ]
+    [[ "$output" =~ "cm1" ]] || false
+
+    cd ../altDB
+    dolt commit --allow-empty -m "cm2"
+    dolt push origin main
+    cd ../defaultDB
+
+    start_sql_server defaultDB
+    dolt fetch
+    run dolt log origin/main
+    [ $status -eq 0 ]
+    [[ "$output" =~ "cm2" ]] || false
 }

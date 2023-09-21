@@ -52,6 +52,10 @@ const (
 	LocalConnectionUser = "__dolt_local_user__"
 )
 
+// ExternalDisableUsers is called by implementing applications to disable users. This is not used by Dolt itself,
+// but will break compatibility with implementing applications that do not yet support users.
+var ExternalDisableUsers bool = false
+
 // Serve starts a MySQL-compatible server. Returns any errors that were encountered.
 func Serve(
 	ctx context.Context,
@@ -131,7 +135,14 @@ func Serve(
 		if err != nil {
 			return err, nil
 		}
+		dEnv.FS = fs
 	}
+
+	serverLock, startError := acquireGlobalSqlServerLock(serverConfig.Port(), dEnv)
+	if startError != nil {
+		return
+	}
+	defer dEnv.FS.Delete(dEnv.LockFile(), false)
 
 	mrEnv, err = env.MultiEnvForDirectory(ctx, dEnv.Config.WriteableConfig(), fs, dEnv.Version, dEnv.IgnoreLockFile, dEnv)
 	if err != nil {
@@ -162,6 +173,7 @@ func Serve(
 		Autocommit:              serverConfig.AutoCommit(),
 		DoltTransactionCommit:   serverConfig.DoltTransactionCommit(),
 		JwksConfig:              serverConfig.JwksConfig(),
+		SystemVariables:         serverConfig.SystemVars(),
 		ClusterController:       clusterController,
 		BinlogReplicaController: binlogreplication.DoltBinlogReplicaController,
 	}
@@ -229,12 +241,14 @@ func Serve(
 		return
 	}
 
-	lck := env.NewDBLock(serverConfig.Port())
-	sqlserver.SetRunningServer(mySQLServer, &lck)
+	sqlserver.SetRunningServer(mySQLServer, serverLock)
 
 	ed = mysqlDb.Editor()
-	mysqlDb.AddSuperUser(ed, LocalConnectionUser, "localhost", lck.Secret)
+	mysqlDb.AddSuperUser(ed, LocalConnectionUser, "localhost", serverLock.Secret)
 	ed.Close()
+	if ExternalDisableUsers {
+		mysqlDb.SetEnabled(false)
+	}
 
 	var metSrv *http.Server
 	if serverConfig.MetricsHost() != "" && serverConfig.MetricsPort() > 0 {
@@ -311,6 +325,7 @@ func Serve(
 				startError = err
 				return
 			}
+			clusterController.RegisterGrpcServices(clusterRemoteSrv.GrpcServer())
 
 			listeners, err := clusterRemoteSrv.Listeners()
 			if err != nil {
@@ -340,7 +355,7 @@ func Serve(
 		return
 	}
 
-	if err = mrEnv.Lock(lck); err != nil {
+	if err = mrEnv.Lock(serverLock); err != nil {
 		startError = err
 		return
 	}
@@ -371,6 +386,28 @@ func Serve(
 	}
 
 	return
+}
+
+// acquireGlobalSqlServerLock attempts to acquire a global lock on the SQL server. If no error is returned, then the lock was acquired.
+func acquireGlobalSqlServerLock(port int, dEnv *env.DoltEnv) (*env.DBLock, error) {
+	locked, _, err := dEnv.GetLock()
+	if err != nil {
+		return nil, err
+	}
+	if locked {
+		lockPath := dEnv.LockFile()
+		err = fmt.Errorf("Database locked by another sql-server; Lock file: %s", lockPath)
+		return nil, err
+	}
+
+	lck := env.NewDBLock(port)
+	err = dEnv.Lock(&lck)
+	if err != nil {
+		err = fmt.Errorf("Server can not start. Failed to acquire lock: %s", err.Error())
+		return nil, err
+	}
+
+	return &lck, nil
 }
 
 type remotesapiAuth struct {

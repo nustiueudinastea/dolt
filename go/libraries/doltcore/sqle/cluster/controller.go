@@ -30,12 +30,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql/mysql_db"
 	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	replicationapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1"
+	"github.com/dolthub/dolt/go/libraries/doltcore/branch_control"
 	"github.com/dolthub/dolt/go/libraries/doltcore/creds"
 	"github.com/dolthub/dolt/go/libraries/doltcore/dbfactory"
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
@@ -45,6 +49,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/clusterdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
 	"github.com/dolthub/dolt/go/libraries/utils/config"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 	"github.com/dolthub/dolt/go/libraries/utils/jwtauth"
 	"github.com/dolthub/dolt/go/store/types"
 )
@@ -69,16 +74,26 @@ type Controller struct {
 	cinterceptor  clientinterceptor
 	lgr           *logrus.Logger
 
-	provider       dbProvider
-	iterSessions   IterSessions
-	killQuery      func(uint32)
-	killConnection func(uint32) error
+	standbyCallback IsStandbyCallback
+	iterSessions    IterSessions
+	killQuery       func(uint32)
+	killConnection  func(uint32) error
 
 	jwks      *jwtauth.MultiJWKS
 	tlsCfg    *tls.Config
 	grpcCreds credentials.PerRPCCredentials
 	pub       ed25519.PublicKey
 	priv      ed25519.PrivateKey
+
+	replicationClients []*replicationServiceClient
+
+	mysqlDb          *mysql_db.MySQLDb
+	mysqlDbPersister *replicatingMySQLDbPersister
+	mysqlDbReplicas  []*mysqlDbReplica
+
+	branchControlController *branch_control.Controller
+	branchControlFilesys    filesys.Filesys
+	bcReplication           *branchControlReplication
 }
 
 type sqlvars interface {
@@ -86,11 +101,10 @@ type sqlvars interface {
 	GetGlobal(name string) (sql.SystemVariable, interface{}, bool)
 }
 
-// We can manage certain aspects of the exposed databases on the server through
-// this.
-type dbProvider interface {
-	SetIsStandby(bool)
-}
+// Our IsStandbyCallback gets called with |true| or |false| when the server
+// becomes a standby or a primary respectively. Standby replicas should be read
+// only.
+type IsStandbyCallback func(bool)
 
 type procedurestore interface {
 	Register(sql.ExternalStoredProcedureDetails)
@@ -154,6 +168,24 @@ func NewController(lgr *logrus.Logger, cfg Config, pCfg config.ReadWriteConfig) 
 	ret.sinterceptor.keyProvider = ret.jwks
 	ret.sinterceptor.jwtExpected = JWTExpectations()
 
+	ret.replicationClients, err = ret.replicationServiceClients(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	ret.mysqlDbReplicas = make([]*mysqlDbReplica, len(ret.replicationClients))
+	for i := range ret.mysqlDbReplicas {
+		bo := backoff.NewExponentialBackOff()
+		bo.InitialInterval = time.Second
+		bo.MaxInterval = time.Minute
+		bo.MaxElapsedTime = 0
+		ret.mysqlDbReplicas[i] = &mysqlDbReplica{
+			lgr:     lgr.WithFields(logrus.Fields{}),
+			client:  ret.replicationClients[i],
+			backoff: bo,
+		}
+		ret.mysqlDbReplicas[i].cond = sync.NewCond(&ret.mysqlDbReplicas[i].mu)
+	}
+
 	return ret, nil
 }
 
@@ -164,11 +196,23 @@ func (c *Controller) Run() {
 		defer wg.Done()
 		c.jwks.Run()
 	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.mysqlDbPersister.Run()
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.bcReplication.Run()
+	}()
 	wg.Wait()
 }
 
 func (c *Controller) GracefulStop() error {
 	c.jwks.GracefulStop()
+	c.mysqlDbPersister.GracefulStop()
+	c.bcReplication.GracefulStop()
 	return nil
 }
 
@@ -205,13 +249,13 @@ func (c *Controller) ApplyStandbyReplicationConfig(ctx context.Context, bt *sql.
 
 type IterSessions func(func(sql.Session) (bool, error)) error
 
-func (c *Controller) ManageDatabaseProvider(p dbProvider) {
+func (c *Controller) SetIsStandbyCallback(callback IsStandbyCallback) {
 	if c == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.provider = p
+	c.standbyCallback = callback
 	c.setProviderIsStandby(c.role != RolePrimary)
 }
 
@@ -264,6 +308,27 @@ func (c *Controller) RegisterStoredProcedures(store procedurestore) {
 	}
 	store.Register(newAssumeRoleProcedure(c))
 	store.Register(newTransitionToStandbyProcedure(c))
+}
+
+func (c *Controller) DropDatabaseHook(dbname string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	j := 0
+	for i := 0; i < len(c.commithooks); i++ {
+		if c.commithooks[i].dbname == dbname {
+			c.commithooks[i].databaseWasDropped()
+			continue
+		}
+		if j != i {
+			c.commithooks[j] = c.commithooks[i]
+		}
+		j += 1
+	}
+	c.commithooks = c.commithooks[:j]
 }
 
 func (c *Controller) ClusterDatabase() sql.Database {
@@ -448,6 +513,8 @@ func (c *Controller) setRoleAndEpoch(role string, epoch int, opts roleTransition
 		for _, h := range c.commithooks {
 			h.setRole(c.role)
 		}
+		c.mysqlDbPersister.setRole(c.role)
+		c.bcReplication.setRole(c.role)
 	}
 	_ = c.persistVariables()
 	return roleTransitionResult{
@@ -519,6 +586,61 @@ func (c *Controller) RemoteSrvServerArgs(ctx *sql.Context, args remotesrv.Server
 	args.HttpInterceptor = JWKSHandlerInterceptor(keyIDStr, c.pub)
 
 	return args
+}
+
+func (c *Controller) HookMySQLDbPersister(persister MySQLDbPersister, mysqlDb *mysql_db.MySQLDb) MySQLDbPersister {
+	if c != nil {
+		c.mysqlDb = mysqlDb
+		c.mysqlDbPersister = &replicatingMySQLDbPersister{
+			base:     persister,
+			replicas: c.mysqlDbReplicas,
+		}
+		c.mysqlDbPersister.setRole(c.role)
+		persister = c.mysqlDbPersister
+	}
+	return persister
+}
+
+func (c *Controller) HookBranchControlPersistence(controller *branch_control.Controller, fs filesys.Filesys) {
+	if c != nil {
+		c.branchControlController = controller
+		c.branchControlFilesys = fs
+
+		replicas := make([]*branchControlReplica, len(c.replicationClients))
+		for i := range replicas {
+			bo := backoff.NewExponentialBackOff()
+			bo.InitialInterval = time.Second
+			bo.MaxInterval = time.Minute
+			bo.MaxElapsedTime = 0
+			replicas[i] = &branchControlReplica{
+				backoff: bo,
+				client:  c.replicationClients[i],
+				lgr:     c.lgr.WithFields(logrus.Fields{}),
+			}
+			replicas[i].cond = sync.NewCond(&replicas[i].mu)
+		}
+		c.bcReplication = &branchControlReplication{
+			replicas:     replicas,
+			bcController: controller,
+		}
+		c.bcReplication.setRole(c.role)
+
+		controller.SavedCallback = func() {
+			contents := controller.Serialized.Load()
+			if contents != nil {
+				c.bcReplication.UpdateBranchControlContents(*contents)
+			}
+		}
+	}
+}
+
+func (c *Controller) RegisterGrpcServices(srv *grpc.Server) {
+	replicationapi.RegisterReplicationServiceServer(srv, &replicationServiceServer{
+		mysqlDb:              c.mysqlDb,
+		branchControl:        c.branchControlController,
+		branchControlFilesys: c.branchControlFilesys,
+		lgr:                  c.lgr.WithFields(logrus.Fields{}),
+	})
 }
 
 // TODO: make the deadline here configurable or something.
@@ -607,6 +729,13 @@ func (c *Controller) gracefulTransitionToStandby(saveConnID, minCaughtUpStandbys
 		c.lgr.Tracef("cluster/controller: successfully replicated all databases to %d out of %d standbys; transitioning to standby.", numCaughtUp, len(replicas))
 	}
 
+	if !c.mysqlDbPersister.waitForReplication(waitForHooksToReplicateTimeout) {
+		c.lgr.Warnf("cluster/controller: when transitioning to standby, did not successfully replicate users and grants to all standbys.")
+	}
+	if !c.bcReplication.waitForReplication(waitForHooksToReplicateTimeout) {
+		c.lgr.Warnf("cluster/controller: when transitioning to standby, did not successfully replicate branch control data to all standbys.")
+	}
+
 	return res, nil
 }
 
@@ -653,8 +782,8 @@ func (c *Controller) killRunningQueries(saveConnID int) {
 
 // called with c.mu held
 func (c *Controller) setProviderIsStandby(standby bool) {
-	if c.provider != nil {
-		c.provider.SetIsStandby(standby)
+	if c.standbyCallback != nil {
+		c.standbyCallback(standby)
 	}
 }
 
@@ -842,4 +971,49 @@ func (c *Controller) standbyRemotesJWKS() *jwtauth.MultiJWKS {
 		urls[i] = strings.Replace(r.RemoteURLTemplate(), dsess.URLTemplateDatabasePlaceholder, ".well-known/jwks.json", -1)
 	}
 	return jwtauth.NewMultiJWKS(c.lgr.WithFields(logrus.Fields{"component": "jwks-key-provider"}), urls, client)
+}
+
+type replicationServiceClient struct {
+	remote string
+	url    string
+	client replicationapi.ReplicationServiceClient
+}
+
+func (c *Controller) replicationServiceDialOptions() []grpc.DialOption {
+	var ret []grpc.DialOption
+	if c.tlsCfg == nil {
+		ret = append(ret, grpc.WithInsecure())
+	} else {
+		ret = append(ret, grpc.WithTransportCredentials(credentials.NewTLS(c.tlsCfg)))
+	}
+
+	ret = append(ret, grpc.WithStreamInterceptor(c.cinterceptor.Stream()))
+	ret = append(ret, grpc.WithUnaryInterceptor(c.cinterceptor.Unary()))
+
+	ret = append(ret, grpc.WithPerRPCCredentials(c.grpcCreds))
+
+	return ret
+}
+
+func (c *Controller) replicationServiceClients(ctx context.Context) ([]*replicationServiceClient, error) {
+	var ret []*replicationServiceClient
+	for _, r := range c.cfg.StandbyRemotes() {
+		urlStr := strings.Replace(r.RemoteURLTemplate(), dsess.URLTemplateDatabasePlaceholder, "", -1)
+		url, err := url.Parse(urlStr)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse remote url template [%s] for remote %s: %w", r.RemoteURLTemplate(), r.Name(), err)
+		}
+		grpcTarget := "dns:" + url.Hostname() + ":" + url.Port()
+		cc, err := grpc.DialContext(ctx, grpcTarget, c.replicationServiceDialOptions()...)
+		if err != nil {
+			return nil, fmt.Errorf("could not dial grpc endpoint [%s] for remote %s: %w", grpcTarget, r.Name(), err)
+		}
+		client := replicationapi.NewReplicationServiceClient(cc)
+		ret = append(ret, &replicationServiceClient{
+			remote: r.Name(),
+			url:    grpcTarget,
+			client: client,
+		})
+	}
+	return ret, nil
 }

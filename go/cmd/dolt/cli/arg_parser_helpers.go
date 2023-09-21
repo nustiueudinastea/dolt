@@ -169,10 +169,6 @@ func CreateResetArgParser() *argparser.ArgParser {
 
 func CreateRemoteArgParser() *argparser.ArgParser {
 	ap := argparser.NewArgParserWithVariableArgs("remote")
-	ap.SupportsString(dbfactory.AWSRegionParam, "", "region", "")
-	ap.SupportsValidatedString(dbfactory.AWSCredsTypeParam, "", "creds-type", "", argparser.ValidatorFromStrList(dbfactory.AWSCredsTypeParam, dbfactory.AWSCredTypes))
-	ap.SupportsString(dbfactory.AWSCredsFileParam, "", "file", "AWS credentials file")
-	ap.SupportsString(dbfactory.AWSCredsProfile, "", "profile", "AWS profile to use")
 	return ap
 }
 
@@ -221,7 +217,7 @@ func CreatePullArgParser() *argparser.ArgParser {
 	ap.ArgListHelp = append(ap.ArgListHelp, [2]string{"remoteBranch", "The name of a branch on the specified remote to be merged into the current working set."})
 	ap.SupportsFlag(SquashParam, "", "Merge changes to the working set without updating the commit history")
 	ap.SupportsFlag(NoFFParam, "", "Create a merge commit even when the merge resolves as a fast-forward.")
-	ap.SupportsFlag(ForceFlag, "f", "Ignore any foreign key warnings and proceed with the commit.")
+	ap.SupportsFlag(ForceFlag, "f", "Update from the remote HEAD even if there are errors.")
 	ap.SupportsFlag(CommitFlag, "", "Perform the merge and commit the result. This is the default option, but can be overridden with the --no-commit flag. Note that this option does not affect fast-forward merges, which don't create a new merge commit, and if any merge conflicts or constraint violations are detected, no commit will be attempted.")
 	ap.SupportsFlag(NoCommitFlag, "", "Perform the merge and stop just before creating a merge commit. Note this will not prevent a fast-forward merge; use the --no-ff arg together with the --no-commit arg to prevent both fast-forwards and merge commits.")
 	ap.SupportsFlag(NoEditFlag, "", "Use an auto-generated commit message when creating a merge commit. The default for interactive CLI sessions is to open an editor.")
@@ -285,15 +281,19 @@ func CreateVerifyConstraintsArgParser(name string) *argparser.ArgParser {
 	return ap
 }
 
-func CreateLogArgParser() *argparser.ArgParser {
+func CreateLogArgParser(isTableFunction bool) *argparser.ArgParser {
 	ap := argparser.NewArgParserWithVariableArgs("log")
 	ap.SupportsInt(NumberFlag, "n", "num_commits", "Limit the number of commits to output.")
 	ap.SupportsInt(MinParentsFlag, "", "parent_count", "The minimum number of parents a commit must have to be included in the log.")
 	ap.SupportsFlag(MergesFlag, "", "Equivalent to min-parents == 2, this will limit the log to commits with 2 or more parents.")
 	ap.SupportsFlag(ParentsFlag, "", "Shows all parents of each commit in the log.")
 	ap.SupportsString(DecorateFlag, "", "decorate_fmt", "Shows refs next to commits. Valid options are short, full, no, and auto")
-	ap.SupportsFlag(OneLineFlag, "", "Shows logs in a compact format.")
 	ap.SupportsStringList(NotFlag, "", "revision", "Excludes commits from revision.")
+	if isTableFunction {
+		ap.SupportsStringList(TablesFlag, "t", "table", "Restricts the log to commits that modified the specified tables.")
+	} else {
+		ap.SupportsFlag(OneLineFlag, "", "Shows logs in a compact format.")
+	}
 	return ap
 }
 
@@ -307,6 +307,25 @@ func CreateCountCommitsArgParser() *argparser.ArgParser {
 	ap := argparser.NewArgParserWithMaxArgs("gc", 0)
 	ap.SupportsString("from", "f", "commit id", "commit to start counting from")
 	ap.SupportsString("to", "t", "commit id", "commit to stop counting at")
+	return ap
+}
+
+func CreateGlobalArgParser(name string) *argparser.ArgParser {
+	ap := argparser.NewArgParserWithVariableArgs(name)
+	if name == "dolt" {
+		ap.SupportsString("profile", "", "profile", "The name of the profile to use when executing SQL queries. Run `dolt profile --help` for more information.")
+	}
+	ap.SupportsString("user", "u", "user", "Defines the local superuser (defaults to `root`). If the specified user exists, will take on permissions of that user.")
+	ap.SupportsString("password", "p", "password", "Defines the password for the user. Defaults to empty string when the user is `root`.")
+	ap.SupportsString("host", "", "host", "Defines the host to connect to.")
+	ap.SupportsString("port", "", "port", "Defines the port to connect to.")
+	ap.SupportsFlag("no-tls", "", "Disables TLS for the connection to remote databases.")
+	ap.SupportsString("data-dir", "", "data-dir", "Defines a data directory whose subdirectories should all be dolt data repositories accessible as independent databases. Defaults to the current directory.")
+	ap.SupportsString("doltcfg-dir", "", "doltcfg-dir", "Defines a directory that contains configuration files for dolt. Defaults to `$data-dir/.doltcfg`. Will only be created if there is a change to configuration settings.")
+	ap.SupportsString("privilege-file", "", "privilege-file", "Path to a file to load and store users and grants. Defaults to `$doltcfg-dir/privileges.db`. Will only be created if there is a change to privileges.")
+	ap.SupportsString("branch-control-file", "", "branch-control-file", "Path to a file to load and store branch control permissions. Defaults to `$doltcfg-dir/branch_control.db`. Will only be created if there is a change to branch control permissions.")
+	ap.SupportsString("use-db", "", "use-db", "The name of the database to use when executing SQL queries. Defaults the database of the root directory, if it exists, and the first alphabetically if not.")
+	ap.SupportsString("branch", "", "branch", "Name of the branch to be selected")
 	return ap
 }
 

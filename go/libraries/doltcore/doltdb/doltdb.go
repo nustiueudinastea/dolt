@@ -547,7 +547,7 @@ func (ddb *DoltDB) WriteRootValue(ctx context.Context, rv *RootValue) (*RootValu
 }
 
 func (ddb *DoltDB) writeRootValue(ctx context.Context, rv *RootValue) (*RootValue, types.Ref, error) {
-	rv, err := rv.setFeatureVersion(DoltFeatureVersion)
+	rv, err := rv.SetFeatureVersion(DoltFeatureVersion)
 	if err != nil {
 		return nil, types.Ref{}, err
 	}
@@ -579,10 +579,6 @@ func (ddb *DoltDB) ReadCommit(ctx context.Context, h hash.Hash) (*Commit, error)
 
 // Commit will update a branch's head value to be that of a previously committed root value hash
 func (ddb *DoltDB) Commit(ctx context.Context, valHash hash.Hash, dref ref.DoltRef, cm *datas.CommitMeta) (*Commit, error) {
-	if dref.GetType() != ref.BranchRefType {
-		panic("can't commit to ref that isn't branch atm.  will probably remove this.")
-	}
-
 	return ddb.CommitWithParentSpecs(ctx, valHash, dref, nil, cm)
 }
 

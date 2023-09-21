@@ -183,20 +183,12 @@ teardown() {
     run dolt init --new-format
     [ $status -eq 0 ]
 
-    run dolt version
+    run dolt version -v
     [ $status -eq 0 ]
     [[ $output =~ "database storage format: NEW ( __DOLT__ )" ]] || false
 
     run dolt sql -q "SELECT dolt_storage_format();"
     [[ $output =~ "NEW ( __DOLT__ )" ]] || false
-}
-
-@test "init: empty database folder displays no version" {
-    set_dolt_user "baz", "bazbash.com"
-
-    run dolt version
-    [ $status -eq 0 ]
-    [[ $output =~ "no valid database in this directory" ]]
 }
 
 @test "init: run init with --new-format, CREATE DATABASE through sql-server running in new-format repo should create a new format database" {
@@ -205,7 +197,7 @@ teardown() {
     run dolt init --new-format
     [ $status -eq 0 ]
 
-    run dolt version
+    run dolt version --verbose
     [ "$status" -eq 0 ]
     [[ ! $output =~ "OLD ( __LD_1__ )" ]] || false
     [[ $output =~ "NEW ( __DOLT__ )" ]] || false
@@ -215,7 +207,7 @@ teardown() {
     [[ $output =~ "test" ]] || false
 
     cd test
-    run dolt version
+    run dolt version --verbose
     [ "$status" -eq 0 ]
     [[ ! $output =~ "OLD ( __LD_1__ )" ]] || false
     [[ $output =~ "NEW ( __DOLT__ )" ]] || false
@@ -236,24 +228,51 @@ teardown() {
     run dolt init --new-format
     [ $status -eq 0 ]
 
-    run dolt version
+    run dolt version --verbose
     [ "$status" -eq 0 ]
     [[ ! $output =~ "OLD ( __LD_1__ )" ]] || false
     [[ $output =~ "NEW ( __DOLT__ )" ]] || false
 
     cd ..
-    run dolt version
+    run dolt version --verbose
     [ "$status" -eq 0 ]
-    [[ $output =~ "no valid database in this directory" ]] || false
+    ! [[ $output =~ "no valid database in this directory" ]] || false
 
     dolt sql -q "create database test"
     run ls
     [[ $output =~ "test" ]] || false
 
     cd test
-    run dolt version
+    run dolt version --verbose
     [ "$status" -eq 0 ]
     [[ "$output" =~ "__DOLT__" ]] || false
+}
+
+@test "init: create a db when there is an empty .dolt dir works" {
+    set_dolt_user "baz", "baz@bash.com"
+
+    mkdir dbdir
+    cd dbdir
+    mkdir .dolt
+
+    dolt init
+}
+
+@test "init: Fail when there is anything in the .dolt dir" {
+    set_dolt_user "baz", "baz@bash.com"
+
+    mkdir dbdir
+    cd dbdir
+    mkdir .dolt
+
+    # Possible real world situation. sql-server crashes and leaves a lock file.
+    # Currently we don't handle this.
+    echo "42:3306:aebf244e-0693-4c36-8b2d-6eb0dfa4fe2d" > .dolt/sql-server.lock
+
+    run dolt init
+
+    [ "$status" -eq 1 ]
+    [[ "$output" =~ ".dolt directory already exists" ]] || false
 }
 
 @test "init: fun flag produces an initial commit with the right hash" {

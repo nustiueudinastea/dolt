@@ -51,6 +51,8 @@ type SqlEngine struct {
 type sessionFactory func(mysqlSess *sql.BaseSession, pro sql.DatabaseProvider) (*dsess.DoltSession, error)
 type contextFactory func(ctx context.Context, session sql.Session) (*sql.Context, error)
 
+type SystemVariables map[string]interface{}
+
 type SqlEngineConfig struct {
 	IsReadOnly              bool
 	IsServerLocked          bool
@@ -64,6 +66,7 @@ type SqlEngineConfig struct {
 	DoltTransactionCommit   bool
 	Bulk                    bool
 	JwksConfig              []JwksConfig
+	SystemVariables         SystemVariables
 	ClusterController       *cluster.Controller
 	BinlogReplicaController binlogreplication.BinlogReplicaController
 }
@@ -105,6 +108,11 @@ func NewSqlEngine(
 		return nil, err
 	}
 
+	err = applySystemVariables(sql.SystemVariables, config.SystemVariables)
+	if err != nil {
+		return nil, err
+	}
+
 	all := append(dbs)
 
 	clusterDB := config.ClusterController.ClusterDatabase()
@@ -122,11 +130,31 @@ func NewSqlEngine(
 
 	config.ClusterController.RegisterStoredProcedures(pro)
 	pro.InitDatabaseHook = cluster.NewInitDatabaseHook(config.ClusterController, bThreads, pro.InitDatabaseHook)
-	config.ClusterController.ManageDatabaseProvider(pro)
+	pro.DropDatabaseHook = config.ClusterController.DropDatabaseHook
+
+	// Create the engine
+	engine := gms.New(analyzer.NewBuilder(pro).WithParallelism(parallelism).Build(), &gms.Config{
+		IsReadOnly:     config.IsReadOnly,
+		IsServerLocked: config.IsServerLocked,
+	}).WithBackgroundThreads(bThreads)
+
+	config.ClusterController.SetIsStandbyCallback(func(isStandby bool) {
+		pro.SetIsStandby(isStandby)
+
+		// Standbys are read only, primarys are not.
+		// We only change this here if the server was not forced read
+		// only by its startup config.
+		if !config.IsReadOnly {
+			engine.ReadOnly.Store(isStandby)
+		}
+	})
 
 	// Load in privileges from file, if it exists
-	persister := mysql_file_handler.NewPersister(config.PrivFilePath, config.DoltCfgDirPath)
-	data, err := persister.LoadData()
+	var persister cluster.MySQLDbPersister
+	persister = mysql_file_handler.NewPersister(config.PrivFilePath, config.DoltCfgDirPath)
+
+	persister = config.ClusterController.HookMySQLDbPersister(persister, engine.Analyzer.Catalog.MySQLDb)
+	data, err := persister.LoadData(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -136,12 +164,9 @@ func NewSqlEngine(
 	if bcController, err = branch_control.LoadData(config.BranchCtrlFilePath, config.DoltCfgDirPath); err != nil {
 		return nil, err
 	}
+	config.ClusterController.HookBranchControlPersistence(bcController, mrEnv.FileSystem())
 
-	// Set up engine
-	engine := gms.New(analyzer.NewBuilder(pro).WithParallelism(parallelism).Build(), &gms.Config{
-		IsReadOnly:     config.IsReadOnly,
-		IsServerLocked: config.IsServerLocked,
-	}).WithBackgroundThreads(bThreads)
+	// Setup the engine.
 	engine.Analyzer.Catalog.MySQLDb.SetPersister(persister)
 
 	engine.Analyzer.Catalog.MySQLDb.SetPlugins(map[string]mysql_db.PlaintextAuthPlugin{
@@ -200,6 +225,13 @@ func NewRebasedSqlEngine(engine *gms.Engine, dbs map[string]dsess.SqlDatabase) *
 	return &SqlEngine{
 		engine: engine,
 	}
+}
+
+func applySystemVariables(vars sql.SystemVariableRegistry, cfg SystemVariables) error {
+	if cfg != nil {
+		return vars.AssignValues(cfg)
+	}
+	return nil
 }
 
 // Databases returns a slice of all databases in the engine
@@ -273,7 +305,7 @@ func configureBinlogReplicaController(config *SqlEngineConfig, engine *gms.Engin
 		return err
 	}
 	dblr.DoltBinlogReplicaController.SetExecutionContext(executionCtx)
-	engine.Analyzer.BinlogReplicaController = config.BinlogReplicaController
+	engine.Analyzer.Catalog.BinlogReplicaController = config.BinlogReplicaController
 
 	return nil
 }

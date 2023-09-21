@@ -91,7 +91,7 @@ func BasicSelectTests() []SelectTest {
 	var headCommitHash string
 	switch types.Format_Default {
 	case types.Format_DOLT:
-		headCommitHash = "a0gt4vif0b0bf19g89k87gs55qqlqpod"
+		headCommitHash = "m1gkfp9ii4hiqhpmgcfet5sojvopo4da"
 	case types.Format_LD_1:
 		headCommitHash = "73hc2robs4v0kt9taoe3m5hd49dmrgun"
 	}
@@ -466,7 +466,7 @@ func BasicSelectTests() []SelectTest {
 			Query:        "select is_married and age >= 40 from people where last_name = 'Simpson' order by id limit 2",
 			ExpectedRows: []sql.Row{{true}, {false}},
 			ExpectedSqlSchema: sql.Schema{
-				&sql.Column{Name: "is_married and age >= 40", Type: gmstypes.Int8},
+				&sql.Column{Name: "is_married and age >= 40", Type: gmstypes.Boolean},
 			},
 		},
 		{
@@ -480,7 +480,7 @@ func BasicSelectTests() []SelectTest {
 			},
 			ExpectedSqlSchema: sql.Schema{
 				&sql.Column{Name: "first_name", Type: typeinfo.StringDefaultType.ToSqlType()},
-				&sql.Column{Name: "not_marge", Type: gmstypes.Int8},
+				&sql.Column{Name: "not_marge", Type: gmstypes.Boolean},
 			},
 		},
 		{
@@ -1301,9 +1301,9 @@ var systemTableSelectTests = []SelectTest{
 	{
 		Name: "select from dolt_schemas",
 		AdditionalSetup: CreateTableFn(doltdb.SchemasTableName, schemaTableSchema,
-			`INSERT INTO dolt_schemas VALUES ('view', 'name', 'create view name as select 2+2 from dual', NULL)`),
+			`INSERT INTO dolt_schemas VALUES ('view', 'name', 'create view name as select 2+2 from dual', NULL, NULL)`),
 		Query:          "select * from dolt_schemas",
-		ExpectedRows:   []sql.Row{{"view", "name", "create view name as select 2+2 from dual", nil}},
+		ExpectedRows:   []sql.Row{{"view", "name", "create view name as select 2+2 from dual", nil, nil}},
 		ExpectedSchema: CompressSchema(schemaTableSchema),
 	},
 }

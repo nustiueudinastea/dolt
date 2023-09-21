@@ -419,8 +419,18 @@ var DiffSystemTableScriptTests = []queries.ScriptTest{
 			{
 				Query: "select to_pk, to_col1, to_col2, to_commit, from_pk, from_col1, from_col2, from_commit, diff_type from dolt_diff_t order by diff_type ASC;",
 				Expected: []sql.Row{
-					{1, "123456789012345", 420, doltCommit, nil, nil, nil, doltCommit, "added"},
-					{1, "1234567890", 13, doltCommit, 1, "123456789012345", 420, doltCommit, "modified"},
+					{1, nil, nil, doltCommit, nil, nil, nil, doltCommit, "added"},
+					{1, "1234567890", 13, doltCommit, 1, nil, nil, doltCommit, "modified"},
+				},
+				ExpectedWarningsCount: 4,
+			},
+			{
+				Query: "SHOW WARNINGS;",
+				Expected: []sql.Row{
+					{"Warning", 1292, "Truncated tinyint value: 420"},
+					{"Warning", 1292, "Truncated tinyint value: 420"},
+					{"Warning", 1292, "Truncated varchar(10) value: 123456789012345"},
+					{"Warning", 1292, "Truncated varchar(10) value: 123456789012345"},
 				},
 			},
 		},
@@ -511,7 +521,7 @@ var DiffSystemTableScriptTests = []queries.ScriptTest{
 				SkipResultsCheck:                true,
 			},
 			{
-				Query:    "SELECT COUNT(*) FROM DOLT_DIFF_t;;",
+				Query:    "SELECT COUNT(*) FROM DOLT_DIFF_t;",
 				Expected: []sql.Row{{1}},
 			},
 			{
@@ -5597,6 +5607,88 @@ var SystemTableIndexTests = []systabScript{
 			{
 				query: "select count(*) from dolt_diff_x where from_commit = @m2h2",
 				exp:   []sql.Row{{4}},
+			},
+		},
+	},
+}
+
+var QueryDiffTableScriptTests = []queries.ScriptTest{
+	{
+		Name: "basic query diff tests",
+		SetUpScript: []string{
+			"create table t (i int primary key, j int);",
+			"insert into t values (1, 1), (2, 2), (3, 3);",
+			"create table tt (i int primary key, j int);",
+			"insert into tt values (10, 10), (20, 20), (30, 30);",
+			"call dolt_add('.');",
+			"call dolt_commit('-m', 'first');",
+			"call dolt_branch('other');",
+			"update t set j = 10 where i = 2;",
+			"delete from t where i = 3;",
+			"insert into t values (4, 4);",
+			"call dolt_add('.');",
+			"call dolt_commit('-m', 'second');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:          "select * from dolt_query_diff();",
+				ExpectedErrStr: "function 'dolt_query_diff' expected 2 arguments, 0 received",
+			},
+			{
+				Query:          "select * from dolt_query_diff('selectsyntaxerror', 'selectsyntaxerror');",
+				ExpectedErrStr: "syntax error at position 18 near 'selectsyntaxerror'",
+			},
+			{
+				Query:          "select * from dolt_query_diff('', '');",
+				ExpectedErrStr: "query must be a SELECT statement",
+			},
+			{
+				Query:          "select * from dolt_query_diff('create table tt (i int)', 'create table ttt (j int)');",
+				ExpectedErrStr: "query must be a SELECT statement",
+			},
+			{
+				Query:          "select * from dolt_query_diff('select * from missingtable', '');",
+				ExpectedErrStr: "table not found: missingtable",
+			},
+			{
+				Query: "select * from dolt_query_diff('select * from t as of other', 'select * from t as of head');",
+				Expected: []sql.Row{
+					{2, 2, 2, 10, "modified"},
+					{3, 3, nil, nil, "deleted"},
+					{nil, nil, 4, 4, "added"},
+				},
+			},
+			{
+				Query: "select * from dolt_query_diff('select * from t as of head', 'select * from t as of other');",
+				Expected: []sql.Row{
+					{2, 10, 2, 2, "modified"},
+					{nil, nil, 3, 3, "added"},
+					{4, 4, nil, nil, "deleted"},
+				},
+			},
+			{
+				Query: "select * from dolt_query_diff('select * from t as of other where i = 2', 'select * from t as of head where i = 2');",
+				Expected: []sql.Row{
+					{2, 2, 2, 10, "modified"},
+				},
+			},
+			{
+				Query: "select * from dolt_query_diff('select * from t as of other where i < 2', 'select * from t as of head where i > 2');",
+				Expected: []sql.Row{
+					{1, 1, nil, nil, "deleted"},
+					{nil, nil, 4, 4, "added"},
+				},
+			},
+			{
+				Query: "select * from dolt_query_diff('select * from t', 'select * from tt');",
+				Expected: []sql.Row{
+					{1, 1, nil, nil, "deleted"},
+					{2, 10, nil, nil, "deleted"},
+					{4, 4, nil, nil, "deleted"},
+					{nil, nil, 10, 10, "added"},
+					{nil, nil, 20, 20, "added"},
+					{nil, nil, 30, 30, "added"},
+				},
 			},
 		},
 	},

@@ -887,6 +887,8 @@ SQL
 }
 
 @test "sql-merge: different check constraints on same column throw conflict" {
+    skip "auto conflict resolution for schema merges is blocked until https://github.com/dolthub/dolt/issues/6616 is fixed"
+
     dolt sql -q "create table t (i int)"
     dolt add .
     dolt commit -am "initial commit"
@@ -905,14 +907,14 @@ SQL
     [[ "$output" =~ "CONSTRAINT \`c1\` CHECK ((\`i\` < 0))" ]] || false
     dolt commit -am "changes to main"
 
-    dolt sql -q "call dolt_merge('other', '-m', 'merge other')"
+    dolt sql -q "set @@dolt_force_transaction_commit=1; call dolt_merge('other', '-m', 'merge other')"
 
     run dolt status
     log_status_eq 0
-    [[ "$output" =~ "schema conflict:" ]]
+    [[ "$output" =~ "schema conflict:" ]] || false
     run dolt sql -q "select count(*) from dolt_schema_conflicts"
     log_status_eq 0
-    [[ "$output" =~ "1" ]]
+    [[ "$output" =~ "1" ]] || false
     dolt sql -q "call dolt_conflicts_resolve('--ours', 't')"
     dolt sql -q "show create table t"
     run dolt sql -q "show create table t"
@@ -949,6 +951,8 @@ SQL
 }
 
 @test "sql-merge: dropping constraint in one branch and modifying same in other results in conflict" {
+    skip "auto conflict resolution for schema merges is blocked until https://github.com/dolthub/dolt/issues/6616 is fixed"
+
     dolt sql -q "create table t (i int)"
     dolt add .
     dolt sql -q "alter table t add constraint c check (i > 0)"
@@ -969,13 +973,13 @@ SQL
     [[ "$output" =~ "CONSTRAINT \`c\` CHECK ((\`i\` < 10))" ]] || false
     dolt commit -am "changes to main"
 
-    run dolt sql -q "call dolt_merge('other', '-m', 'merge other')"
+    dolt sql -q "set @@dolt_force_transaction_commit=1; call dolt_merge('other', '-m', 'merge other')"
     run dolt status
     log_status_eq 0
-    [[ "$output" =~ "schema conflict:" ]]
+    [[ "$output" =~ "schema conflict:" ]] || false
     run dolt sql -q "select count(*) from dolt_schema_conflicts"
     log_status_eq 0
-    [[ "$output" =~ "1" ]]
+    [[ "$output" =~ "1" ]] || false
     dolt sql -q "call dolt_conflicts_resolve('--ours', 't')"
     run dolt sql -q "show create table t"
     log_status_eq 0
@@ -1017,6 +1021,8 @@ SQL
 }
 
 @test "sql-merge: check constraint with name collision" {
+    skip "auto conflict resolution for schema merges is blocked until https://github.com/dolthub/dolt/issues/6616 is fixed"
+
     dolt sql -q "create table t (i int)"
     dolt add .
     dolt commit -am "initial commit"
@@ -1041,13 +1047,13 @@ SQL
     dolt checkout main
     run dolt merge b1 -m "merge b1" --commit
     log_status_eq 0
-    dolt sql -q "call dolt_merge('b2', '-m', 'merge b2')"
+    dolt sql -q "set @@dolt_force_transaction_commit=1; call dolt_merge('b2', '-m', 'merge b2')"
     run dolt status
     log_status_eq 0
-    [[ "$output" =~ "schema conflict:" ]]
+    [[ "$output" =~ "schema conflict:" ]] || false
     run dolt sql -q "select count(*) from dolt_schema_conflicts"
     log_status_eq 0
-    [[ "$output" =~ "1" ]]
+    [[ "$output" =~ "1" ]] || false
     dolt sql -q "call dolt_conflicts_resolve('--ours', 't')"
     run dolt sql -q "show create table t"
     log_status_eq 0
@@ -1055,6 +1061,8 @@ SQL
 }
 
 @test "sql-merge: check constraint for deleted column in another table" {
+    skip "auto conflict resolution for schema merges is blocked until https://github.com/dolthub/dolt/issues/6616 is fixed"
+
     dolt sql -q "create table t (i int primary key, j int)"
     dolt add .
     dolt commit -am "initial commit"
@@ -1076,13 +1084,13 @@ SQL
     dolt checkout main
     run dolt sql -q "call dolt_merge('b1', '-m', 'merge b1')"
     log_status_eq 0
-    dolt sql -q "call dolt_merge('b2', '-m', 'merge b2')"
+    dolt sql -q "set @@dolt_force_transaction_commit=1; call dolt_merge('b2', '-m', 'merge b2')"
     run dolt status
     log_status_eq 0
-    [[ "$output" =~ "schema conflict:" ]]
+    [[ "$output" =~ "schema conflict:" ]] || false
     run dolt sql -q "select count(*) from dolt_schema_conflicts"
     log_status_eq 0
-    [[ "$output" =~ "1" ]]
+    [[ "$output" =~ "1" ]] || false
     dolt sql -q "call dolt_conflicts_resolve('--ours', 't')"
     run dolt sql -q "show create table t"
     log_status_eq 0
