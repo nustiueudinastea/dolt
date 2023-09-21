@@ -189,7 +189,7 @@ func CanUsePuller(db Database) bool {
 	cs := db.chunkStore()
 	if tfs, ok := cs.(chunks.TableFileStore); ok {
 		ops := tfs.SupportedOperations()
-		return ops.CanRead && ops.CanWrite
+		return ops.CanRead
 	}
 	return false
 }
