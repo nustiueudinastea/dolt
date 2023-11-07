@@ -284,7 +284,7 @@ func (w *prollyTableWriter) IndexedAccess(i sql.IndexLookup) sql.IndexedTable {
 
 // Reset puts the writer into a fresh state, updating the schema and index writers according to the newly given table.
 func (w *prollyTableWriter) Reset(ctx context.Context, sess *prollyWriteSession, tbl *doltdb.Table, sch schema.Schema) error {
-	sqlSch, err := sqlutil.FromDoltSchema(w.tableName, sch)
+	sqlSch, err := sqlutil.FromDoltSchema("", w.tableName, sch)
 	if err != nil {
 		return err
 	}
@@ -377,14 +377,12 @@ func ordinalMappingsFromSchema(from sql.Schema, to schema.Schema) (km, vm val.Or
 }
 
 func makeOrdinalMapping(from sql.Schema, to *schema.ColCollection) (m val.OrdinalMapping) {
-	m = make(val.OrdinalMapping, len(to.GetColumns()))
+	m = make(val.OrdinalMapping, to.StoredSize())
 	for i := range m {
-		name := to.GetByIndex(i).Name
-		for j, col := range from {
-			if col.Name == name {
-				m[i] = j
-			}
-		}
+		col := to.GetByStoredIndex(i)
+		name := col.Name
+		colIdx := from.IndexOfColName(name)
+		m[i] = colIdx
 	}
 	return
 }

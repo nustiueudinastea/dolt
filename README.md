@@ -18,7 +18,11 @@ baby.
 
 We also built [DoltHub](https://www.dolthub.com), a place to share
 Dolt databases. We host public data for free. If you want to host
-your own version of DoltHub, we have [DoltLab](https://www.doltlab.com). If you want us to run a Dolt server for you, we have [Hosted Dolt](https://hosted.doltdb.com).
+your own version of DoltHub, we have [DoltLab](https://www.doltlab.com). 
+If you want us to run a Dolt server for you, we have [Hosted Dolt](https://hosted.doltdb.com). 
+If you are looking for a Postgres version of Dolt, we built 
+[DoltgreSQL](https://github.com/dolthub/doltgresql). Warning, it's 
+early Alpha. Dolt is production-ready.
 
 [Join us on Discord](https://discord.com/invite/RFwfYpu) to say hi and
 ask questions, or [check out our roadmap](https://docs.dolthub.com/other/roadmap) 
@@ -234,7 +238,7 @@ Your terminal will just hang there. This means the server is running. Any errors
 In the new terminal, we will now connect to the running database server using a client. Dolt also ships with a MySQL compatible client. 
 
 ```bash
-% dolt sql-client -u root
+% dolt -u root -p "" sql
 # Welcome to the Dolt MySQL client.
 # Statements must be terminated with ';'.
 # "exit" or "quit" (or Ctrl-D) to exit.
@@ -540,9 +544,8 @@ mysql> show tables;
 3 rows in set (0.01 sec)
 ```
 
-Dolt makes operating databases less error prone. You can always back out changes you have in progress or rewind to a known good state. You also have the ability to undo specific commits using [`dolt_revert()`](https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_revert).
+Dolt makes operating databases less error prone. You can always back out changes you have in progress or rewind to a known good state. You also have the ability to undo specific commits using [`dolt_revert()`](https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_revert). Even if you accidentally run `drop database` on the wrong database, Dolt lets you undo that by calling the [`dolt_undrop()` stored procedure](https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_undrop).
 
-Note, the only unrecoverable SQL statement in Dolt is `drop database`. This deletes the database and all of its history on disk. `drop database` works this way for SQL tool compatibility as it is common for import tools to issue a `drop database` to clear all database state before an import. Dolt implements [remotes](https://docs.dolthub.com/concepts/dolt/remotes) like in Git so you can maintain an offline copy for backup using clone, fetch, push, and pull. Maintaining a remote copy allows you to restore in the case of an errant `drop database` query. 
 
 ## See the data in a SQL Workbench
 

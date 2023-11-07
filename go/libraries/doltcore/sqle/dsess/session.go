@@ -82,7 +82,7 @@ func DefaultSession(pro DoltDatabaseProvider) *DoltSession {
 		provider:         pro,
 		tempTables:       make(map[string][]sql.Table),
 		globalsConf:      config.NewMapConfig(make(map[string]string)),
-		branchController: branch_control.CreateDefaultController(), // Default sessions are fine with the default controller
+		branchController: branch_control.CreateDefaultController(context.TODO()), // Default sessions are fine with the default controller
 		mu:               &sync.Mutex{},
 		fs:               pro.FileSystem(),
 	}
@@ -1100,7 +1100,7 @@ func (d *DoltSession) setForeignKeyChecksSessionVar(ctx *sql.Context, key string
 			}
 		}
 	} else {
-		return fmt.Errorf("variable 'foreign_key_checks' can't be set to the value of '%d'", intVal)
+		return sql.ErrInvalidSystemVariableValue.New("foreign_key_checks", intVal)
 	}
 
 	return d.Session.SetSessionVariable(ctx, key, value)

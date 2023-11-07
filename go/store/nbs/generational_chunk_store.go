@@ -16,7 +16,6 @@ package nbs
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -154,18 +153,6 @@ func (gcs *GenerationalNBS) hasMany(recs []hasRecord) (absent hash.HashSet, err 
 	return gcs.oldGen.hasMany(recs)
 }
 
-func (gcs *GenerationalNBS) errorIfDangling(ctx context.Context, addrs hash.HashSet) error {
-	absent, err := gcs.HasMany(ctx, addrs)
-	if err != nil {
-		return err
-	}
-	if len(absent) != 0 {
-		s := absent.String()
-		return fmt.Errorf("Found dangling references to %s", s)
-	}
-	return nil
-}
-
 // Put caches c in the ChunkSource. Upon return, c must be visible to
 // subsequent Get and Has calls, but must not be persistent until a call
 // to Flush(). Put may be called concurrently with other calls to Put(),
@@ -224,7 +211,8 @@ func (gcs *GenerationalNBS) StatsSummary() string {
 	return sb.String()
 }
 
-// Close tears down any resources in use by the implementation. After // Close(), the ChunkStore may not be used again. It is NOT SAFE to call
+// Close tears down any resources in use by the implementation. After
+// Close(), the ChunkStore may not be used again. It is NOT SAFE to call
 // Close() concurrently with any other ChunkStore method; behavior is
 // undefined and probably crashy.
 func (gcs *GenerationalNBS) Close() error {

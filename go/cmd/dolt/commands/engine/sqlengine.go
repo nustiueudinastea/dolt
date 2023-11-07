@@ -40,6 +40,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/cluster"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/mysql_file_handler"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/stats"
 	"github.com/dolthub/dolt/go/libraries/utils/config"
 	"github.com/dolthub/dolt/go/store/types"
 )
@@ -135,7 +136,11 @@ func NewSqlEngine(
 
 	config.ClusterController.RegisterStoredProcedures(pro)
 	pro.InitDatabaseHook = cluster.NewInitDatabaseHook(config.ClusterController, bThreads, pro.InitDatabaseHook)
-	pro.DropDatabaseHook = config.ClusterController.DropDatabaseHook
+
+	sqlEngine := &SqlEngine{}
+
+	pro.DropDatabaseHook = config.ClusterController.DropDatabaseHook()
+	config.ClusterController.SetDropDatabase(pro.DropDatabase)
 
 	// Create the engine
 	engine := gms.New(analyzer.NewBuilder(pro).WithParallelism(parallelism).Build(), &gms.Config{
@@ -166,7 +171,7 @@ func NewSqlEngine(
 
 	// Load the branch control permissions, if they exist
 	var bcController *branch_control.Controller
-	if bcController, err = branch_control.LoadData(config.BranchCtrlFilePath, config.DoltCfgDirPath); err != nil {
+	if bcController, err = branch_control.LoadData(ctx, config.BranchCtrlFilePath, config.DoltCfgDirPath); err != nil {
 		return nil, err
 	}
 	config.ClusterController.HookBranchControlPersistence(bcController, mrEnv.FileSystem())
@@ -179,6 +184,8 @@ func NewSqlEngine(
 	})
 
 	engine.Analyzer.ExecBuilder = rowexec.DefaultBuilder
+
+	engine.Analyzer.Catalog.StatsProvider = stats.NewProvider()
 
 	// Load MySQL Db information
 	if err = engine.Analyzer.Catalog.MySQLDb.LoadData(sql.NewEmptyContext(), data); err != nil {
@@ -223,12 +230,12 @@ func NewSqlEngine(
 		}
 	}
 
-	return &SqlEngine{
-		provider:       pro,
-		contextFactory: sqlContextFactory(),
-		dsessFactory:   sessFactory,
-		engine:         engine,
-	}, nil
+	sqlEngine.provider = pro
+	sqlEngine.contextFactory = sqlContextFactory()
+	sqlEngine.dsessFactory = sessFactory
+	sqlEngine.engine = engine
+
+	return sqlEngine, nil
 }
 
 // NewRebasedSqlEngine returns a smalled rebased engine primarily used in filterbranch.
@@ -323,7 +330,7 @@ func configureBinlogReplicaController(config *SqlEngineConfig, engine *gms.Engin
 
 // configureEventScheduler configures the event scheduler with the |engine| for executing events, a |sessFactory|
 // for creating sessions, and a DoltDatabaseProvider, |pro|.
-func configureEventScheduler(config *SqlEngineConfig, engine *gms.Engine, sessFactory sessionFactory, pro dsqle.DoltDatabaseProvider) error {
+func configureEventScheduler(config *SqlEngineConfig, engine *gms.Engine, sessFactory sessionFactory, pro *dsqle.DoltDatabaseProvider) error {
 	// need to give correct user, use the definer as user to run the event definition queries
 	ctxFactory := sqlContextFactory()
 
@@ -383,7 +390,7 @@ func sqlContextFactory() contextFactory {
 }
 
 // doltSessionFactory returns a sessionFactory that creates a new DoltSession
-func doltSessionFactory(pro dsqle.DoltDatabaseProvider, config config.ReadWriteConfig, bc *branch_control.Controller, autocommit bool) sessionFactory {
+func doltSessionFactory(pro *dsqle.DoltDatabaseProvider, config config.ReadWriteConfig, bc *branch_control.Controller, autocommit bool) sessionFactory {
 	return func(mysqlSess *sql.BaseSession, provider sql.DatabaseProvider) (*dsess.DoltSession, error) {
 		doltSession, err := dsess.NewDoltSession(mysqlSess, pro, config, bc)
 		if err != nil {

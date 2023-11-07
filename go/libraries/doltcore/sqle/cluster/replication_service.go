@@ -20,14 +20,16 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/mysql_db"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	replicationapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1"
 	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 )
 
 type BranchControlPersistence interface {
-	LoadData([]byte, bool) error
-	SaveData(filesys.Filesys) error
+	LoadData(context.Context, []byte, bool) error
+	SaveData(context.Context, filesys.Filesys) error
 }
 
 type replicationServiceServer struct {
@@ -36,15 +38,23 @@ type replicationServiceServer struct {
 	mysqlDb *mysql_db.MySQLDb
 	lgr     *logrus.Entry
 
+	ctxFactory func(context.Context) (*sql.Context, error)
+
 	branchControl        BranchControlPersistence
 	branchControlFilesys filesys.Filesys
+
+	dropDatabase func(*sql.Context, string) error
 }
 
 func (s *replicationServiceServer) UpdateUsersAndGrants(ctx context.Context, req *replicationapi.UpdateUsersAndGrantsRequest) (*replicationapi.UpdateUsersAndGrantsResponse, error) {
-	sqlCtx := sql.NewContext(ctx)
+	sqlCtx, err := s.ctxFactory(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	ed := s.mysqlDb.Editor()
 	defer ed.Close()
-	err := s.mysqlDb.OverwriteUsersAndGrantData(sqlCtx, ed, req.SerializedContents)
+	err = s.mysqlDb.OverwriteUsersAndGrantData(sqlCtx, ed, req.SerializedContents)
 	if err != nil {
 		return nil, err
 	}
@@ -56,13 +66,36 @@ func (s *replicationServiceServer) UpdateUsersAndGrants(ctx context.Context, req
 }
 
 func (s *replicationServiceServer) UpdateBranchControl(ctx context.Context, req *replicationapi.UpdateBranchControlRequest) (*replicationapi.UpdateBranchControlResponse, error) {
-	err := s.branchControl.LoadData(req.SerializedContents /* isFirstLoad */, false)
+	sqlCtx, err := s.ctxFactory(ctx)
 	if err != nil {
 		return nil, err
 	}
-	err = s.branchControl.SaveData(s.branchControlFilesys)
+
+	err = s.branchControl.LoadData(sqlCtx, req.SerializedContents /* isFirstLoad */, false)
+	if err != nil {
+		return nil, err
+	}
+	err = s.branchControl.SaveData(sqlCtx, s.branchControlFilesys)
 	if err != nil {
 		return nil, err
 	}
 	return &replicationapi.UpdateBranchControlResponse{}, nil
+}
+
+func (s *replicationServiceServer) DropDatabase(ctx context.Context, req *replicationapi.DropDatabaseRequest) (*replicationapi.DropDatabaseResponse, error) {
+	if s.dropDatabase == nil {
+		return nil, status.Error(codes.Unimplemented, "unimplemented")
+	}
+
+	sqlCtx, err := s.ctxFactory(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.dropDatabase(sqlCtx, req.Name)
+	s.lgr.Tracef("dropped database [%s] through sqle.DropDatabase. err: %v", req.Name, err)
+	if err != nil && !sql.ErrDatabaseNotFound.Is(err) {
+		return nil, err
+	}
+	return &replicationapi.DropDatabaseResponse{}, nil
 }

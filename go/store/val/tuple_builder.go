@@ -104,6 +104,19 @@ func (tb *TupleBuilder) BuildPrefix(pool pool.BuffPool, k int) (tup Tuple) {
 	return
 }
 
+// BuildPrefixNoRecycle materializes a prefix Tuple from the first |k| fields
+// but does not call Recycle.
+func (tb *TupleBuilder) BuildPrefixNoRecycle(pool pool.BuffPool, k int) (tup Tuple) {
+	for i, typ := range tb.Desc.Types[:k] {
+		if !typ.Nullable && tb.fields[i] == nil {
+			panic("cannot write NULL to non-NULL field")
+		}
+	}
+	values := tb.fields[:k]
+	tup = NewTuple(pool, values...)
+	return
+}
+
 // Recycle resets the TupleBuilder so it can build a new Tuple.
 func (tb *TupleBuilder) Recycle() {
 	for i := 0; i < tb.Desc.Count(); i++ {
@@ -316,6 +329,13 @@ func (tb *TupleBuilder) PutGeometry(i int, v []byte) {
 	tb.fields[i] = tb.buf[tb.pos : tb.pos+sz]
 	writeByteString(tb.fields[i], v)
 	tb.pos += sz
+}
+
+// PutGeometryAddr writes a Geometry's address ref to the ith field
+func (tb *TupleBuilder) PutGeometryAddr(i int, v hash.Hash) {
+	tb.Desc.expectEncoding(i, GeomAddrEnc)
+	tb.ensureCapacity(hash.ByteLen)
+	tb.putAddr(i, v)
 }
 
 // PutHash128 writes a hash128 to the ith field of the Tuple being built.

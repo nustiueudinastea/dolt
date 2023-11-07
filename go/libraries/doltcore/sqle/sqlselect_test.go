@@ -91,7 +91,7 @@ func BasicSelectTests() []SelectTest {
 	var headCommitHash string
 	switch types.Format_Default {
 	case types.Format_DOLT:
-		headCommitHash = "m1gkfp9ii4hiqhpmgcfet5sojvopo4da"
+		headCommitHash = "6665g1bg08efo1sr2ui23iulsc7h22hd"
 	case types.Format_LD_1:
 		headCommitHash = "73hc2robs4v0kt9taoe3m5hd49dmrgun"
 	}
@@ -983,6 +983,14 @@ var AsOfTests = []SelectTest{
 		Query:       "select * from test_table as of CONVERT('1970-01-01 02:00:00', DATETIME)",
 		ExpectedErr: "not found",
 	},
+	{
+		Name: "select from dolt_docs as of main",
+		AdditionalSetup: CreateTableFn("dolt_docs", doltdb.DocsSchema,
+			"INSERT INTO dolt_docs VALUES ('LICENSE.md','A license')"),
+		Query:          "select * from dolt_docs as of 'main'",
+		ExpectedRows:   []sql.Row{{"LICENSE.md", "A license"}},
+		ExpectedSchema: CompressSchema(doltdb.DocsSchema),
+	},
 }
 
 // Tests of join functionality, basically any query involving more than one table should go here for now.
@@ -1371,7 +1379,7 @@ func testSelectQuery(t *testing.T, test SelectTest) {
 		assert.Equal(t, len(test.ExpectedRows[i]), len(actualRows[i]))
 		for j := 0; j < len(test.ExpectedRows[i]); j++ {
 			if _, ok := actualRows[i][j].(json.NomsJSON); ok {
-				cmp, err := actualRows[i][j].(json.NomsJSON).Compare(nil, test.ExpectedRows[i][j].(json.NomsJSON))
+				cmp, err := gmstypes.CompareJSON(actualRows[i][j].(json.NomsJSON), test.ExpectedRows[i][j].(json.NomsJSON))
 				assert.NoError(t, err)
 				assert.Equal(t, 0, cmp)
 			} else {

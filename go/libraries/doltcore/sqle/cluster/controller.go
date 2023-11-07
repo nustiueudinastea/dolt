@@ -36,7 +36,9 @@ import (
 	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 
 	replicationapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1"
 	"github.com/dolthub/dolt/go/libraries/doltcore/branch_control"
@@ -61,6 +63,15 @@ const RoleStandby Role = "standby"
 const RoleDetectedBrokenConfig Role = "detected_broken_config"
 
 const PersistentConfigPrefix = "sqlserver.cluster"
+
+// State for any ongoing DROP DATABASE replication attempts we have
+// outstanding. When we create a database, we cancel all on going DROP DATABASE
+// replication attempts.
+type databaseDropReplication struct {
+	ctx    context.Context
+	cancel func()
+	wg     *sync.WaitGroup
+}
 
 type Controller struct {
 	cfg           Config
@@ -94,6 +105,10 @@ type Controller struct {
 	branchControlController *branch_control.Controller
 	branchControlFilesys    filesys.Filesys
 	bcReplication           *branchControlReplication
+
+	dropDatabase             func(*sql.Context, string) error
+	outstandingDropDatabases map[string]*databaseDropReplication
+	remoteSrvDBCache         remotesrv.DBCache
 }
 
 type sqlvars interface {
@@ -185,6 +200,8 @@ func NewController(lgr *logrus.Logger, cfg Config, pCfg config.ReadWriteConfig) 
 		}
 		ret.mysqlDbReplicas[i].cond = sync.NewCond(&ret.mysqlDbReplicas[i].mu)
 	}
+
+	ret.outstandingDropDatabases = make(map[string]*databaseDropReplication)
 
 	return ret, nil
 }
@@ -310,12 +327,31 @@ func (c *Controller) RegisterStoredProcedures(store procedurestore) {
 	store.Register(newTransitionToStandbyProcedure(c))
 }
 
-func (c *Controller) DropDatabaseHook(dbname string) {
+// Incoming drop database replication requests need a way to drop a database in
+// the sqle.DatabaseProvider. This is our callback for that functionality.
+func (c *Controller) SetDropDatabase(dropDatabase func(*sql.Context, string) error) {
 	if c == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.dropDatabase = dropDatabase
+}
+
+// Our DropDatabaseHook gets called when the database provider drops a
+// database. This is how we learn that we need to replicate a drop database.
+func (c *Controller) DropDatabaseHook() func(string) {
+	if c == nil {
+		return nil
+	}
+	return c.dropDatabaseHook
+}
+
+func (c *Controller) dropDatabaseHook(dbname string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// We always cleanup the commithooks associated with that database.
 
 	j := 0
 	for i := 0; i < len(c.commithooks); i++ {
@@ -329,6 +365,73 @@ func (c *Controller) DropDatabaseHook(dbname string) {
 		j += 1
 	}
 	c.commithooks = c.commithooks[:j]
+
+	if c.role != RolePrimary {
+		return
+	}
+
+	// If we are the primary, we will replicate the drop to our standby replicas.
+
+	ctx, cancel := context.WithCancel(context.Background())
+	wg := &sync.WaitGroup{}
+	wg.Add(len(c.replicationClients))
+	state := &databaseDropReplication{
+		ctx:    ctx,
+		cancel: cancel,
+		wg:     wg,
+	}
+	c.outstandingDropDatabases[dbname] = state
+
+	for _, client := range c.replicationClients {
+		client := client
+		go c.replicateDropDatabase(state, client, dbname)
+	}
+}
+
+func (c *Controller) cancelDropDatabaseReplication(dbname string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if s := c.outstandingDropDatabases[dbname]; s != nil {
+		s.cancel()
+		s.wg.Wait()
+	}
+}
+
+func (c *Controller) replicateDropDatabase(s *databaseDropReplication, client *replicationServiceClient, dbname string) {
+	defer s.wg.Done()
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval = time.Millisecond
+	bo.MaxInterval = time.Minute
+	bo.MaxElapsedTime = 0
+	for {
+		if s.ctx.Err() != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
+		_, err := client.client.DropDatabase(ctx, &replicationapi.DropDatabaseRequest{
+			Name: dbname,
+		})
+		cancel()
+		if err == nil {
+			c.lgr.Tracef("successfully replicated drop of [%s] to %s", dbname, client.remote)
+			return
+		}
+		if status.Code(err) == codes.FailedPrecondition {
+			c.lgr.Warnf("drop of [%s] to %s will note be replicated; FailedPrecondition", dbname, client.remote)
+			return
+		}
+		c.lgr.Warnf("failed to replicate drop of [%s] to %s: %v", dbname, client.remote, err)
+		if s.ctx.Err() != nil {
+			return
+		}
+		d := bo.NextBackOff()
+		c.lgr.Tracef("sleeping %v before next drop attempt for database [%s] at %s", d, dbname, client.remote)
+		select {
+		case <-time.After(d):
+		case <-s.ctx.Done():
+			return
+		}
+	}
 }
 
 func (c *Controller) ClusterDatabase() sql.Database {
@@ -573,19 +676,26 @@ func (c *Controller) recordSuccessfulRemoteSrvCommit(name string) {
 	}
 }
 
-func (c *Controller) RemoteSrvServerArgs(ctx *sql.Context, args remotesrv.ServerArgs) remotesrv.ServerArgs {
+func (c *Controller) RemoteSrvServerArgs(ctxFactory func(context.Context) (*sql.Context, error), args remotesrv.ServerArgs) (remotesrv.ServerArgs, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	listenaddr := c.RemoteSrvListenAddr()
 	args.HttpListenAddr = listenaddr
 	args.GrpcListenAddr = listenaddr
 	args.Options = c.ServerOptions()
-	args = sqle.RemoteSrvServerArgs(ctx, args)
+	var err error
+	args, err = sqle.RemoteSrvServerArgs(ctxFactory, args)
+	if err != nil {
+		return remotesrv.ServerArgs{}, err
+	}
 	args.DBCache = remotesrvStoreCache{args.DBCache, c}
+	c.remoteSrvDBCache = args.DBCache
 
 	keyID := creds.PubKeyToKID(c.pub)
 	keyIDStr := creds.B32CredsEncoding.EncodeToString(keyID)
 	args.HttpInterceptor = JWKSHandlerInterceptor(keyIDStr, c.pub)
 
-	return args
+	return args, nil
 }
 
 func (c *Controller) HookMySQLDbPersister(persister MySQLDbPersister, mysqlDb *mysql_db.MySQLDb) MySQLDbPersister {
@@ -625,20 +735,26 @@ func (c *Controller) HookBranchControlPersistence(controller *branch_control.Con
 		}
 		c.bcReplication.setRole(c.role)
 
-		controller.SavedCallback = func() {
+		controller.SavedCallback = func(ctx context.Context) {
 			contents := controller.Serialized.Load()
 			if contents != nil {
-				c.bcReplication.UpdateBranchControlContents(*contents)
+				var rsc doltdb.ReplicationStatusController
+				c.bcReplication.UpdateBranchControlContents(ctx, *contents, &rsc)
+				if sqlCtx, ok := ctx.(*sql.Context); ok {
+					dsess.WaitForReplicationController(sqlCtx, rsc)
+				}
 			}
 		}
 	}
 }
 
-func (c *Controller) RegisterGrpcServices(srv *grpc.Server) {
+func (c *Controller) RegisterGrpcServices(ctxFactory func(context.Context) (*sql.Context, error), srv *grpc.Server) {
 	replicationapi.RegisterReplicationServiceServer(srv, &replicationServiceServer{
+		ctxFactory:           ctxFactory,
 		mysqlDb:              c.mysqlDb,
 		branchControl:        c.branchControlController,
 		branchControlFilesys: c.branchControlFilesys,
+		dropDatabase:         c.dropDatabase,
 		lgr:                  c.lgr.WithFields(logrus.Fields{}),
 	})
 }
@@ -670,34 +786,55 @@ func (c *Controller) gracefulTransitionToStandby(saveConnID, minCaughtUpStandbys
 	c.setProviderIsStandby(true)
 	c.killRunningQueries(saveConnID)
 
-	// waitForHooksToReplicate will release the lock while it
-	// blocks, but will return with the lock held.
-	states, err := c.waitForHooksToReplicate(waitForHooksToReplicateTimeout)
-	if err != nil {
-		return nil, err
+	var hookStates, mysqlStates, bcStates []graceTransitionResult
+	var hookErr, mysqlErr, bcErr error
+
+	// We concurrently wait for hooks, mysql and dolt_branch_control replication to true up.
+	// If we encounter any errors while doing this, we fail the graceful transition.
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		// waitForHooksToReplicate will release the lock while it
+		// blocks, but will return with the lock held.
+		hookStates, hookErr = c.waitForHooksToReplicate(waitForHooksToReplicateTimeout)
+	}()
+	go func() {
+		defer wg.Done()
+		mysqlStates, mysqlErr = c.mysqlDbPersister.waitForReplication(waitForHooksToReplicateTimeout)
+	}()
+	go func() {
+		defer wg.Done()
+		bcStates, bcErr = c.bcReplication.waitForReplication(waitForHooksToReplicateTimeout)
+	}()
+	wg.Wait()
+
+	if hookErr != nil {
+		return nil, hookErr
+	}
+	if mysqlErr != nil {
+		return nil, mysqlErr
+	}
+	if bcErr != nil {
+		return nil, bcErr
 	}
 
-	if len(states) != len(c.commithooks) {
+	if len(hookStates) != len(c.commithooks) {
 		c.lgr.Warnf("cluster/controller: failed to transition to standby; the set of replicated databases changed during the transition.")
 		return nil, errors.New("cluster/controller: failed to transition to standby; the set of replicated databases changed during the transition.")
 	}
 
-	res := make([]graceTransitionResult, len(states))
-	for i := range states {
-		hook := c.commithooks[i]
-		res[i] = graceTransitionResult{
-			caughtUp:  states[i],
-			database:  hook.dbname,
-			remote:    hook.remotename,
-			remoteUrl: hook.remoteurl,
-		}
-	}
+	res := make([]graceTransitionResult, 0, len(hookStates)+len(mysqlStates)+len(bcStates))
+	res = append(res, hookStates...)
+	res = append(res, mysqlStates...)
+	res = append(res, bcStates...)
 
 	if minCaughtUpStandbys == 0 {
-		for _, caughtUp := range states {
-			if !caughtUp {
+		for _, state := range res {
+			if !state.caughtUp {
 				c.lgr.Warnf("cluster/controller: failed to replicate all databases to all standbys; not transitioning to standby.")
-				return nil, errors.New("cluster/controller: failed to transition from primary to standby gracefully; could not replicate databases to standby in a timely manner.")
+				return nil, fmt.Errorf("cluster/controller: failed to transition from primary to standby gracefully; could not replicate databases to standby in a timely manner.")
 			}
 		}
 		c.lgr.Tracef("cluster/controller: successfully replicated all databases to all standbys; transitioning to standby.")
@@ -729,14 +866,16 @@ func (c *Controller) gracefulTransitionToStandby(saveConnID, minCaughtUpStandbys
 		c.lgr.Tracef("cluster/controller: successfully replicated all databases to %d out of %d standbys; transitioning to standby.", numCaughtUp, len(replicas))
 	}
 
-	if !c.mysqlDbPersister.waitForReplication(waitForHooksToReplicateTimeout) {
-		c.lgr.Warnf("cluster/controller: when transitioning to standby, did not successfully replicate users and grants to all standbys.")
-	}
-	if !c.bcReplication.waitForReplication(waitForHooksToReplicateTimeout) {
-		c.lgr.Warnf("cluster/controller: when transitioning to standby, did not successfully replicate branch control data to all standbys.")
-	}
-
 	return res, nil
+}
+
+func allCaughtUp(res []graceTransitionResult) bool {
+	for _, r := range res {
+		if !r.caughtUp {
+			return false
+		}
+	}
+	return true
 }
 
 // The order of operations is:
@@ -795,10 +934,15 @@ func (c *Controller) setProviderIsStandby(standby bool) {
 // up as part of this wait, and `false` otherwise.
 //
 // called with c.mu held
-func (c *Controller) waitForHooksToReplicate(timeout time.Duration) ([]bool, error) {
+func (c *Controller) waitForHooksToReplicate(timeout time.Duration) ([]graceTransitionResult, error) {
 	commithooks := make([]*commithook, len(c.commithooks))
 	copy(commithooks, c.commithooks)
-	caughtup := make([]bool, len(commithooks))
+	res := make([]graceTransitionResult, len(commithooks))
+	for i := range res {
+		res[i].database = commithooks[i].dbname
+		res[i].remote = commithooks[i].remotename
+		res[i].remoteUrl = commithooks[i].remoteurl
+	}
 	var wg sync.WaitGroup
 	wg.Add(len(commithooks))
 	for li, lch := range commithooks {
@@ -806,8 +950,8 @@ func (c *Controller) waitForHooksToReplicate(timeout time.Duration) ([]bool, err
 		ch := lch
 		ok := ch.setWaitNotify(func() {
 			// called with ch.mu locked.
-			if !caughtup[i] && ch.isCaughtUp() {
-				caughtup[i] = true
+			if !res[i].caughtUp && ch.isCaughtUp() {
+				res[i].caughtUp = true
 				wg.Done()
 			}
 		})
@@ -837,14 +981,14 @@ func (c *Controller) waitForHooksToReplicate(timeout time.Duration) ([]bool, err
 	// Make certain we don't leak the wg.Wait goroutine in the failure case.
 	// At this point, none of the callbacks will ever be called again and
 	// ch.setWaitNotify grabs a lock and so establishes the happens before.
-	for _, b := range caughtup {
-		if !b {
+	for _, b := range res {
+		if !b.caughtUp {
 			wg.Done()
 		}
 	}
 	<-done
 
-	return caughtup, nil
+	return res, nil
 }
 
 // Within a cluster, if remotesapi is configured with a tls_ca, we take the
@@ -976,6 +1120,7 @@ func (c *Controller) standbyRemotesJWKS() *jwtauth.MultiJWKS {
 type replicationServiceClient struct {
 	remote string
 	url    string
+	tls    bool
 	client replicationapi.ReplicationServiceClient
 }
 
@@ -1012,8 +1157,20 @@ func (c *Controller) replicationServiceClients(ctx context.Context) ([]*replicat
 		ret = append(ret, &replicationServiceClient{
 			remote: r.Name(),
 			url:    grpcTarget,
+			tls:    c.tlsCfg != nil,
 			client: client,
 		})
 	}
 	return ret, nil
+}
+
+// Generally r.url is a gRPC dial endpoint and will be something like "dns:53.78.2.1:3832", or something like that.
+//
+// We want to match these endpoints up with Dolt remotes URLs, which will typically be something like http://53.78.2.1:3832.
+func (r *replicationServiceClient) httpUrl() string {
+	prefix := "https://"
+	if !r.tls {
+		prefix = "http://"
+	}
+	return prefix + strings.TrimPrefix(r.url, "dns:")
 }

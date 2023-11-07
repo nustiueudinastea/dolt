@@ -34,6 +34,7 @@ import (
 	"github.com/dolthub/dolt/go/store/datas"
 	"github.com/dolthub/dolt/go/store/datas/pull"
 	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/nbs"
 	"github.com/dolthub/dolt/go/store/prolly/tree"
 	"github.com/dolthub/dolt/go/store/types"
 	"github.com/dolthub/dolt/go/store/types/edits"
@@ -1212,6 +1213,12 @@ func (ddb *DoltDB) NewTagAtCommit(ctx context.Context, tagRef ref.DoltRef, c *Co
 	return err
 }
 
+// This should be used as the cancel cause for the context passed to a
+// ReplicationStatusController Wait function when the wait has been canceled
+// because it timed out. Seeing this error from a passed in context may be used
+// by some agents to open circuit breakers or tune timeouts.
+var ErrReplicationWaitFailed = errors.New("replication wait failed")
+
 type ReplicationStatusController struct {
 	// A slice of funcs which can be called to wait for the replication
 	// associated with a commithook to complete. Must return if the
@@ -1508,6 +1515,27 @@ func (ddb *DoltDB) IsTableFileStore() bool {
 	return ok
 }
 
+// ChunkJournal returns the ChunkJournal for this DoltDB, if one is in use.
+func (ddb *DoltDB) ChunkJournal() *nbs.ChunkJournal {
+	tableFileStore, ok := datas.ChunkStoreFromDatabase(ddb.db).(chunks.TableFileStore)
+	if !ok {
+		return nil
+	}
+
+	generationalNbs, ok := tableFileStore.(*nbs.GenerationalNBS)
+	if !ok {
+		return nil
+	}
+
+	newGen := generationalNbs.NewGen()
+	nbs, ok := newGen.(*nbs.NomsBlockStore)
+	if !ok {
+		return nil
+	}
+
+	return nbs.ChunkJournal()
+}
+
 func (ddb *DoltDB) TableFileStoreHasJournal(ctx context.Context) (bool, error) {
 	tableFileStore, ok := datas.ChunkStoreFromDatabase(ddb.db).(chunks.TableFileStore)
 	if !ok {
@@ -1523,6 +1551,11 @@ func (ddb *DoltDB) TableFileStoreHasJournal(ctx context.Context) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// DatasetsByRootHash returns the DatasetsMap for the specified root |hashof|.
+func (ddb *DoltDB) DatasetsByRootHash(ctx context.Context, hashof hash.Hash) (datas.DatasetsMap, error) {
+	return ddb.db.DatasetsByRootHash(ctx, hashof)
 }
 
 func (ddb *DoltDB) SetCommitHooks(ctx context.Context, postHooks []CommitHook) *DoltDB {

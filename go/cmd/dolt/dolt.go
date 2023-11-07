@@ -64,7 +64,7 @@ import (
 )
 
 const (
-	Version = "1.17.0"
+	Version = "1.24.2"
 )
 
 var dumpDocsCommand = &commands.DumpDocsCmd{}
@@ -130,12 +130,10 @@ var commandsWithoutCliCtx = []cli.Command{
 	sqlserver.SqlServerCmd{VersionStr: Version},
 	sqlserver.SqlClientCmd{VersionStr: Version},
 	commands.CloneCmd{},
-	commands.PushCmd{},
 	commands.RemoteCmd{},
 	commands.BackupCmd{},
 	commands.LoginCmd{},
 	credcmds.Commands,
-	commands.LsCmd{},
 	schcmds.Commands,
 	cvcmds.Commands,
 	commands.SendMetricsCmd{},
@@ -144,7 +142,6 @@ var commandsWithoutCliCtx = []cli.Command{
 	commands.ReadTablesCmd{},
 	commands.GarbageCollectionCmd{},
 	commands.FilterBranchCmd{},
-	commands.MergeBaseCmd{},
 	commands.RootsCmd{},
 	commands.VersionCmd{VersionStr: Version},
 	commands.DumpCmd{},
@@ -499,11 +496,14 @@ func runMain() int {
 		}
 	}()
 
-	err = reconfigIfTempFileMoveFails(dEnv)
+	// version does not need write permissions
+	if subcommandName != "version" {
+		err = reconfigIfTempFileMoveFails(dEnv)
 
-	if err != nil {
-		cli.PrintErrln(color.RedString("Failed to setup the temporary directory. %v`", err))
-		return 1
+		if err != nil {
+			cli.PrintErrln(color.RedString("Failed to setup the temporary directory. %v`", err))
+			return 1
+		}
 	}
 
 	defer tempfiles.MovableTempFileProvider.Clean()
