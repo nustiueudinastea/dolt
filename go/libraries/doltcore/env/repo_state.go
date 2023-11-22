@@ -32,8 +32,8 @@ type RepoStateReader interface {
 	CWBHeadRef() (ref.DoltRef, error)
 	CWBHeadSpec() (*doltdb.CommitSpec, error)
 	GetRemotes() (*concurrentmap.Map[string, Remote], error)
-	GetBackups() (map[string]Remote, error)
-	GetBranches() (map[string]BranchConfig, error)
+	GetBackups() (*concurrentmap.Map[string, Remote], error)
+	GetBranches() (*concurrentmap.Map[string, BranchConfig], error)
 }
 
 type RepoStateWriter interface {
@@ -69,10 +69,10 @@ type BranchConfig struct {
 }
 
 type RepoState struct {
-	Head     ref.MarshalableRef                 `json:"head"`
-	Remotes  *concurrentmap.Map[string, Remote] `json:"remotes"`
-	Backups  map[string]Remote                  `json:"backups"`
-	Branches map[string]BranchConfig            `json:"branches"`
+	Head     ref.MarshalableRef                       `json:"head"`
+	Remotes  *concurrentmap.Map[string, Remote]       `json:"remotes"`
+	Backups  *concurrentmap.Map[string, Remote]       `json:"backups"`
+	Branches *concurrentmap.Map[string, BranchConfig] `json:"branches"`
 	// |staged|, |working|, and |merge| are legacy fields left over from when Dolt repos stored this info in the repo
 	// state file, not in the DB directly. They're still here so that we can migrate existing repositories forward to the
 	// new storage format, but they should be used only for this purpose and are no longer written.
@@ -84,13 +84,13 @@ type RepoState struct {
 // repoStateLegacy only exists to unmarshall legacy repo state files, since the JSON marshaller can't work with
 // unexported fields
 type repoStateLegacy struct {
-	Head     ref.MarshalableRef                 `json:"head"`
-	Remotes  *concurrentmap.Map[string, Remote] `json:"remotes"`
-	Backups  map[string]Remote                  `json:"backups"`
-	Branches map[string]BranchConfig            `json:"branches"`
-	Staged   string                             `json:"staged,omitempty"`
-	Working  string                             `json:"working,omitempty"`
-	Merge    *mergeState                        `json:"merge,omitempty"`
+	Head     ref.MarshalableRef                       `json:"head"`
+	Remotes  *concurrentmap.Map[string, Remote]       `json:"remotes"`
+	Backups  *concurrentmap.Map[string, Remote]       `json:"backups"`
+	Branches *concurrentmap.Map[string, BranchConfig] `json:"branches"`
+	Staged   string                                   `json:"staged,omitempty"`
+	Working  string                                   `json:"working,omitempty"`
+	Merge    *mergeState                              `json:"merge,omitempty"`
 }
 
 // repoStateLegacyFromRepoState creates a new repoStateLegacy from a RepoState file. Only for testing.
@@ -112,7 +112,7 @@ type mergeState struct {
 }
 
 func (rs *repoStateLegacy) toRepoState() *RepoState {
-	return &RepoState{
+	newRS := &RepoState{
 		Head:     rs.Head,
 		Remotes:  rs.Remotes,
 		Backups:  rs.Backups,
@@ -121,6 +121,18 @@ func (rs *repoStateLegacy) toRepoState() *RepoState {
 		working:  rs.Working,
 		merge:    rs.Merge,
 	}
+
+	if newRS.Remotes == nil {
+		newRS.Remotes = concurrentmap.New[string, Remote]()
+	}
+	if newRS.Backups == nil {
+		newRS.Backups = concurrentmap.New[string, Remote]()
+	}
+	if newRS.Branches == nil {
+		newRS.Branches = concurrentmap.New[string, BranchConfig]()
+	}
+
+	return newRS
 }
 
 func (rs *repoStateLegacy) save(fs filesys.ReadWriteFS) error {
@@ -161,8 +173,8 @@ func CloneRepoState(fs filesys.ReadWriteFS, r Remote) (*RepoState, error) {
 		staged:   hashStr,
 		working:  hashStr,
 		Remotes:  remotes,
-		Branches: make(map[string]BranchConfig),
-		Backups:  make(map[string]Remote),
+		Branches: concurrentmap.New[string, BranchConfig](),
+		Backups:  concurrentmap.New[string, Remote](),
 	}
 
 	err := rs.Save(fs)
@@ -183,8 +195,8 @@ func CreateRepoState(fs filesys.ReadWriteFS, br string) (*RepoState, error) {
 	rs := &RepoState{
 		Head:     ref.MarshalableRef{Ref: headRef},
 		Remotes:  concurrentmap.New[string, Remote](),
-		Branches: make(map[string]BranchConfig),
-		Backups:  make(map[string]Remote),
+		Branches: concurrentmap.New[string, BranchConfig](),
+		Backups:  concurrentmap.New[string, Remote](),
 	}
 
 	err = rs.Save(fs)
@@ -224,9 +236,9 @@ func (rs *RepoState) RemoveRemote(r Remote) {
 }
 
 func (rs *RepoState) AddBackup(r Remote) {
-	rs.Backups[r.Name] = r
+	rs.Backups.Set(r.Name, r)
 }
 
 func (rs *RepoState) RemoveBackup(r Remote) {
-	delete(rs.Backups, r.Name)
+	rs.Backups.Delete(r.Name)
 }
