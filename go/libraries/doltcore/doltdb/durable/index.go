@@ -15,6 +15,7 @@
 package durable
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -50,6 +51,8 @@ type Index interface {
 	// Returns the serialized bytes of the (top of the) index.
 	// Non-public. Used for flatbuffers Table persistence.
 	bytes() ([]byte, error)
+
+	DebugString(ctx context.Context, ns tree.NodeStore, schema schema.Schema) string
 }
 
 // IndexSet stores a collection secondary Indexes.
@@ -218,6 +221,10 @@ func (i nomsIndex) AddColumnToRows(ctx context.Context, newCol string, newSchema
 	return i, nil
 }
 
+func (i nomsIndex) DebugString(ctx context.Context, ns tree.NodeStore, schema schema.Schema) string {
+	panic("Not implemented")
+}
+
 type prollyIndex struct {
 	index prolly.Map
 }
@@ -327,6 +334,14 @@ func (i prollyIndex) AddColumnToRows(ctx context.Context, newCol string, newSche
 	}
 
 	return IndexFromProllyMap(newMap), nil
+}
+
+func (i prollyIndex) DebugString(ctx context.Context, ns tree.NodeStore, schema schema.Schema) string {
+	var b bytes.Buffer
+	i.index.WalkNodes(ctx, func(ctx context.Context, nd tree.Node) error {
+		return tree.OutputProllyNode(ctx, &b, nd, ns, schema)
+	})
+	return b.String()
 }
 
 // NewIndexSet returns an empty IndexSet.
@@ -490,11 +505,11 @@ func (is doltDevIndexSet) GetIndex(ctx context.Context, sch schema.Schema, name 
 	if addr.IsEmpty() {
 		return nil, fmt.Errorf("index %s not found in IndexSet", name)
 	}
-	idxSch := sch.Indexes().GetByName(name)
-	if idxSch == nil {
+	idx := sch.Indexes().GetByName(name)
+	if idx == nil {
 		return nil, fmt.Errorf("index schema not found: %s", name)
 	}
-	return indexFromAddr(ctx, is.vrw, is.ns, idxSch.Schema(), addr)
+	return indexFromAddr(ctx, is.vrw, is.ns, idx.Schema(), addr)
 }
 
 func (is doltDevIndexSet) PutIndex(ctx context.Context, name string, idx Index) (IndexSet, error) {

@@ -958,7 +958,7 @@ var DoltConflictHandlingTests = []queries.TransactionTest{
 			},
 			{
 				Query:    "/* client b */ call dolt_merge('main')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "/* client b */ select count(*) from dolt_conflicts",
@@ -1049,7 +1049,7 @@ var DoltConflictHandlingTests = []queries.TransactionTest{
 			},
 			{
 				Query:    "/* client b */ call dolt_merge('main')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "/* client b */ select count(*) from dolt_conflicts",
@@ -1138,7 +1138,7 @@ var DoltConflictHandlingTests = []queries.TransactionTest{
 			},
 			{
 				Query:    "/* client b */ call dolt_merge('main')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "/* client b */ select count(*) from dolt_conflicts",
@@ -1228,7 +1228,7 @@ var DoltConflictHandlingTests = []queries.TransactionTest{
 			{
 				Query: "/* client b */ COMMIT;",
 				// Retrying did not help. But at-least the error makes sense.
-				ExpectedErrStr: "Merge conflict detected, transaction rolled back. Merge conflicts must be resolved using the dolt_conflicts tables before committing a transaction. To commit transactions with merge conflicts, set @@dolt_allow_commit_conflicts = 1",
+				ExpectedErrStr: dsess.ErrUnresolvedConflictsCommit.Error(),
 			},
 		},
 	},
@@ -1371,7 +1371,7 @@ var DoltStoredProcedureTransactionTests = []queries.TransactionTest{
 			},
 			{
 				Query:    "/* client a */ CALL DOLT_MERGE('feature-branch')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "/* client a */ SELECT count(*) from dolt_conflicts_test",
@@ -1403,7 +1403,7 @@ var DoltStoredProcedureTransactionTests = []queries.TransactionTest{
 			},
 			{
 				Query:    "/* client a */ CALL DOLT_MERGE('--abort')",
-				Expected: []sql.Row{{"", 0, 0}},
+				Expected: []sql.Row{{"", 0, 0, "merge aborted"}},
 			},
 			{
 				Query:    "/* client a */ commit",
@@ -1419,7 +1419,7 @@ var DoltStoredProcedureTransactionTests = []queries.TransactionTest{
 			},
 			{
 				Query:          "/* client a */ CALL DOLT_MERGE('feature-branch')",
-				ExpectedErrStr: dsess.ErrUnresolvedConflictsCommit.Error(),
+				ExpectedErrStr: dsess.ErrUnresolvedConflictsAutoCommit.Error(),
 			},
 			{ // client rolled back on merge with conflicts
 				Query:    "/* client a */ SELECT count(*) from dolt_conflicts_test",

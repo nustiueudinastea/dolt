@@ -2567,7 +2567,7 @@ SQL
     [ "$status" -eq 0 ]
     [[ "$output" =~ "3" ]] || false
 
-    run dolt sql -q "SELECT COUNT(*) from dolt_diff_t where to_commit_date < UTC_TIMESTAMP()"
+    run dolt sql -q "SELECT COUNT(*) from dolt_diff_t where to_commit_date < UTC_TIMESTAMP(6)"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "3" ]] || false
 }
@@ -2701,6 +2701,7 @@ SQL
     [[ "$output" =~ "*************************** 14. row ***************************" ]] || false
 }
 
+# bats test_tags=no_lambda
 @test "sql: vertical query format in sql shell" {
     skiponwindows "Need to install expect and make this script work on windows."
 
@@ -2897,11 +2898,13 @@ SQL
 
     mkdir .dolt
     dolt sql -q "select 1"
+}
 
-    # If there is a zombie lock file, sql should delete it.
-    echo "42:3306:aebf244e-0693-4c36-8b2d-6eb0dfa4fe2d" > .dolt/sql-server.lock}
-
-    dolt sql -q "select 1"
-
-    [[ ! -f .dolt/sql-server.lock ]] || false
+@test "sql: handle importing files with bom headers" {
+    dolt sql < $BATS_TEST_DIRNAME/helper/with_utf8_bom.sql
+    dolt table rm t1
+    dolt sql < $BATS_TEST_DIRNAME/helper/with_utf16le_bom.sql
+    dolt table rm t1
+    dolt sql < $BATS_TEST_DIRNAME/helper/with_utf16be_bom.sql
+    dolt table rm t1
 }

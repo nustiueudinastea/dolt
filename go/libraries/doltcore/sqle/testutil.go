@@ -32,11 +32,11 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/row"
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
 	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
 	config2 "github.com/dolthub/dolt/go/libraries/utils/config"
 	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/prolly/tree"
 	"github.com/dolthub/dolt/go/store/types"
 	"github.com/dolthub/dolt/go/store/val"
 )
@@ -399,8 +399,8 @@ func CreateTestEnvWithName(envName string) *env.DoltEnv {
 	dEnv := env.Load(context.Background(), homeDirFunc, fs, doltdb.InMemDoltDB+envName, "test")
 	cfg, _ := dEnv.Config.GetConfig(env.GlobalConfig)
 	cfg.SetStrings(map[string]string{
-		env.UserNameKey:  name,
-		env.UserEmailKey: email,
+		config2.UserNameKey:  name,
+		config2.UserEmailKey: email,
 	})
 
 	err := dEnv.InitRepo(context.Background(), types.Format_Default, name, email, env.DefaultInitBranch)
@@ -550,7 +550,7 @@ func sqlRowFromTuples(sch schema.Schema, kd, vd val.TupleDesc, k, v val.Tuple) (
 	for i, col := range sch.GetAllCols().GetColumns() {
 		pos, ok := sch.GetPKCols().TagToIdx[col.Tag]
 		if ok {
-			r[i], err = index.GetField(ctx, kd, pos, k, nil)
+			r[i], err = tree.GetField(ctx, kd, pos, k, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -561,7 +561,7 @@ func sqlRowFromTuples(sch schema.Schema, kd, vd val.TupleDesc, k, v val.Tuple) (
 			pos += 1 // compensate for cardinality field
 		}
 		if ok {
-			r[i], err = index.GetField(ctx, vd, pos, v, nil)
+			r[i], err = tree.GetField(ctx, vd, pos, v, nil)
 			if err != nil {
 				return nil, err
 			}

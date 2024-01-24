@@ -17,6 +17,7 @@ package types
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -65,22 +66,23 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 	id := serial.GetFileID(sm)
 	switch id {
 	// NOTE: splunk uses a separate path for some printing
+	// NOTE: We ignore the errors from field number checks here...
 	case serial.StoreRootFileID:
-		msg := serial.GetRootAsStoreRoot([]byte(sm), serial.MessagePrefixSz)
+		msg, _ := serial.TryGetRootAsStoreRoot([]byte(sm), serial.MessagePrefixSz)
 		ret := &strings.Builder{}
 		mapbytes := msg.AddressMapBytes()
 		printWithIndendationLevel(level, ret, "StoreRoot{%s}",
 			SerialMessage(mapbytes).humanReadableStringAtIndentationLevel(level+1))
 		return ret.String()
 	case serial.StashListFileID:
-		msg := serial.GetRootAsStashList([]byte(sm), serial.MessagePrefixSz)
+		msg, _ := serial.TryGetRootAsStashList([]byte(sm), serial.MessagePrefixSz)
 		ret := &strings.Builder{}
 		mapbytes := msg.AddressMapBytes()
 		printWithIndendationLevel(level, ret, "StashList{%s}",
 			SerialMessage(mapbytes).humanReadableStringAtIndentationLevel(level+1))
 		return ret.String()
 	case serial.StashFileID:
-		msg := serial.GetRootAsStash(sm, serial.MessagePrefixSz)
+		msg, _ := serial.TryGetRootAsStash(sm, serial.MessagePrefixSz)
 		ret := &strings.Builder{}
 		printWithIndendationLevel(level, ret, "{\n")
 		printWithIndendationLevel(level, ret, "\tBranchName: %s\n", msg.BranchName())
@@ -90,7 +92,7 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 		printWithIndendationLevel(level, ret, "}")
 		return ret.String()
 	case serial.TagFileID:
-		msg := serial.GetRootAsTag(sm, serial.MessagePrefixSz)
+		msg, _ := serial.TryGetRootAsTag(sm, serial.MessagePrefixSz)
 		ret := &strings.Builder{}
 		printWithIndendationLevel(level, ret, "{\n")
 		printWithIndendationLevel(level, ret, "\tName: %s\n", msg.Name())
@@ -101,7 +103,7 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 		printWithIndendationLevel(level, ret, "}")
 		return ret.String()
 	case serial.WorkingSetFileID:
-		msg := serial.GetRootAsWorkingSet(sm, serial.MessagePrefixSz)
+		msg, _ := serial.TryGetRootAsWorkingSet(sm, serial.MessagePrefixSz)
 		ret := &strings.Builder{}
 		printWithIndendationLevel(level, ret, "{\n")
 		printWithIndendationLevel(level, ret, "\tName: %s\n", msg.Name())
@@ -113,7 +115,7 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 		printWithIndendationLevel(level, ret, "}")
 		return ret.String()
 	case serial.CommitFileID:
-		msg := serial.GetRootAsCommit(sm, serial.MessagePrefixSz)
+		msg, _ := serial.TryGetRootAsCommit(sm, serial.MessagePrefixSz)
 		ret := &strings.Builder{}
 		printWithIndendationLevel(level, ret, "{\n")
 		printWithIndendationLevel(level, ret, "\tName: %s\n", msg.Name())
@@ -150,7 +152,7 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 		printWithIndendationLevel(level, ret, "}")
 		return ret.String()
 	case serial.RootValueFileID:
-		msg := serial.GetRootAsRootValue(sm, serial.MessagePrefixSz)
+		msg, _ := serial.TryGetRootAsRootValue(sm, serial.MessagePrefixSz)
 		ret := &strings.Builder{}
 		printWithIndendationLevel(level, ret, "{\n")
 		printWithIndendationLevel(level, ret, "\tFeatureVersion: %d\n", msg.FeatureVersion())
@@ -160,7 +162,7 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 		printWithIndendationLevel(level, ret, "}")
 		return ret.String()
 	case serial.TableFileID:
-		msg := serial.GetRootAsTable(sm, serial.MessagePrefixSz)
+		msg, _ := serial.TryGetRootAsTable(sm, serial.MessagePrefixSz)
 		ret := &strings.Builder{}
 
 		printWithIndendationLevel(level, ret, "{\n")
@@ -194,6 +196,40 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 		b.Write([]byte(strings.Repeat("\t", level)))
 		b.Write([]byte("}"))
 		return b.String()
+	case serial.CommitClosureFileID:
+		msg, _ := serial.TryGetRootAsCommitClosure(sm, serial.MessagePrefixSz)
+
+		ret := &strings.Builder{}
+		printWithIndendationLevel(level, ret, "{\n")
+		level += 1
+
+		printWithIndendationLevel(level, ret, "SubTree {\n")
+		level += 1
+		addresses := msg.AddressArrayBytes()
+		for i := 0; i < len(addresses)/hash.ByteLen; i++ {
+			addr := hash.New(addresses[i*hash.ByteLen : (i+1)*hash.ByteLen])
+			printWithIndendationLevel(level, ret, "#%s\n", addr.String())
+		}
+		level -= 1
+		printWithIndendationLevel(level, ret, "}\n")
+
+		printWithIndendationLevel(level, ret, "Commits {\n")
+		level += 1
+		if msg.TreeLevel() == 0 {
+			// If Level() == 0, we're at the leaf level, so print the key items.
+			keybytes := msg.KeyItemsBytes()
+			// Magic numbers: 8 bytes (uint64) for height, 20 bytes (hash.ByteLen) for address
+			for i := 0; i < len(keybytes); i += 28 {
+				height := binary.LittleEndian.Uint64(keybytes[i : i+8])
+				addr := hash.New(keybytes[(i + 8) : (i+8)+hash.ByteLen])
+				printWithIndendationLevel(level, ret, "#%s (height: %d)\n", addr.String(), height)
+			}
+		}
+		level -= 1
+		printWithIndendationLevel(level, ret, "} \n")
+		level -= 1
+		printWithIndendationLevel(level, ret, "}\n")
+		return ret.String()
 	default:
 		return fmt.Sprintf("SerialMessage (HumanReadableString not implemented), [%v]: %s", id, strings.ToUpper(hex.EncodeToString(sm)))
 	}
@@ -241,6 +277,13 @@ func (sm SerialMessage) WalkAddrs(nbf *NomsBinFormat, cb func(addr hash.Hash) er
 			mapbytes := msg.AddressMapBytes()
 			return SerialMessage(mapbytes).WalkAddrs(nbf, cb)
 		}
+	case serial.StatisticFileID:
+		var msg serial.Statistic
+		err := serial.InitStatisticRoot(&msg, []byte(sm), serial.MessagePrefixSz)
+		if err != nil {
+			return err
+		}
+		return cb(hash.New(msg.RootBytes()))
 	case serial.StashFileID:
 		var msg serial.Stash
 		err := serial.InitStashRoot(&msg, []byte(sm), serial.MessagePrefixSz)
@@ -274,7 +317,10 @@ func (sm SerialMessage) WalkAddrs(nbf *NomsBinFormat, cb func(addr hash.Hash) er
 				return err
 			}
 		}
-		mergeState := msg.MergeState(nil)
+		mergeState, err := msg.TryMergeState(nil)
+		if err != nil {
+			return err
+		}
 		if mergeState != nil {
 			if err = cb(hash.New(mergeState.PreWorkingRootAddrBytes())); err != nil {
 				return err
@@ -310,7 +356,10 @@ func (sm SerialMessage) WalkAddrs(nbf *NomsBinFormat, cb func(addr hash.Hash) er
 			return err
 		}
 
-		confs := msg.Conflicts(nil)
+		confs, err := msg.TryConflicts(nil)
+		if err != nil {
+			return err
+		}
 		addr := hash.New(confs.DataBytes())
 		if !addr.IsEmpty() {
 			if err = cb(addr); err != nil {

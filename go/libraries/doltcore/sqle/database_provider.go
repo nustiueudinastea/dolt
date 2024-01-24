@@ -49,6 +49,7 @@ type DoltDatabaseProvider struct {
 	dbLocations        map[string]filesys.Filesys
 	databases          map[string]dsess.SqlDatabase
 	functions          map[string]sql.Function
+	tableFunctions     map[string]sql.TableFunction
 	externalProcedures sql.ExternalStoredProcedureRegistry
 	InitDatabaseHook   InitDatabaseHook
 	DropDatabaseHook   DropDatabaseHook
@@ -62,6 +63,16 @@ type DoltDatabaseProvider struct {
 
 	dbFactoryUrl string
 	isStandby    *bool
+}
+
+func (p *DoltDatabaseProvider) WithTableFunctions(fns ...sql.TableFunction) (sql.TableFunctionProvider, error) {
+	funcs := make(map[string]sql.TableFunction)
+	for _, fn := range fns {
+		funcs[strings.ToLower(fn.Name())] = fn
+	}
+	cp := *p
+	cp.tableFunctions = funcs
+	return &cp, nil
 }
 
 var _ sql.DatabaseProvider = (*DoltDatabaseProvider)(nil)
@@ -362,7 +373,7 @@ func (p *DoltDatabaseProvider) CreateDatabase(ctx *sql.Context, name string) err
 	return p.CreateCollatedDatabase(ctx, name, sql.Collation_Default)
 }
 
-func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name string, collation sql.CollationID) error {
+func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name string, collation sql.CollationID) (err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -373,10 +384,17 @@ func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name str
 		return fmt.Errorf("Cannot create DB, file exists at %s", name)
 	}
 
-	err := p.fs.MkDirs(name)
+	err = p.fs.MkDirs(name)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		// We do not want to leave this directory behind if we do not
+		// successfully create the database.
+		if err != nil {
+			p.fs.Delete(name, true /* force / recursive */)
+		}
+	}()
 
 	newFs, err := p.fs.WithWorkingDir(name)
 	if err != nil {
@@ -485,7 +503,7 @@ func (p *DoltDatabaseProvider) CloneDatabaseFromRemote(
 		return fmt.Errorf("cannot create DB, file exists at %s", dbName)
 	}
 
-	dEnv, err := p.cloneDatabaseFromRemote(ctx, dbName, remoteName, branch, remoteUrl, remoteParams)
+	err := p.cloneDatabaseFromRemote(ctx, dbName, remoteName, branch, remoteUrl, remoteParams)
 	if err != nil {
 		// Make a best effort to clean up any artifacts on disk from a failed clone
 		// before we return the error
@@ -499,7 +517,7 @@ func (p *DoltDatabaseProvider) CloneDatabaseFromRemote(
 		return err
 	}
 
-	return ConfigureReplicationDatabaseHook(ctx, p, dbName, dEnv)
+	return nil
 }
 
 // cloneDatabaseFromRemote encapsulates the inner logic for cloning a database so that if any error
@@ -510,26 +528,26 @@ func (p *DoltDatabaseProvider) cloneDatabaseFromRemote(
 	ctx *sql.Context,
 	dbName, remoteName, branch, remoteUrl string,
 	remoteParams map[string]string,
-) (*env.DoltEnv, error) {
+) error {
 	if p.remoteDialer == nil {
-		return nil, fmt.Errorf("unable to clone remote database; no remote dialer configured")
+		return fmt.Errorf("unable to clone remote database; no remote dialer configured")
 	}
 
 	// TODO: params for AWS, others that need them
 	r := env.NewRemote(remoteName, remoteUrl, nil)
 	srcDB, err := r.GetRemoteDB(ctx, types.Format_Default, p.remoteDialer)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	dEnv, err := actions.EnvForClone(ctx, srcDB.ValueReadWriter().Format(), r, dbName, p.fs, "VERSION", env.GetCurrentUserHomeDir)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	err = actions.CloneRemote(ctx, srcDB, remoteName, branch, dEnv)
+	err = actions.CloneRemote(ctx, srcDB, remoteName, branch, false, dEnv)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	err = dEnv.RepoStateWriter().UpdateBranch(dEnv.RepoState.CWBHeadRef().GetPath(), env.BranchConfig{
@@ -537,33 +555,7 @@ func (p *DoltDatabaseProvider) cloneDatabaseFromRemote(
 		Remote: remoteName,
 	})
 
-	fkChecks, err := ctx.GetSessionVariable(ctx, "foreign_key_checks")
-	if err != nil {
-		return nil, err
-	}
-
-	opts := editor.Options{
-		Deaf: dEnv.DbEaFactory(),
-		// TODO: this doesn't seem right, why is this getting set in the constructor to the DB
-		ForeignKeyChecksDisabled: fkChecks.(int8) == 0,
-	}
-
-	db, err := NewDatabase(ctx, dbName, dEnv.DbData(), opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// If we have an initialization hook, invoke it.  By default, this will
-	// be ConfigureReplicationDatabaseHook, which will setup replication
-	// for the new database if a remote url template is set.
-	err = p.InitDatabaseHook(ctx, p, dbName, dEnv)
-	if err != nil {
-		return nil, err
-	}
-
-	p.databases[formatDbMapKeyName(db.Name())] = db
-
-	return dEnv, nil
+	return p.registerNewDatabase(ctx, dbName, dEnv)
 }
 
 // DropDatabase implements the sql.MutableDatabaseProvider interface
@@ -665,17 +657,6 @@ func (p *DoltDatabaseProvider) registerNewDatabase(ctx *sql.Context, name string
 		return fmt.Errorf("unable to register new database without database provider mutex being locked")
 	}
 
-	// If we're running in a sql-server context, ensure the new database is locked so that it can't
-	// be edited from the CLI. We can't rely on looking for an existing lock file, since this could
-	// be the first db creation if sql-server was started from a bare directory.
-	_, lckDeets := sqlserver.GetRunningServer()
-	if lckDeets != nil {
-		err = newEnv.Lock(lckDeets)
-		if err != nil {
-			ctx.GetLogger().Warnf("Failed to lock newly created database: %s", err.Error())
-		}
-	}
-
 	fkChecks, err := ctx.GetSessionVariable(ctx, "foreign_key_checks")
 	if err != nil {
 		return err
@@ -716,7 +697,7 @@ func (p *DoltDatabaseProvider) invalidateDbStateInAllSessions(ctx *sql.Context, 
 	}
 
 	// If we have a running server, remove it from other sessions as well
-	runningServer, _ := sqlserver.GetRunningServer()
+	runningServer := sqlserver.GetRunningServer()
 	if runningServer != nil {
 		sessionManager := runningServer.SessionManager()
 		err := sessionManager.Iter(func(session sql.Session) (bool, error) {
@@ -1252,6 +1233,10 @@ func (p *DoltDatabaseProvider) TableFunction(_ *sql.Context, name string) (sql.T
 		return &ReflogTableFunction{}, nil
 	case "dolt_query_diff":
 		return &QueryDiffTableFunction{}, nil
+	}
+
+	if fun, ok := p.tableFunctions[name]; ok {
+		return fun, nil
 	}
 
 	return nil, sql.ErrTableFunctionNotFound.New(name)

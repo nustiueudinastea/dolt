@@ -3854,26 +3854,24 @@ var UnscopedDiffSystemTableScriptTests = []queries.ScriptTest{
 			"CALL DOLT_checkout('-b', 'branch1')",
 			"create table x (a int primary key, b int, c int)",
 			"create table y (a int primary key, b int, c int)",
-			"call dolt_add('.')",
 			"insert into x values (1, 2, 3), (2, 3, 4)",
-			"set @Commit1 = '';",
-			"CALL DOLT_COMMIT_HASH_OUT(@Commit1, '-am', 'Creating tables x and y')",
+			"set @Commit1 = ''",
+			"CALL DOLT_COMMIT_HASH_OUT(@Commit1, '-Am', 'Creating tables x and y')",
 
-			"CALL DOLT_checkout('-b', 'branch2')",
+			"CALL DOLT_checkout('-b', 'branch2', 'HEAD~1')",
 			"create table z (a int primary key, b int, c int)",
-			"call dolt_add('.')",
 			"insert into z values (100, 101, 102)",
-			"set @Commit2 = '';",
-			"CALL DOLT_COMMIT_HASH_OUT(@Commit2, '-am', 'Creating tables z')",
+			"set @Commit2 = ''",
+			"CALL DOLT_COMMIT_HASH_OUT(@Commit2, '-Am', 'Creating tables z')",
 
-			"CALL DOLT_MERGE('branch1', '--no-commit')",
-			"set @Commit3 = '';",
+			"CALL DOLT_MERGE('--no-commit', 'branch1')",
+			"set @Commit3 = ''",
 			"CALL DOLT_COMMIT_HASH_OUT(@Commit3, '-am', 'Merging branch1 into branch2')",
 		},
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "SELECT COUNT(*) FROM DOLT_DIFF",
-				Expected: []sql.Row{{3}},
+				Expected: []sql.Row{{5}},
 			},
 			{
 				Query:    "select table_name, schema_change, data_change from DOLT_DIFF where commit_hash in (@Commit1)",
@@ -3884,8 +3882,11 @@ var UnscopedDiffSystemTableScriptTests = []queries.ScriptTest{
 				Expected: []sql.Row{{"z", true, true}},
 			},
 			{
-				Query:    "select table_name, schema_change, data_change from DOLT_DIFF where commit_hash in (@Commit3)",
-				Expected: []sql.Row{},
+				Query: "select table_name, schema_change, data_change from DOLT_DIFF where commit_hash in (@Commit3) order by table_name",
+				Expected: []sql.Row{
+					{"x", true, true},
+					{"y", true, false},
+				},
 			},
 		},
 	},
@@ -4619,6 +4620,29 @@ var ColumnDiffSystemTableScriptTests = []queries.ScriptTest{
 				Expected: []sql.Row{
 					{"t", "pk", "modified"},
 					{"t", "c1", "modified"},
+				},
+			},
+		},
+	},
+	{
+		Name: "json column change",
+		SetUpScript: []string{
+			"create table t (pk int primary key, j json);",
+			`insert into t values (1, '{"test": 123}');`,
+			"call dolt_add('.')",
+			"call dolt_commit('-m', 'commit1');",
+
+			`update t set j = '{"nottest": 321}'`,
+			"call dolt_add('.')",
+			"call dolt_commit('-m', 'commit2');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query: "select column_name, diff_type from dolt_column_diff;",
+				Expected: []sql.Row{
+					{"j", "modified"},
+					{"pk", "added"},
+					{"j", "added"},
 				},
 			},
 		},
@@ -5484,6 +5508,24 @@ var SystemTableIndexTests = []systabScript{
 		},
 	},
 	{
+		name: "required index lookup in join",
+		setup: append(systabSetup,
+			"set @tag_head = hashof('main^');",
+			"call dolt_tag('t1', concat(@tag_head, '^'));",
+		),
+		queries: []systabQuery{
+			{
+				query: `
+select /*+ HASH_JOIN(t,cd) */ distinct t.tag_name
+from dolt_tags t
+left join dolt_commit_diff_xy cd
+    on cd.to_commit = t.tag_name and
+       cd.from_commit = concat(t.tag_name, '^')`,
+				exp: []sql.Row{{"t1"}},
+			},
+		},
+	},
+	{
 		name: "commit indexing edge cases",
 		setup: append(systabSetup,
 			"call dolt_checkout('-b', 'feat');",
@@ -5605,7 +5647,7 @@ var SystemTableIndexTests = []systabScript{
 			"insert into x values (1),(2);",
 			"call dolt_commit_hash_out(@m2h2, '-am', 'main 2');",
 			"call dolt_checkout('-b', 'other');",
-			"call dolt_reset('--hard', @main1);",
+			"call dolt_reset('--hard', @m1h1);",
 			"insert into x values (3),(4);",
 			"call dolt_commit_hash_out(@o1h2, '-am', 'other 1');",
 			"insert into x values (5),(6);",

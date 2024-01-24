@@ -67,6 +67,141 @@ var doltCommit = &doltCommitValidator{}
 
 var MergeScripts = []queries.ScriptTest{
 	{
+		// https://github.com/dolthub/dolt/issues/7275
+		Name: "keyless table merge with constraint violations",
+		SetUpScript: []string{
+			"CREATE TABLE aTable (aColumn INT NULL, bColumn INT NULL, UNIQUE INDEX aColumn_UNIQUE (aColumn ASC) VISIBLE, UNIQUE INDEX bColumn_UNIQUE (bColumn ASC) VISIBLE);",
+			"CALL dolt_commit('-Am', 'add tables');",
+			"CALL dolt_checkout('-b', 'side');",
+			"INSERT INTO aTable VALUES (1,2);",
+			"CALL dolt_commit('-am', 'add side data');",
+
+			"CALL dolt_checkout('main');",
+			"INSERT INTO aTable VALUES (1,3);",
+			"CALL dolt_commit('-am', 'add main data');",
+			"CALL dolt_checkout('side');",
+			"SET @@dolt_force_transaction_commit=1;",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "SELECT * FROM aTable;",
+				Expected: []sql.Row{{1, 2}},
+			},
+			{
+				Query:    "call dolt_merge('main');",
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
+			},
+			{
+				Query:    "SELECT * FROM aTable;",
+				Expected: []sql.Row{{1, 2}, {1, 3}},
+			},
+			{
+				Query:    "SELECT * FROM dolt_constraint_violations;",
+				Expected: []sql.Row{{"aTable", uint64(2)}},
+			},
+			{
+				Query: "SELECT from_root_ish, violation_type, hex(dolt_row_hash), aColumn, bColumn, CAST(violation_info as CHAR) FROM dolt_constraint_violations_aTable;",
+				Expected: []sql.Row{
+					{doltCommit, "unique index", "5A1ED8633E1842FCA8EE529E4F1C5944", 1, 2, `{"Columns":["aColumn"],"Name":"aColumn_UNIQUE"}`},
+					{doltCommit, "unique index", "A922BFBF4E5489501A3808BC5CD702C0", 1, 3, `{"Columns":["aColumn"],"Name":"aColumn_UNIQUE"}`},
+				},
+			},
+			{
+				// Fix the data
+				Query:    "UPDATE aTable SET aColumn = 2 WHERE bColumn = 2;",
+				Expected: []sql.Row{{types.OkResult{RowsAffected: uint64(1), Info: plan.UpdateInfo{Matched: 1, Updated: 1}}}},
+			},
+			{
+				// clear out the violations
+				Query:    "DELETE FROM dolt_constraint_violations_aTable;",
+				Expected: []sql.Row{{types.NewOkResult(2)}},
+			},
+			{
+				// Commit the merge after resolving the constraint violations
+				Query:    "call dolt_commit('-am', 'merging in main and resolving unique constraint violations');",
+				Expected: []sql.Row{{doltCommit}},
+			},
+			{
+				// Merging again is a no-op
+				Query:    "call dolt_merge('main');",
+				Expected: []sql.Row{{"", 0, 0, "cannot fast forward from a to b. a is ahead of b already"}},
+			},
+		},
+	},
+
+	{
+		// When there is a constraint violation for duplicate copies of a row in a keyless table, each row
+		// will violate constraint in exactly the same way. Currently, the dolt_constraint_violations_<table>
+		// system table will only contain one row for each unique violation. In other words, there may be N
+		// duplicate rows in the keyless table that violate the constraint, but only one row is shown in the
+		// constraint system table representing them all.
+		// TODO: We could add a new column to the PK for the constraints table to represent a unique ID/count
+		//       for the duplicate rows, and then we could support a 1:1 mapping of rows in the keyless table
+		//       to rows in the constraint violation system table.
+		Name: "keyless table merge with constraint violation on duplicate rows",
+		SetUpScript: []string{
+			"CREATE TABLE parent (pk INT primary key);",
+			"insert into parent values (1), (2);",
+			"CREATE TABLE aTable (aColumn INT NULL, bColumn INT NULL);",
+			"INSERT INTO aTable VALUES (1, 1);",
+			"CALL dolt_commit('-Am', 'add tables');",
+
+			"CALL dolt_checkout('-b', 'side');",
+			"INSERT INTO aTable VALUES (2, -1), (2, -1);",
+			"CALL dolt_commit('-am', 'add side data');",
+
+			"CALL dolt_checkout('main');",
+			"ALTER TABLE aTable add foreign key (bColumn) references parent(pk);",
+			"CALL dolt_commit('-am', 'add main data');",
+			"CALL dolt_checkout('side');",
+			"SET @@dolt_force_transaction_commit=1;",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "SELECT * FROM aTable ORDER BY aColumn;",
+				Expected: []sql.Row{{1, 1}, {2, -1}, {2, -1}},
+			},
+			{
+				Query:    "call dolt_merge('main');",
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
+			},
+			{
+				Query:    "SELECT * FROM aTable ORDER BY aColumn;",
+				Expected: []sql.Row{{1, 1}, {2, -1}, {2, -1}},
+			},
+			{
+				Query:    "SELECT * FROM dolt_constraint_violations;",
+				Expected: []sql.Row{{"aTable", uint64(1)}},
+			},
+			{
+				Query: "SELECT from_root_ish, violation_type, hex(dolt_row_hash), aColumn, bColumn, CAST(violation_info as CHAR) FROM dolt_constraint_violations_aTable;",
+				Expected: []sql.Row{
+					{doltCommit, "foreign key", "13F8480978D0556FA9AE6DF5745A7ACA", 2, -1, `{"Columns":["bColumn"],"ForeignKey":"ki7k6iea","Index":"bColumn","OnDelete":"RESTRICT","OnUpdate":"RESTRICT","ReferencedColumns":["pk"],"ReferencedIndex":"","ReferencedTable":"parent","Table":"aTable"}`},
+				},
+			},
+			{
+				// Fix the data
+				Query:    "UPDATE aTable SET bColumn = 2 WHERE bColumn = -1;",
+				Expected: []sql.Row{{types.OkResult{RowsAffected: uint64(2), Info: plan.UpdateInfo{Matched: 2, Updated: 2}}}},
+			},
+			{
+				// clear out the violations
+				Query:    "DELETE FROM dolt_constraint_violations_aTable;",
+				Expected: []sql.Row{{types.NewOkResult(1)}},
+			},
+			{
+				// Commit the merge after resolving the constraint violations
+				Query:    "call dolt_commit('-am', 'merging in main and resolving unique constraint violations');",
+				Expected: []sql.Row{{doltCommit}},
+			},
+			{
+				// Merging again is a no-op
+				Query:    "call dolt_merge('main');",
+				Expected: []sql.Row{{"", 0, 0, "cannot fast forward from a to b. a is ahead of b already"}},
+			},
+		},
+	},
+	{
 		// Unique checks should not include the content of deleted rows in checks. Tests two updates: one triggers
 		// going from a smaller key to a higher key, and one going from a higher key to a smaller key (in order to test
 		// delete/insert events in either order). https://github.com/dolthub/dolt/issues/6319
@@ -87,7 +222,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('main');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -122,7 +257,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				// FF-Merge
 				Query:    "CALL DOLT_MERGE('feature-branch')",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -162,7 +297,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				// FF-Merge
 				Query:    "CALL DOLT_MERGE('feature-branch')",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -221,7 +356,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				// No-FF-Merge
 				Query:    "CALL DOLT_MERGE('feature-branch', '--no-ff', '-m', 'this is a no-ff')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -264,7 +399,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				// No-FF-Merge
 				Query:    "CALL DOLT_MERGE('feature-branch', '--no-ff', '-m', 'this is a no-ff')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -309,7 +444,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '-m', 'this is a merge', '--commit')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -348,7 +483,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '-m', 'this is a merge', '--no-commit')",
-				Expected: []sql.Row{{"", 0, 0}},
+				Expected: []sql.Row{{"", 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -396,7 +531,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '-m', 'this is a merge')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -460,7 +595,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				Skip:     true,
 				Query:    "CALL DOLT_MERGE('feature-branch', '-m', 'this is a merge')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Skip:     true,
@@ -543,7 +678,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '-m', 'this is a merge')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -556,7 +691,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				// errors because creating a new branch implicitly commits the current transaction
 				Query:          "CALL DOLT_CHECKOUT('-b', 'other-branch')",
-				ExpectedErrStr: "Merge conflict detected, transaction rolled back. Merge conflicts must be resolved using the dolt_conflicts tables before committing a transaction. To commit transactions with merge conflicts, set @@dolt_allow_commit_conflicts = 1",
+				ExpectedErrStr: dsess.ErrUnresolvedConflictsCommit.Error(),
 			},
 		},
 	},
@@ -577,7 +712,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '--squash')",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT count(*) from dolt_status",
@@ -610,7 +745,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '--squash')",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query:    "CALL DOLT_CHECKOUT('-b', 'other')",
@@ -643,7 +778,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				// FF-Merge
 				Query:    "CALL DOLT_MERGE('feature-branch')",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -681,7 +816,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				// FF-Merge
 				Query:    "CALL DOLT_MERGE('feature-branch')",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -738,7 +873,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				// No-FF-Merge
 				Query:    "CALL DOLT_MERGE('feature-branch', '-no-ff', '-m', 'this is a no-ff')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -784,7 +919,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '-m', 'this is a merge')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT COUNT(*) from dolt_status",
@@ -823,7 +958,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '-m', 'this is a merge')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT COUNT(*) from dolt_status",
@@ -873,7 +1008,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '-m', 'this is a merge', '--no-commit')",
-				Expected: []sql.Row{{"", 0, 0}},
+				Expected: []sql.Row{{"", 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT COUNT(*) from dolt_status",
@@ -890,6 +1025,24 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				Query:    "CALL DOLT_CHECKOUT('-b', 'other-branch')",
 				Expected: []sql.Row{{0, "Switched to branch 'other-branch'"}},
+			},
+		},
+	},
+	{
+		Name: "CALL DOLT_MERGE when current or ahead results in a no-op",
+		SetUpScript: []string{
+			"CREATE TABLE test (pk int primary key)",
+			"CALL DOLT_ADD('.')",
+			"CALL DOLT_COMMIT('-A', '-m', 'commit');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "CALL DOLT_MERGE('HEAD~1')",
+				Expected: []sql.Row{{"", 0, 0, "cannot fast forward from a to b. a is ahead of b already"}},
+			},
+			{
+				Query:    "CALL DOLT_MERGE('HEAD')",
+				Expected: []sql.Row{{"", 0, 0, "Everything up-to-date"}},
 			},
 		},
 	},
@@ -912,7 +1065,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT count(*) from dolt_conflicts_test",
@@ -920,7 +1073,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('--abort')",
-				Expected: []sql.Row{{"", 0, 0}},
+				Expected: []sql.Row{{"", 0, 0, "merge aborted"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -944,7 +1097,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:          "CALL DOLT_MERGE('feature-branch')",
-				ExpectedErrStr: dsess.ErrUnresolvedConflictsCommit.Error(),
+				ExpectedErrStr: dsess.ErrUnresolvedConflictsAutoCommit.Error(),
 			},
 			{
 				Query:    "SELECT count(*) from dolt_conflicts_test", // transaction has been rolled back, 0 results
@@ -971,7 +1124,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature-branch', '-m', 'this is a merge')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from dolt_status",
@@ -983,7 +1136,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('--abort')",
-				Expected: []sql.Row{{"", 0, 0}},
+				Expected: []sql.Row{{"", 0, 0, "merge aborted"}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -1080,7 +1233,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('b1')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select count(*) from dolt_conflicts",
@@ -1110,11 +1263,11 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('branch1');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT violation_type, pk, parent_fk from dolt_constraint_violations_child;",
-				Expected: []sql.Row{{uint64(merge.CvType_ForeignKey), 1, 1}},
+				Expected: []sql.Row{{"foreign key", 1, 1}},
 			},
 		},
 	},
@@ -1182,7 +1335,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -1190,7 +1343,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "SELECT violation_type, pk, col1 from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(merge.CvType_UniqueIndex), 1, 1}, {uint64(merge.CvType_UniqueIndex), 2, 1}},
+				Expected: []sql.Row{{"unique index", 1, 1}, {"unique index", 2, 1}},
 			},
 			{
 				Query:    "SELECT is_merging, source, target, unmerged_tables FROM DOLT_MERGE_STATUS;",
@@ -1218,7 +1371,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -1226,7 +1379,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "SELECT violation_type, pk, col1 from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(merge.CvType_UniqueIndex), 2, 3}, {uint64(merge.CvType_UniqueIndex), 3, 3}},
+				Expected: []sql.Row{{"unique index", 2, 3}, {"unique index", 3, 3}},
 			},
 		},
 	},
@@ -1250,7 +1403,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -1258,7 +1411,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "SELECT violation_type, pk, col1 from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(merge.CvType_UniqueIndex), 2, 3}, {uint64(merge.CvType_UniqueIndex), 3, 3}},
+				Expected: []sql.Row{{"unique index", 2, 3}, {"unique index", 3, 3}},
 			},
 		},
 	},
@@ -1282,7 +1435,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -1290,7 +1443,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "SELECT violation_type, pk, col1, col2 from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(merge.CvType_UniqueIndex), 1, 1, 1}, {uint64(merge.CvType_UniqueIndex), 2, 1, 1}},
+				Expected: []sql.Row{{"unique index", 1, 1, 1}, {"unique index", 2, 1, 1}},
 			},
 		},
 	},
@@ -1320,7 +1473,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -1370,7 +1523,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -1397,7 +1550,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT base_pk, base_col1, our_pk, our_col1, their_pk, their_col1 from dolt_conflicts_t;",
@@ -1432,7 +1585,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select count(*) from dolt_schemas where type = 'trigger';",
@@ -1455,7 +1608,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL dolt_merge('test');",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query:    "INSERT INTO t VALUES (NULL,5),(6,6),(NULL,7);",
@@ -1492,7 +1645,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL dolt_merge('test');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "INSERT INTO t VALUES (NULL,6),(7,7),(NULL,8);",
@@ -1527,7 +1680,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL dolt_merge('test');",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query:    "INSERT INTO t VALUES (3,3),(NULL,6);",
@@ -1563,7 +1716,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL dolt_merge('test');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "INSERT INTO t VALUES (3,3),(NULL,7);",
@@ -1602,7 +1755,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT * FROM t;",
@@ -1628,7 +1781,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t",
@@ -1658,7 +1811,7 @@ var MergeScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t",
@@ -1687,7 +1840,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t",
@@ -1717,11 +1870,43 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from test",
 				Expected: []sql.Row{},
+			},
+		},
+	},
+	{
+		Name: "resolving a modified/modified row still checks nullness constraint",
+		SetUpScript: []string{
+			"create table test(a int primary key, b int, c int);",
+			"insert into test values (1, 2, 3);",
+			"call dolt_add('test');",
+			"call dolt_commit('-m', 'create test table');",
+
+			"call dolt_checkout('-b', 'other');",
+			"alter table test modify c int not null;",
+			"update test set b = NULL;",
+			"call dolt_add('test');",
+			"call dolt_commit('-m', 'drop column');",
+
+			"call dolt_checkout('main');",
+			"alter table test modify b int not null",
+			"update test set c = NULL;",
+			"call dolt_add('test');",
+			"call dolt_commit('-m', 'remove row');",
+			"set dolt_force_transaction_commit = on;",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "CALL DOLT_MERGE('other');",
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
+			},
+			{
+				Query:    "select a, b, c from dolt_constraint_violations_test;",
+				Expected: []sql.Row{{1, nil, nil}},
 			},
 		},
 	},
@@ -1743,7 +1928,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select y from xyz where y >= 0",
@@ -1773,7 +1958,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select y from xyz where y >= 0",
@@ -1805,7 +1990,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select y from xyz where y >= 0 order by 1",
@@ -1835,7 +2020,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select y from xyz where y >= 0 order by 1",
@@ -1866,7 +2051,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select our_y, our_diff_type, their_y, their_diff_type from dolt_conflicts_xyz",
@@ -1893,7 +2078,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('feature');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select our_y, our_diff_type, their_y, their_diff_type from dolt_conflicts_xyz",
@@ -2083,7 +2268,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('other')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT * from dolt_constraint_violations_t",
@@ -2115,7 +2300,7 @@ var MergeScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('other')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations",
@@ -2124,7 +2309,7 @@ var MergeScripts = []queries.ScriptTest{
 			{
 				Query: "select violation_type, pk, violation_info from dolt_constraint_violations_test",
 				Expected: []sql.Row{
-					{uint16(4), 2, merge.NullViolationMeta{Columns: []string{"c0"}}},
+					{"not null", 2, merge.NullViolationMeta{Columns: []string{"c0"}}},
 				},
 			},
 		},
@@ -2184,11 +2369,11 @@ var KeylessMergeCVsAndConflictsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT violation_type, col1, col2 from dolt_constraint_violations_t ORDER BY col1 ASC;",
-				Expected: []sql.Row{{uint64(merge.CvType_UniqueIndex), 1, 1}, {uint64(merge.CvType_UniqueIndex), 2, 1}},
+				Expected: []sql.Row{{"unique index", 1, 1}, {"unique index", 2, 1}},
 			},
 			{
 				Query:    "SELECT * from t ORDER BY col1 ASC;",
@@ -2217,11 +2402,11 @@ var KeylessMergeCVsAndConflictsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT violation_type, parent_fk from dolt_constraint_violations_child;",
-				Expected: []sql.Row{{uint64(merge.CvType_ForeignKey), 1}},
+				Expected: []sql.Row{{"foreign key", 1}},
 			},
 			{
 				Query:    "SELECT * from parent;",
@@ -2252,7 +2437,7 @@ var KeylessMergeCVsAndConflictsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT base_col1, base_col2, our_col1, our_col2, their_col1, their_col2 from dolt_conflicts_t;",
@@ -2283,7 +2468,7 @@ var KeylessMergeCVsAndConflictsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select col1, col2, col3 from dolt_constraint_violations_t;",
@@ -2322,7 +2507,7 @@ var DoltConflictTableNameTableTests = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "SELECT base_pk, base_col1, our_pk, our_col1, our_diff_type, their_pk, their_col1, their_diff_type" +
@@ -2366,7 +2551,7 @@ var DoltConflictTableNameTableTests = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "SELECT base_col1, our_col1, their_col1, our_diff_type, their_diff_type, base_cardinality, our_cardinality, their_cardinality from dolt_conflicts_t ORDER BY COALESCE(base_col1, our_col1, their_col1) ASC;",
@@ -2824,7 +3009,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('conflicts1');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "SELECT base_pk, base_col1, our_pk, our_col1, their_pk, their_col1 from dolt_conflicts_t;",
@@ -2951,7 +3136,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "SELECT violation_type, pk, fk from dolt_constraint_violations_child;",
-				Expected: []sql.Row{{uint64(merge.CvType_ForeignKey), 1, 1}},
+				Expected: []sql.Row{{"foreign key", 1, 1}},
 			},
 			{
 				Query:    "SELECT pk, fk from child;",
@@ -2967,7 +3152,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "SELECT violation_type, pk, fk from dolt_constraint_violations_child;",
-				Expected: []sql.Row{{uint64(merge.CvType_ForeignKey), 2, 2}},
+				Expected: []sql.Row{{"foreign key", 2, 2}},
 			},
 			{
 				Query:    "SELECT pk, fk from child;",
@@ -2979,12 +3164,12 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('viol1');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			// the commit hashes for the above two violations change in this merge
 			{
 				Query:    "SELECT violation_type, fk, pk from dolt_constraint_violations_child;",
-				Expected: []sql.Row{{uint64(merge.CvType_ForeignKey), 1, 1}, {uint64(merge.CvType_ForeignKey), 2, 2}},
+				Expected: []sql.Row{{"foreign key", 1, 1}, {"foreign key", 2, 2}},
 			},
 			{
 				Query:    "SELECT pk, fk from child;",
@@ -3012,15 +3197,15 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('other3');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "SELECT violation_type, pk, fk from dolt_constraint_violations_child;",
 				Expected: []sql.Row{
-					{uint64(merge.CvType_ForeignKey), 1, 1},
-					{uint64(merge.CvType_ForeignKey), 1, 4},
-					{uint64(merge.CvType_ForeignKey), 2, 2},
-					{uint64(merge.CvType_ForeignKey), 2, 4}},
+					{"foreign key", 1, 1},
+					{"foreign key", 1, 4},
+					{"foreign key", 2, 2},
+					{"foreign key", 2, 4}},
 			},
 		},
 	},
@@ -3053,7 +3238,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('left2');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -3061,7 +3246,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "SELECT violation_type, pk, col1 from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(merge.CvType_UniqueIndex), 1, 1}, {uint64(merge.CvType_UniqueIndex), 2, 1}},
+				Expected: []sql.Row{{"unique index", 1, 1}, {"unique index", 2, 1}},
 			},
 			{
 				Query:    "CALL DOLT_COMMIT('-afm', 'commit unique key viol');",
@@ -3073,7 +3258,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('right2');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -3081,7 +3266,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "SELECT violation_type, pk, col1 from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(merge.CvType_UniqueIndex), 3, 1}, {uint64(merge.CvType_UniqueIndex), 4, 1}},
+				Expected: []sql.Row{{"unique index", 3, 1}, {"unique index", 4, 1}},
 			},
 			{
 				Query:    "CALL DOLT_COMMIT('-afm', 'commit unique key viol');",
@@ -3093,7 +3278,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -3102,10 +3287,10 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 			{
 				Query: "SELECT violation_type, pk, col1 from dolt_constraint_violations_t;",
 				Expected: []sql.Row{
-					{uint64(merge.CvType_UniqueIndex), 1, 1},
-					{uint64(merge.CvType_UniqueIndex), 2, 1},
-					{uint64(merge.CvType_UniqueIndex), 3, 1},
-					{uint64(merge.CvType_UniqueIndex), 4, 1}},
+					{"unique index", 1, 1},
+					{"unique index", 2, 1},
+					{"unique index", 3, 1},
+					{"unique index", 4, 1}},
 			},
 		},
 	},
@@ -3130,7 +3315,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "SELECT * from t;",
@@ -3158,7 +3343,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select col1, col2, col3 from dolt_constraint_violations_t;",
@@ -3186,7 +3371,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select w, x, y, z from dolt_constraint_violations_wxyz;",
@@ -3214,7 +3399,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select count(*) from dolt_constraint_violations;",
@@ -3246,11 +3431,11 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select col1, col2 from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(1), "first"}, {uint64(1), "second"}},
+				Expected: []sql.Row{{"A", "first"}, {"A", "second"}},
 			},
 		},
 	},
@@ -3347,7 +3532,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -3384,7 +3569,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -3420,7 +3605,7 @@ var MergeArtifactsScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "CALL DOLT_MERGE('main');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -3454,7 +3639,7 @@ var SchemaConflictScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:          "call dolt_merge('other')",
-				ExpectedErrStr: "Merge conflict detected, transaction rolled back. Merge conflicts must be resolved using the dolt_conflicts tables before committing a transaction. To commit transactions with merge conflicts, set @@dolt_allow_commit_conflicts = 1",
+				ExpectedErrStr: dsess.ErrUnresolvedConflictsAutoCommit.Error(),
 			},
 			{
 				Query:    "select * from dolt_schema_conflicts",
@@ -3482,7 +3667,7 @@ var SchemaConflictScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('other')",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select * from dolt_schema_conflicts",
@@ -3554,7 +3739,7 @@ var OldFormatMergeConflictsAndCVsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('branch1');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT violation_type, pk, parent_fk from dolt_constraint_violations_child;",
@@ -3602,7 +3787,7 @@ var OldFormatMergeConflictsAndCVsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('branch2');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT violation_type, pk, parent_fk from dolt_constraint_violations_child;",
@@ -3638,7 +3823,7 @@ var OldFormatMergeConflictsAndCVsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('branch3');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conficts found"}},
 			},
 			{
 				Query:    "SELECT violation_type, pk, parent_fk from dolt_constraint_violations_child;",
@@ -3675,7 +3860,7 @@ var OldFormatMergeConflictsAndCVsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from parent;",
@@ -3749,7 +3934,7 @@ var OldFormatMergeConflictsAndCVsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('other');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from parent;",
@@ -3774,7 +3959,7 @@ var OldFormatMergeConflictsAndCVsScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "CALL DOLT_MERGE('other2');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "SELECT * from parent;",
@@ -4322,7 +4507,7 @@ var GeneratedColumnMergeTestScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('branch1')",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t1 order by id",
@@ -4338,7 +4523,7 @@ var GeneratedColumnMergeTestScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "call dolt_merge('branch2')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t1 order by id",
@@ -4374,7 +4559,7 @@ var GeneratedColumnMergeTestScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('branch1')",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t1 order by id",
@@ -4389,7 +4574,7 @@ var GeneratedColumnMergeTestScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "call dolt_merge('branch2')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t1 order by id",
@@ -4423,7 +4608,7 @@ var GeneratedColumnMergeTestScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('branch1')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t1 order by id",
@@ -4462,7 +4647,7 @@ var GeneratedColumnMergeTestScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('branch1')",
-				Expected: []sql.Row{{doltCommit, 1, 0}},
+				Expected: []sql.Row{{doltCommit, 1, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t1 order by id",
@@ -4478,7 +4663,7 @@ var GeneratedColumnMergeTestScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "call dolt_merge('branch2')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t1 order by id",
@@ -4514,7 +4699,7 @@ var GeneratedColumnMergeTestScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('branch1')",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t1 order by id",

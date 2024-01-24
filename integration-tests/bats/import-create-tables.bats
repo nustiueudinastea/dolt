@@ -60,25 +60,48 @@ teardown() {
     teardown_common
 }
 
-@test "import-create-tables: correctly ignores byte order mark (BOM)" {
-    printf '\xEF\xBB\xBF' > bom.csv
-    cat <<DELIM >> bom.csv
-c1,c2
-1,2
-DELIM
-
-    run dolt table import -c bom bom.csv
-    [ "$status" -eq 0 ]
-    [[ "$output" =~ "Rows Processed: 1, Additions: 1, Modifications: 0, Had No Effect: 0" ]] || false
-    [[ "$output" =~ "Import completed successfully." ]] || false
-
-    run dolt sql -q "select c1 from bom"
-    [ "$status" -eq 0 ]
-    [[ "$output" =~ "1" ]] || false
-}
-
 @test "import-create-tables: create a table with json import" {
     run dolt table import -c -s `batshelper employees-sch.sql` employees `batshelper employees-tbl.json`
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "Import completed successfully." ]] || false
+    run dolt ls
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "employees" ]] || false
+    run dolt sql -q "select * from employees"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "tim" ]] || false
+    [ "${#lines[@]}" -eq 7 ]
+}
+
+@test "import-create-tables: create a table with json import, utf8 with bom" {
+    run dolt table import -c -s `batshelper employees-sch.sql` employees `batshelper employees-tbl.utf8bom.json`
+    echo "$output"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "Import completed successfully." ]] || false
+    run dolt ls
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "employees" ]] || false
+    run dolt sql -q "select * from employees"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "tim" ]] || false
+    [ "${#lines[@]}" -eq 7 ]
+}
+
+@test "import-create-tables: create a table with json import, utf16le with bom" {
+    run dolt table import -c -s `batshelper employees-sch.sql` employees `batshelper employees-tbl.utf16lebom.json`
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "Import completed successfully." ]] || false
+    run dolt ls
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "employees" ]] || false
+    run dolt sql -q "select * from employees"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "tim" ]] || false
+    [ "${#lines[@]}" -eq 7 ]
+}
+
+@test "import-create-tables: create a table with json import, utf16be with bom" {
+    run dolt table import -c -s `batshelper employees-sch.sql` employees `batshelper employees-tbl.utf16bebom.json`
     [ "$status" -eq 0 ]
     [[ "$output" =~ "Import completed successfully." ]] || false
     run dolt ls
@@ -130,7 +153,7 @@ DELIM
     [ "$status" -eq 0 ]
     [[ "$output" =~ "Import completed successfully." ]] || false
     # Sanity Check
-    ! [[ "$output" =~ "Warning: There are fewer columns in the import file's schema than the table's schema" ]] || false
+    ! [[ "$output" =~ "Warning: The import file's schema does not match the table's schema" ]] || false
 
     run dolt sql -q "select * from test"
     [ "$status" -eq 0 ]
@@ -227,7 +250,7 @@ CSV
     [[ "$output" =~ "reserved" ]] || false
 }
 
-@test "import-create-tables: try to table import with nonexistant --pk arg" {
+@test "import-create-tables: try to table import with nonexistent --pk arg" {
     run dolt table import -c -pk="batmansparents" test 1pk5col-ints.csv
     [ "$status" -eq 1 ]
     [[ "$output" =~ "Error determining the output schema." ]] || false
@@ -235,7 +258,7 @@ CSV
     [[ "$output" =~ "column 'batmansparents' not found" ]] || false
 }
 
-@test "import-create-tables: try to table import with one valid and one nonexistant --pk arg" {
+@test "import-create-tables: try to table import with one valid and one nonexistent --pk arg" {
     run dolt table import -c -pk="pk,batmansparents" test 1pk5col-ints.csv
     [ "$status" -eq 1 ]
     [[ "$output" =~ "Error determining the output schema." ]] || false
@@ -696,7 +719,7 @@ DELIM
 
     run dolt table import -s schema.sql -c subset data.csv
     [ "$status" -eq 0 ]
-    [[ "$output" =~ "Warning: There are fewer columns in the import file's schema than the table's schema" ]] || false
+    [[ "$output" =~ "Warning: The import file's schema does not match the table's schema" ]] || false
 
     # schema argument subsets the data and adds empty column
     run dolt sql -r csv -q "select * from subset ORDER BY pk"
@@ -851,4 +874,38 @@ SQL
     [ "$status" -eq 0 ]
     [[ "$output" =~ "| 0  | NULL     | poop |" ]] || false
     [[ "$output" =~ "| 1  | NULL     | poop |" ]] || false
+}
+
+@test "import-create-tables: --all-text imports all columns as text" {
+    cat <<DELIM >test.csv
+id, state, data
+1,WA,"{""a"":1,""b"":""value""}"
+DELIM
+
+    run dolt table import -c --all-text --pk=id test test.csv
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "Import completed successfully." ]] || false
+
+    run dolt sql -q "describe test"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "| id    | varchar(16383) |" ]] || false
+    [[ "$output" =~ "| state | text           |" ]] || false
+    [[ "$output" =~ "| data  | text           |" ]] || false
+
+    # pk defaults to first column if not explicitly defined
+    run dolt table import -c --all-text test2 test.csv
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "Import completed successfully." ]] || false
+
+    run dolt sql -q "describe test2"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "| id    | varchar(16383) |" ]] || false
+    [[ "$output" =~ "| state | text           |" ]] || false
+    [[ "$output" =~ "| data  | text           |" ]] || false
+}
+
+@test "import-create-tables: --all-text and --schema are mutually exclusive" {
+    run dolt table import -c -s `batshelper employees-sch.sql` --all-text employees `batshelper employees-tbl.json`
+    [ "$status" -eq 1 ]
+    [[ "$output" =~ "parameters all-text and schema are mutually exclusive" ]] || false
 }

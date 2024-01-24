@@ -842,11 +842,49 @@ func (di *doltIndex) HandledFilters(filters []sql.Expression) []sql.Expression {
 	return handled
 }
 
+// HasContentHashedField returns true if any of the fields in this index are "content-hashed", meaning that the index
+// stores a hash of the content, instead of the content itself. This is currently limited to unique indexes, which can
+// use this property to store hashes of TEXT or BLOB fields and still efficiently detect uniqueness.
+func (di *doltIndex) HasContentHashedField() bool {
+	// content-hashed fields can currently only be used in unique indexes
+	if !di.IsUnique() {
+		return false
+	}
+
+	contentHashedField := false
+
+	indexPkCols := di.indexSch.GetPKCols()
+	indexPkCols.Iter(func(tag uint64, col schema.Column) (stop bool, err error) {
+		i := indexPkCols.TagToIdx[tag]
+		prefixLength := uint16(0)
+		if len(di.prefixLengths) > i {
+			prefixLength = di.prefixLengths[i]
+		}
+
+		if sqltypes.IsTextBlob(col.TypeInfo.ToSqlType()) && prefixLength == 0 {
+			contentHashedField = true
+			return true, nil
+		}
+
+		return false, nil
+	})
+
+	return contentHashedField
+}
+
 func (di *doltIndex) Order() sql.IndexOrder {
+	if di.HasContentHashedField() {
+		return sql.IndexOrderNone
+	}
+
 	return di.order
 }
 
 func (di *doltIndex) Reversible() bool {
+	if di.HasContentHashedField() {
+		return false
+	}
+
 	return di.doltBinFormat
 }
 
@@ -1070,15 +1108,15 @@ func (di *doltIndex) prollySpatialRanges(ranges []sql.Range) ([]prolly.Range, er
 	}
 
 	var pRanges []prolly.Range
-	zMin := ZValue(minPoint)
-	zMax := ZValue(maxPoint)
-	zRanges := SplitZRanges(ZRange{zMin, zMax})
+	zMin := tree.ZValue(minPoint)
+	zMax := tree.ZValue(maxPoint)
+	zRanges := tree.SplitZRanges(tree.ZRange{zMin, zMax})
 	for level := byte(0); level < 65; level++ {
 		// For example, at highest level, we'll just look at origin point multiple times
 		var prevMinCell, prevMaxCell val.Cell
 		for i, zRange := range zRanges {
-			minCell := ZMask(level, zRange[0])
-			maxCell := ZMask(level, zRange[1])
+			minCell := tree.ZMask(level, zRange[0])
+			maxCell := tree.ZMask(level, zRange[1])
 			if i != 0 && minCell == prevMinCell && maxCell == prevMaxCell {
 				continue
 			}
@@ -1132,7 +1170,7 @@ func (di *doltIndex) prollyRangesFromSqlRanges(ctx context.Context, ns tree.Node
 					return nil, err
 				}
 				nv := di.trimRangeCutValue(j, v)
-				if err = PutField(ctx, ns, tb, j, nv); err != nil {
+				if err = tree.PutField(ctx, ns, tb, j, nv); err != nil {
 					return nil, err
 				}
 				bound := expr.LowerBound.TypeAsLowerBound()
@@ -1159,7 +1197,7 @@ func (di *doltIndex) prollyRangesFromSqlRanges(ctx context.Context, ns tree.Node
 					return nil, err
 				}
 				nv := di.trimRangeCutValue(i, v)
-				if err = PutField(ctx, ns, tb, i, nv); err != nil {
+				if err = tree.PutField(ctx, ns, tb, i, nv); err != nil {
 					return nil, err
 				}
 				fields[i].Hi = prolly.Bound{

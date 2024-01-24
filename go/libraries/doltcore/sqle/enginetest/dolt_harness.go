@@ -152,8 +152,8 @@ func (d *DoltHarness) resetScripts() []setup.SetupScript {
 			resetCmds = append(resetCmds, setup.SetupScript{createTableStatement.String()})
 		}
 
-		resetCmds = append(resetCmds, setup.SetupScript{"call dclean()"})
-		resetCmds = append(resetCmds, setup.SetupScript{"call dreset('--hard', 'head')"})
+		resetCmds = append(resetCmds, setup.SetupScript{"call dolt_clean()"})
+		resetCmds = append(resetCmds, setup.SetupScript{"call dolt_reset('--hard', 'head')"})
 	}
 
 	resetCmds = append(resetCmds, setup.SetupScript{"SET foreign_key_checks=1;"})
@@ -220,6 +220,8 @@ func (d *DoltHarness) NewEngine(t *testing.T) (enginetest.QueryEngine, error) {
 	// Reset the mysql DB table to a clean state for this new engine
 	d.engine.Analyzer.Catalog.MySQLDb = mysql_db.CreateEmptyMySQLDb()
 	d.engine.Analyzer.Catalog.MySQLDb.AddRootAccount()
+
+	d.engine.Analyzer.Catalog.StatsProvider = stats.NewProvider()
 
 	// Get a fresh session if we are reusing the engine
 	if !initializeEngine {
@@ -420,7 +422,7 @@ func (d *DoltHarness) newProvider() sql.MutableDatabaseProvider {
 	store := dEnv.DoltDB.ValueReadWriter().(*types.ValueStore)
 	store.SetValidateContentAddresses(true)
 
-	mrEnv, err := env.MultiEnvForDirectory(context.Background(), dEnv.Config.WriteableConfig(), dEnv.FS, dEnv.Version, dEnv.IgnoreLockFile, dEnv)
+	mrEnv, err := env.MultiEnvForDirectory(context.Background(), dEnv.Config.WriteableConfig(), dEnv.FS, dEnv.Version, dEnv)
 	require.NoError(d.t, err)
 	d.multiRepoEnv = mrEnv
 
@@ -489,7 +491,7 @@ func (d *DoltHarness) SnapshotTable(db sql.VersionedDatabase, tableName string, 
 	_, iter, err := e.Query(ctx,
 		"CALL DOLT_COMMIT('-Am', 'test commit');")
 	require.NoError(d.t, err)
-	_, err = sql.RowIterToRows(ctx, nil, iter)
+	_, err = sql.RowIterToRows(ctx, iter)
 	require.NoError(d.t, err)
 
 	// Create a new branch at this commit with the given identifier
@@ -499,7 +501,7 @@ func (d *DoltHarness) SnapshotTable(db sql.VersionedDatabase, tableName string, 
 	_, iter, err = e.Query(ctx,
 		query)
 	require.NoError(d.t, err)
-	_, err = sql.RowIterToRows(ctx, nil, iter)
+	_, err = sql.RowIterToRows(ctx, iter)
 	require.NoError(d.t, err)
 
 	return nil

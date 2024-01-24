@@ -37,6 +37,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions"
 	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/dolthub/dolt/go/libraries/utils/config"
 	"github.com/dolthub/dolt/go/libraries/utils/editor"
 	"github.com/dolthub/dolt/go/libraries/utils/iohelp"
 	"github.com/dolthub/dolt/go/libraries/utils/set"
@@ -159,11 +160,11 @@ func performCommit(ctx context.Context, commandStr string, args []string, cliCtx
 		return 1, false
 	}
 
-	schema, rowIter, err := queryist.Query(sqlCtx, interpolatedQuery)
+	_, rowIter, err := queryist.Query(sqlCtx, interpolatedQuery)
 	if err != nil {
 		return handleCommitErr(sqlCtx, queryist, err, usage), false
 	}
-	resultRow, err := sql.RowIterToRows(sqlCtx, schema, rowIter)
+	resultRow, err := sql.RowIterToRows(sqlCtx, rowIter)
 	if err != nil {
 		cli.Println(err.Error())
 		return 1, false
@@ -275,17 +276,17 @@ func handleCommitErr(sqlCtx *sql.Context, queryist cli.Queryist, err error, usag
 	}
 
 	if err == datas.ErrNameNotConfigured {
-		bdr := errhand.BuildDError("Could not determine %s.", env.UserNameKey)
+		bdr := errhand.BuildDError("Could not determine %s.", config.UserNameKey)
 		bdr.AddDetails("Log into DoltHub: dolt login")
-		bdr.AddDetails("OR add name to config: dolt config [--global|--local] --add %[1]s \"FIRST LAST\"", env.UserNameKey)
+		bdr.AddDetails("OR add name to config: dolt config [--global|--local] --add %[1]s \"FIRST LAST\"", config.UserNameKey)
 
 		return HandleVErrAndExitCode(bdr.Build(), usage)
 	}
 
 	if err == datas.ErrEmailNotConfigured {
-		bdr := errhand.BuildDError("Could not determine %s.", env.UserEmailKey)
+		bdr := errhand.BuildDError("Could not determine %s.", config.UserEmailKey)
 		bdr.AddDetails("Log into DoltHub: dolt login")
-		bdr.AddDetails("OR add email to config: dolt config [--global|--local] --add %[1]s \"EMAIL_ADDRESS\"", env.UserEmailKey)
+		bdr.AddDetails("OR add email to config: dolt config [--global|--local] --add %[1]s \"EMAIL_ADDRESS\"", config.UserEmailKey)
 
 		return HandleVErrAndExitCode(bdr.Build(), usage)
 	}
@@ -296,12 +297,12 @@ func handleCommitErr(sqlCtx *sql.Context, queryist cli.Queryist, err error, usag
 	}
 
 	if err.Error() == "nothing to commit" {
-		schema, ri, err := queryist.Query(sqlCtx, "select table_name, status from dolt_status where staged = false")
+		_, ri, err := queryist.Query(sqlCtx, "select table_name, status from dolt_status where staged = false")
 		if err != nil {
 			cli.Println(err)
 			return 1
 		}
-		notStagedRows, err := sql.RowIterToRows(sqlCtx, schema, ri)
+		notStagedRows, err := sql.RowIterToRows(sqlCtx, ri)
 		if err != nil {
 			cli.Println(err)
 			return 1
@@ -355,10 +356,10 @@ func getCommitMessageFromEditor(sqlCtx *sql.Context, queryist cli.Queryist, sugg
 		backupEd = ed
 	}
 	// try getting Dolt config core.editor
-	editorStr := cliCtx.Config().GetStringOrDefault(env.DoltEditor, backupEd)
+	editorStr := cliCtx.Config().GetStringOrDefault(config.DoltEditor, backupEd)
 
 	cli.ExecuteWithStdioRestored(func() {
-		commitMsg, cErr := editor.OpenCommitEditor(editorStr, initialMsg)
+		commitMsg, cErr := editor.OpenTempEditor(editorStr, initialMsg)
 		if cErr != nil {
 			err = cErr
 		}
@@ -386,20 +387,20 @@ func buildInitalCommitMsg(sqlCtx *sql.Context, queryist cli.Queryist, suggestedM
 	initialNoColor := color.NoColor
 	color.NoColor = true
 
-	schema, ri, err := queryist.Query(sqlCtx, "select table_name, status from dolt_status where staged = true")
+	_, ri, err := queryist.Query(sqlCtx, "select table_name, status from dolt_status where staged = true")
 	if err != nil {
 		return "", err
 	}
-	stagedRows, err := sql.RowIterToRows(sqlCtx, schema, ri)
+	stagedRows, err := sql.RowIterToRows(sqlCtx, ri)
 	if err != nil {
 		return "", err
 	}
 
-	schema, ri, err = queryist.Query(sqlCtx, "select table_name, status from dolt_status where staged = false")
+	_, ri, err = queryist.Query(sqlCtx, "select table_name, status from dolt_status where staged = false")
 	if err != nil {
 		return "", err
 	}
-	notStagedRows, err := sql.RowIterToRows(sqlCtx, schema, ri)
+	notStagedRows, err := sql.RowIterToRows(sqlCtx, ri)
 	if err != nil {
 		return "", err
 	}
@@ -453,11 +454,11 @@ func PrintDiffsNotStaged(
 	linesPrinted int,
 ) (int, error) {
 	// get data conflict tables
-	schema, ri, err := queryist.Query(sqlCtx, "select `table` from dolt_conflicts")
+	_, ri, err := queryist.Query(sqlCtx, "select `table` from dolt_conflicts")
 	if err != nil {
 		return 0, err
 	}
-	conflictRows, err := sql.RowIterToRows(sqlCtx, schema, ri)
+	conflictRows, err := sql.RowIterToRows(sqlCtx, ri)
 	if err != nil {
 		return 0, err
 	}
@@ -468,11 +469,11 @@ func PrintDiffsNotStaged(
 	inCnfSet := set.NewStrSet(conflictTables)
 
 	// get schema conflict tables
-	schema, ri, err = queryist.Query(sqlCtx, "select table_name from dolt_status where status = 'schema conflict'")
+	_, ri, err = queryist.Query(sqlCtx, "select table_name from dolt_status where status = 'schema conflict'")
 	if err != nil {
 		return 0, err
 	}
-	schemaConflictRows, err := sql.RowIterToRows(sqlCtx, schema, ri)
+	schemaConflictRows, err := sql.RowIterToRows(sqlCtx, ri)
 	if err != nil {
 		return 0, err
 	}
@@ -483,11 +484,11 @@ func PrintDiffsNotStaged(
 	inCnfSet.Add(schemaConflictTables...)
 
 	// get constraint violation tables
-	schema, ri, err = queryist.Query(sqlCtx, "select `table` from dolt_constraint_violations")
+	_, ri, err = queryist.Query(sqlCtx, "select `table` from dolt_constraint_violations")
 	if err != nil {
 		return 0, err
 	}
-	constraintViolationRows, err := sql.RowIterToRows(sqlCtx, schema, ri)
+	constraintViolationRows, err := sql.RowIterToRows(sqlCtx, ri)
 	if err != nil {
 		return 0, err
 	}

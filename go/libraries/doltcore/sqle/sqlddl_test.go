@@ -1081,11 +1081,11 @@ func TestParseCreateTableStatement(t *testing.T) {
 			//eng, dbName, _ := engine.NewSqlEngineForEnv(ctx, dEnv)
 			eng, sqlCtx := newTestEngine(ctx, dEnv)
 
-			testSch, iter, err := eng.Query(sqlCtx, "create database test")
+			_, iter, err := eng.Query(sqlCtx, "create database test")
 			if err != nil {
 				panic(err)
 			}
-			_, _ = sql.RowIterToRows(sqlCtx, testSch, iter)
+			_, _ = sql.RowIterToRows(sqlCtx, iter)
 			sqlCtx.SetCurrentDatabase("test")
 
 			tblName, sch, err := sqlutil.ParseCreateTableStatement(sqlCtx, root, eng, tt.query)
@@ -1108,7 +1108,7 @@ func newTestEngine(ctx context.Context, dEnv *env.DoltEnv) (*gms.Engine, *sql.Co
 		panic(err)
 	}
 
-	mrEnv, err := env.MultiEnvForDirectory(ctx, dEnv.Config.WriteableConfig(), dEnv.FS, dEnv.Version, dEnv.IgnoreLockFile, dEnv)
+	mrEnv, err := env.MultiEnvForDirectory(ctx, dEnv.Config.WriteableConfig(), dEnv.FS, dEnv.Version, dEnv)
 	if err != nil {
 		panic(err)
 	}

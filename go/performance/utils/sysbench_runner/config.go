@@ -22,14 +22,15 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/google/uuid"
 )
 
 const (
-	Dolt  ServerType = "dolt"
-	MySql ServerType = "mysql"
+	Dolt     ServerType = "dolt"
+	Doltgres ServerType = "doltgres"
+	Postgres ServerType = "postgres"
+	MySql    ServerType = "mysql"
 
 	CsvFormat  = "csv"
 	JsonFormat = "json"
@@ -40,11 +41,12 @@ const (
 	defaultHost = "127.0.0.1"
 	defaultPort = 3306
 
-	defaultSocket = "/var/run/mysqld/mysqld.sock"
+	defaultMysqlSocket = "/var/run/mysqld/mysqld.sock"
 
 	tcpProtocol  = "tcp"
 	unixProtocol = "unix"
 
+	sysbenchUsername  = "sysbench"
 	sysbenchUserLocal = "'sysbench'@'localhost'"
 	sysbenchPassLocal = "sysbenchpass"
 )
@@ -52,18 +54,19 @@ const (
 var (
 	ErrTestNameNotDefined            = errors.New("test name not defined")
 	ErrNoServersDefined              = errors.New("servers not defined")
+	ErrTooManyServersDefined         = errors.New("too many servers defined, two max")
 	ErrUnsupportedConnectionProtocol = errors.New("unsupported connection protocol")
 )
 
 var defaultSysbenchParams = []string{
-	"--db-driver=mysql",
 	"--db-ps-mode=disable",
 	"--rand-type=uniform",
-	fmt.Sprintf("--mysql-db=%s", dbName),
 }
 
 var defaultDoltServerParams = []string{"sql-server"}
-var defaultMysqlServerParams = []string{"--user=mysql"}
+var defaultMysqlServerParams = []string{}
+var defaultDoltgresServerParams = []string{}
+var defaultPostgresServerParams = []string{}
 
 var defaultSysbenchTests = []*ConfigTest{
 	NewConfigTest("oltp_read_only", []string{}, false),
@@ -76,6 +79,32 @@ var defaultSysbenchTests = []*ConfigTest{
 	NewConfigTest("oltp_read_write", []string{}, false),
 	NewConfigTest("oltp_update_index", []string{}, false),
 	NewConfigTest("oltp_update_non_index", []string{}, false),
+}
+
+var defaultDoltLuaScripts = map[string]string{
+	"covering_index_scan.lua": "covering_index_scan.lua",
+	"groupby_scan.lua":        "groupby_scan.lua",
+	"index_join.lua":          "index_join.lua",
+	"index_join_scan.lua":     "index_join_scan.lua",
+	"index_scan.lua":          "index_scan.lua",
+	"oltp_delete_insert.lua":  "oltp_delete_insert.lua",
+	"table_scan.lua":          "table_scan.lua",
+	"types_delete_insert.lua": "types_delete_insert.lua",
+	"types_table_scan.lua":    "types_table_scan.lua",
+}
+
+// todo: check expressions need to be supported in doltgres for these
+// todo: postgres does not have geometry types also
+var defaultDoltgresLuaScripts = map[string]string{
+	//"covering_index_scan_postgres.lua": "covering_index_scan_postgres.lua",
+	//"groupby_scan_postgres.lua":        "groupby_scan_postgres.lua",
+	//"index_join_postgres.lua":          "index_join_postgres.lua",
+	//"index_join_scan_postgres.lua":     "index_join_scan_postgres.lua",
+	//"index_scan_postgres.lua":          "index_scan_postgres.lua",
+	//"oltp_delete_insert_postgres.lua":  "oltp_delete_insert_postgres.lua",
+	//"table_scan_postgres.lua":          "table_scan_postgres.lua",
+	//"types_delete_insert_postgres.lua": "types_delete_insert_postgres.lua",
+	//"types_table_scan_postgres.lua":    "types_table_scan_postgres.lua",
 }
 
 type ServerType string
@@ -181,17 +210,32 @@ func (ct *ConfigTest) GetTests(serverConfig *ServerConfig, testIdFunc func() str
 func fromConfigTestParams(ct *ConfigTest, serverConfig *ServerConfig) []string {
 	params := make([]string, 0)
 	params = append(params, defaultSysbenchParams...)
-	params = append(params, fmt.Sprintf("--mysql-host=%s", serverConfig.Host))
-	if serverConfig.Port != 0 {
-		params = append(params, fmt.Sprintf("--mysql-port=%d", serverConfig.Port))
+	if serverConfig.Server == MySql || serverConfig.Server == Dolt {
+		params = append(params, fmt.Sprintf("--mysql-db=%s", dbName))
+		params = append(params, "--db-driver=mysql")
+		params = append(params, fmt.Sprintf("--mysql-host=%s", serverConfig.Host))
+		if serverConfig.Port != 0 {
+			params = append(params, fmt.Sprintf("--mysql-port=%d", serverConfig.Port))
+		}
+	} else if serverConfig.Server == Doltgres || serverConfig.Server == Postgres {
+		params = append(params, "--db-driver=pgsql")
+		params = append(params, fmt.Sprintf("--pgsql-db=%s", dbName))
+		params = append(params, fmt.Sprintf("--pgsql-host=%s", serverConfig.Host))
+		if serverConfig.Port != 0 {
+			params = append(params, fmt.Sprintf("--pgsql-port=%d", serverConfig.Port))
+		}
 	}
 
 	// handle sysbench user for local mysql server
 	if serverConfig.Server == MySql && serverConfig.Host == defaultHost {
 		params = append(params, "--mysql-user=sysbench")
 		params = append(params, fmt.Sprintf("--mysql-password=%s", sysbenchPassLocal))
-	} else {
+	} else if serverConfig.Server == Dolt {
 		params = append(params, "--mysql-user=root")
+	} else if serverConfig.Server == Doltgres {
+		params = append(params, "--pgsql-user=doltgres")
+	} else if serverConfig.Server == Postgres {
+		params = append(params, "--pgsql-user=postgres")
 	}
 
 	params = append(params, ct.Options...)
@@ -222,6 +266,15 @@ type ServerConfig struct {
 	// ServerExec is the path to a server executable
 	ServerExec string
 
+	// InitExec is the path to the server init db executable
+	InitExec string
+
+	// ServerUser is the user account that should start the server
+	ServerUser string
+
+	// SkipLogBin will skip bin logging
+	SkipLogBin bool
+
 	// ServerArgs are the args used to start a server
 	ServerArgs []string
 
@@ -248,15 +301,26 @@ func (sc *ServerConfig) GetServerArgs() []string {
 		defaultParams = defaultDoltServerParams
 	} else if sc.Server == MySql {
 		defaultParams = defaultMysqlServerParams
+		if sc.ServerUser != "" {
+			params = append(params, fmt.Sprintf("--user=%s", sc.ServerUser))
+		}
+		if sc.SkipLogBin {
+			params = append(params, "--skip-log-bin")
+		}
+	} else if sc.Server == Doltgres {
+		defaultParams = defaultDoltgresServerParams
+	} else if sc.Server == Postgres {
+		defaultParams = defaultPostgresServerParams
 	}
 
 	params = append(params, defaultParams...)
-	if sc.Server == Dolt {
+	if sc.Server == Dolt || sc.Server == Doltgres {
 		params = append(params, fmt.Sprintf("--host=%s", sc.Host))
 	}
 	if sc.Port != 0 {
 		params = append(params, fmt.Sprintf("--port=%d", sc.Port))
 	}
+
 	params = append(params, sc.ServerArgs...)
 	return params
 }
@@ -297,6 +361,9 @@ func (c *Config) Validate() error {
 	if len(c.Servers) < 1 {
 		return ErrNoServersDefined
 	}
+	if len(c.Servers) > 2 {
+		return ErrTooManyServersDefined
+	}
 	err := c.setDefaults()
 	if err != nil {
 		return err
@@ -308,7 +375,7 @@ func (c *Config) Validate() error {
 func (c *Config) validateServerConfigs() error {
 	portMap := make(map[int]ServerType)
 	for _, s := range c.Servers {
-		if s.Server != Dolt && s.Server != MySql {
+		if s.Server != Dolt && s.Server != MySql && s.Server != Doltgres && s.Server != Postgres {
 			return fmt.Errorf("unsupported server type: %s", s.Server)
 		}
 
@@ -333,12 +400,29 @@ func (c *Config) validateServerConfigs() error {
 			return err
 		}
 
-		err = CheckExec(s)
+		err = CheckExec(s.ServerExec, "server exec")
 		if err != nil {
 			return err
 		}
+
+		if s.Server == Postgres {
+			err = CheckExec(s.InitExec, "initdb exec")
+			if err != nil {
+				return err
+			}
+		}
 	}
+
 	return nil
+}
+
+func (c *Config) Contains(st ServerType) bool {
+	for _, s := range c.Servers {
+		if s.Server == st {
+			return true
+		}
+	}
+	return false
 }
 
 func ValidateRequiredFields(server, version, format string) error {
@@ -402,18 +486,17 @@ func CheckUpdatePortMap(serverConfig *ServerConfig, portMap map[int]ServerType) 
 }
 
 // CheckExec verifies the binary exists
-func CheckExec(serverConfig *ServerConfig) error {
-	if serverConfig.ServerExec == "" {
-		return getMustSupplyError("server exec")
+func CheckExec(path, messageIfMissing string) error {
+	if path == "" {
+		return getMustSupplyError(messageIfMissing)
 	}
-	abs, err := filepath.Abs(serverConfig.ServerExec)
+	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
 	}
 	if _, err := os.Stat(abs); os.IsNotExist(err) {
-		return fmt.Errorf("server exec not found: %s", abs)
+		return fmt.Errorf("exec not found: %s", abs)
 	}
-	serverConfig.ServerExec = abs
 	return nil
 }
 
@@ -469,7 +552,13 @@ func getDefaultTests(config *Config) ([]*ConfigTest, error) {
 	defaultTests := make([]*ConfigTest, 0)
 	defaultTests = append(defaultTests, defaultSysbenchTests...)
 	if config.ScriptDir != "" {
-		luaScriptTests, err := getLuaScriptTestsFromDir(config.ScriptDir)
+		var luaScriptTests []*ConfigTest
+		var err error
+		if !config.Contains(Doltgres) && !config.Contains(Postgres) {
+			luaScriptTests, err = getLuaScriptTestsFromDir(config.ScriptDir, defaultDoltLuaScripts)
+		} else {
+			luaScriptTests, err = getLuaScriptTestsFromDir(config.ScriptDir, defaultDoltgresLuaScripts)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -478,7 +567,7 @@ func getDefaultTests(config *Config) ([]*ConfigTest, error) {
 	return defaultTests, nil
 }
 
-func getLuaScriptTestsFromDir(dir string) ([]*ConfigTest, error) {
+func getLuaScriptTestsFromDir(dir string, toInclude map[string]string) ([]*ConfigTest, error) {
 	luaScripts := make([]*ConfigTest, 0)
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -489,8 +578,8 @@ func getLuaScriptTestsFromDir(dir string) ([]*ConfigTest, error) {
 			return err
 		}
 
-		// Append all the lua scripts except for the `_common.lua` scripts which shouldnt be tested directly
-		if strings.HasSuffix(path, ".lua") && !strings.Contains(path, "_common.lua") {
+		file := filepath.Base(path)
+		if _, ok := toInclude[file]; ok {
 			luaScripts = append(luaScripts, NewConfigTest(path, []string{}, true))
 		}
 		return nil

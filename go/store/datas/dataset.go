@@ -158,6 +158,32 @@ type WorkingSetHead struct {
 	WorkingAddr hash.Hash
 	StagedAddr  *hash.Hash
 	MergeState  *MergeState
+	RebaseState *RebaseState
+}
+
+type RebaseState struct {
+	preRebaseWorkingAddr *hash.Hash
+	ontoCommitAddr       *hash.Hash
+	branch               string
+}
+
+func (rs *RebaseState) PreRebaseWorkingAddr() hash.Hash {
+	if rs.preRebaseWorkingAddr != nil {
+		return *rs.preRebaseWorkingAddr
+	} else {
+		return hash.Hash{}
+	}
+}
+
+func (rs *RebaseState) Branch(_ context.Context) string {
+	return rs.branch
+}
+
+func (rs *RebaseState) OntoCommit(ctx context.Context, vr types.ValueReader) (*Commit, error) {
+	if rs.ontoCommitAddr != nil {
+		return LoadCommitAddr(ctx, vr, *rs.ontoCommitAddr)
+	}
+	return nil, nil
 }
 
 type MergeState struct {
@@ -343,8 +369,12 @@ type serialWorkingSetHead struct {
 	addr hash.Hash
 }
 
-func newSerialWorkingSetHead(bs []byte, addr hash.Hash) serialWorkingSetHead {
-	return serialWorkingSetHead{serial.GetRootAsWorkingSet(bs, serial.MessagePrefixSz), addr}
+func newSerialWorkingSetHead(bs []byte, addr hash.Hash) (serialWorkingSetHead, error) {
+	fb, err := serial.TryGetRootAsWorkingSet(bs, serial.MessagePrefixSz)
+	if err != nil {
+		return serialWorkingSetHead{}, err
+	}
+	return serialWorkingSetHead{fb, addr}, nil
 }
 
 func (h serialWorkingSetHead) TypeName() string {
@@ -376,7 +406,10 @@ func (h serialWorkingSetHead) HeadWorkingSet() (*WorkingSetHead, error) {
 		ret.StagedAddr = new(hash.Hash)
 		*ret.StagedAddr = hash.New(h.msg.StagedRootAddrBytes())
 	}
-	mergeState := h.msg.MergeState(nil)
+	mergeState, err := h.msg.TryMergeState(nil)
+	if err != nil {
+		return nil, err
+	}
 	if mergeState != nil {
 		ret.MergeState = &MergeState{
 			preMergeWorkingAddr: new(hash.Hash),
@@ -391,6 +424,18 @@ func (h serialWorkingSetHead) HeadWorkingSet() (*WorkingSetHead, error) {
 		}
 		ret.MergeState.isCherryPick = mergeState.IsCherryPick()
 	}
+
+	rebaseState, err := h.msg.TryRebaseState(nil)
+	if err != nil {
+		return nil, err
+	}
+	if rebaseState != nil {
+		ret.RebaseState = NewRebaseState(
+			hash.New(rebaseState.PreWorkingRootAddrBytes()),
+			hash.New(rebaseState.OntoCommitAddrBytes()),
+			string(rebaseState.BranchBytes()))
+	}
+
 	return &ret, nil
 }
 
@@ -452,6 +497,42 @@ func (h serialStashListHead) HeadWorkingSet() (*WorkingSetHead, error) {
 	return nil, errors.New("HeadWorkingSet called on stash list")
 }
 
+func newStatisticHead(sm types.SerialMessage, addr hash.Hash) serialStashListHead {
+	return serialStashListHead{sm, addr}
+}
+
+type statisticsHead struct {
+	msg  types.SerialMessage
+	addr hash.Hash
+}
+
+var _ dsHead = statisticsHead{}
+
+// TypeName implements dsHead
+func (s statisticsHead) TypeName() string {
+	return "Statistics"
+}
+
+// Addr implements dsHead
+func (s statisticsHead) Addr() hash.Hash {
+	return s.addr
+}
+
+// HeadTag implements dsHead
+func (s statisticsHead) HeadTag() (*TagMeta, hash.Hash, error) {
+	return nil, hash.Hash{}, errors.New("HeadTag called on statistic")
+}
+
+// HeadWorkingSet implements dsHead
+func (s statisticsHead) HeadWorkingSet() (*WorkingSetHead, error) {
+	return nil, errors.New("HeadWorkingSet called on statistic")
+}
+
+// value implements dsHead
+func (s statisticsHead) value() types.Value {
+	return s.msg
+}
+
 // Dataset is a named value within a Database. Different head values may be stored in a dataset. Most commonly, this is
 // a commit, but other values are also supported in some cases.
 type Dataset struct {
@@ -498,18 +579,17 @@ func newHead(ctx context.Context, head types.Value, addr hash.Hash) (dsHead, err
 
 	if sm, ok := head.(types.SerialMessage); ok {
 		data := []byte(sm)
-		fid := serial.GetFileID(data)
-		if fid == serial.TagFileID {
+		switch serial.GetFileID(data) {
+		case serial.TagFileID:
 			return newSerialTagHead(data, addr)
-		}
-		if fid == serial.WorkingSetFileID {
-			return newSerialWorkingSetHead(data, addr), nil
-		}
-		if fid == serial.CommitFileID {
+		case serial.WorkingSetFileID:
+			return newSerialWorkingSetHead(data, addr)
+		case serial.CommitFileID:
 			return newSerialCommitHead(sm, addr), nil
-		}
-		if fid == serial.StashListFileID {
+		case serial.StashListFileID:
 			return newSerialStashListHead(sm, addr), nil
+		case serial.StatisticFileID:
+			return newStatisticHead(sm, addr), nil
 		}
 	}
 
@@ -525,12 +605,6 @@ func newHead(ctx context.Context, head types.Value, addr hash.Hash) (dsHead, err
 	}
 	if !matched {
 		matched, err = IsWorkingSet(head)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if !matched {
-		matched, err = IsStashList(head)
 		if err != nil {
 			return nil, err
 		}

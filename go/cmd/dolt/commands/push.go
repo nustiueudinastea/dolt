@@ -105,13 +105,13 @@ func (cmd PushCmd) Exec(ctx context.Context, commandStr string, args []string, d
 	errChan := make(chan error)
 	go func() {
 		defer close(errChan)
-		schema, rowIter, err := queryist.Query(sqlCtx, query)
+		_, rowIter, err := queryist.Query(sqlCtx, query)
 		if err != nil {
 			errChan <- err
 			return
 		}
 
-		sqlRows, err := sql.RowIterToRows(sqlCtx, schema, rowIter)
+		sqlRows, err := sql.RowIterToRows(sqlCtx, rowIter)
 		if err != nil {
 			errChan <- err
 			return
@@ -156,6 +156,12 @@ func (cmd PushCmd) Exec(ctx context.Context, commandStr string, args []string, d
 func constructInterpolatedDoltPushQuery(apr *argparser.ArgParseResults) (string, error) {
 	var params []interface{}
 	var args []string
+
+	if user, hasUser := apr.GetValue(cli.UserFlag); hasUser {
+		args = append(args, "'--user'")
+		args = append(args, "?")
+		params = append(params, user)
+	}
 
 	if setUpstream := apr.Contains(cli.SetUpstreamFlag); setUpstream {
 		args = append(args, "'--set-upstream'")

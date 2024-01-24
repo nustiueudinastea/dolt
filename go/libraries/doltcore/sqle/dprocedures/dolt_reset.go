@@ -105,14 +105,16 @@ func doDoltReset(ctx *sql.Context, args []string) (int, error) {
 			}
 		}
 
+		// TODO - refactor and make transactional with the head update above.
 		ws, err := dSess.WorkingSet(ctx, dbName)
 		if err != nil {
 			return 1, err
 		}
-		err = dSess.SetWorkingSet(ctx, dbName, ws.WithWorkingRoot(roots.Working).WithStagedRoot(roots.Staged).ClearMerge())
+		err = dSess.SetWorkingSet(ctx, dbName, ws.WithWorkingRoot(roots.Working).WithStagedRoot(roots.Staged).ClearMerge().ClearRebase())
 		if err != nil {
 			return 1, err
 		}
+
 	} else if apr.Contains(cli.SoftResetParam) {
 		arg := ""
 		if apr.NArg() > 1 {
@@ -130,7 +132,7 @@ func doDoltReset(ctx *sql.Context, args []string) (int, error) {
 			if err != nil {
 				return 1, err
 			}
-			err = dSess.SetWorkingSet(ctx, dbName, ws.WithStagedRoot(roots.Staged).ClearMerge())
+			err = dSess.SetWorkingSet(ctx, dbName, ws.WithStagedRoot(roots.Staged).ClearMerge().ClearRebase())
 			if err != nil {
 				return 1, err
 			}
@@ -168,7 +170,7 @@ func doDoltReset(ctx *sql.Context, args []string) (int, error) {
 				if err != nil {
 					return 1, err
 				}
-				err = dSess.SetWorkingSet(ctx, dbName, ws.WithStagedRoot(roots.Staged).ClearMerge())
+				err = dSess.SetWorkingSet(ctx, dbName, ws.WithStagedRoot(roots.Staged).ClearMerge().ClearRebase())
 				if err != nil {
 					return 1, err
 				}

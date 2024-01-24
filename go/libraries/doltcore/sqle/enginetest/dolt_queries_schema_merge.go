@@ -42,7 +42,7 @@ var SchemaChangeTestsForDataConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_conflicts;",
@@ -86,7 +86,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select pk, col2 from t;",
@@ -114,7 +114,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t;",
@@ -149,7 +149,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col11, col2 from t;",
@@ -183,7 +183,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1, col2 from t;",
@@ -213,7 +213,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -238,7 +238,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -263,7 +263,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -288,7 +288,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -316,7 +316,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -340,7 +340,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t order by pk;",
@@ -366,7 +366,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1, col2 from t;",
@@ -399,7 +399,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1, col2 from t;",
@@ -433,7 +433,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1, col2 from t;",
@@ -469,7 +469,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				// NOTE: If we can't find an exact tag mapping, then we fall back to
@@ -503,7 +503,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t;",
@@ -539,7 +539,7 @@ var SchemaChangeTestsBasicCases = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "show create table t;",
@@ -571,7 +571,7 @@ var SchemaChangeTestsCollations = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -623,7 +623,7 @@ var SchemaChangeTestsCollations = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -632,36 +632,6 @@ var SchemaChangeTestsCollations = []MergeScriptTest{
 			{
 				Query:    "show create table t;",
 				Expected: []sql.Row{{"t", "CREATE TABLE `t` (\n  `pk` int NOT NULL,\n  `col1` varchar(100) CHARACTER SET utf8mb3 COLLATE utf8mb3_unicode_ci,\n  PRIMARY KEY (`pk`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"}},
-			},
-		},
-	},
-	{
-		// TODO: Changing a column's collation may require rewriting the table and any indexes on that column.
-		//       For now, we just detect the schema incompatibility and return schema conflict metadata, but we could
-		//       go further here and automatically convert the data to the new collation.
-		Name: "changing the collation of a column",
-		AncSetUpScript: []string{
-			"set @@autocommit=0;",
-			"create table t (pk int primary key, col1 varchar(32) character set utf8mb4 collate utf8mb4_bin, index col1_idx (col1));",
-			"insert into t values (1, 'ab'), (2, 'Ab');",
-		},
-		RightSetUpScript: []string{
-			"alter table t modify col1 varchar(32) character set utf8mb4 collate utf8mb4_general_ci;",
-		},
-		LeftSetUpScript: []string{
-			"insert into t values (3, 'c');",
-		},
-		Assertions: []queries.ScriptTestAssertion{
-			{
-				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
-			},
-			{
-				Query: "select table_name, our_schema, their_schema, base_schema from dolt_schema_conflicts;",
-				Expected: []sql.Row{{"t",
-					"CREATE TABLE `t` (\n  `pk` int NOT NULL,\n  `col1` varchar(32) COLLATE utf8mb4_bin,\n  PRIMARY KEY (`pk`),\n  KEY `col1_idx` (`col1`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;",
-					"CREATE TABLE `t` (\n  `pk` int NOT NULL,\n  `col1` varchar(32) COLLATE utf8mb4_general_ci,\n  PRIMARY KEY (`pk`),\n  KEY `col1_idx` (`col1`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;",
-					"CREATE TABLE `t` (\n  `pk` int NOT NULL,\n  `col1` varchar(32) COLLATE utf8mb4_bin,\n  PRIMARY KEY (`pk`),\n  KEY `col1_idx` (`col1`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;"}},
 			},
 		},
 	},
@@ -686,7 +656,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t;",
@@ -723,7 +693,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select pk, p_fk, col1, col2 from child order by pk;",
@@ -753,7 +723,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -779,7 +749,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from parent;",
@@ -808,7 +778,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select pk, col1 from t;",
@@ -838,7 +808,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_conflicts;",
@@ -851,8 +821,8 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 			{
 				Query: "select violation_type, pk, col2, violation_info from dolt_constraint_violations_t;",
 				Expected: []sql.Row{
-					{uint(2), "1", "same", merge.UniqCVMeta{Columns: []string{"col2"}, Name: "unique1"}},
-					{uint(2), "10", "same", merge.UniqCVMeta{Columns: []string{"col2"}, Name: "unique1"}},
+					{"unique index", "1", "same", merge.UniqCVMeta{Columns: []string{"col2"}, Name: "unique1"}},
+					{"unique index", "10", "same", merge.UniqCVMeta{Columns: []string{"col2"}, Name: "unique1"}},
 				},
 			},
 			{
@@ -883,7 +853,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -909,7 +879,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t;",
@@ -938,7 +908,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -946,7 +916,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 			},
 			{
 				Query:    "select violation_type, pk, col1, col2, violation_info like '\\%NOT((col1 = col2))\\%' from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(3), 1, 4, 4, true}},
+				Expected: []sql.Row{{"check constraint", 1, 4, 4, true}},
 			},
 		},
 	},
@@ -971,7 +941,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -1001,7 +971,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -1009,7 +979,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 			},
 			{
 				Query:    "select violation_type, pk, col1, col2, violation_info like '%(col1 + col2)%' from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(3), 1, 0, 0, true}},
+				Expected: []sql.Row{{"check constraint", 1, 0, 0, true}},
 			},
 		},
 	},
@@ -1031,7 +1001,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -1039,7 +1009,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 			},
 			{
 				Query:    "select violation_type, pk, col2, col3, violation_info like '\\%NOT((col2 = col3))\\%' from dolt_constraint_violations_t;",
-				Expected: []sql.Row{{uint64(3), 1, 100, 100, true}},
+				Expected: []sql.Row{{"check constraint", 1, 100, 100, true}},
 			},
 		},
 	},
@@ -1060,7 +1030,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 		},
 	},
@@ -1082,7 +1052,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 		},
 	},
@@ -1102,7 +1072,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 		},
 	},
@@ -1122,7 +1092,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 		},
 	},
@@ -1145,7 +1115,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -1153,7 +1123,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 			},
 			{
 				Query:    `select violation_type, pk, col1, violation_info like "\%NOT((col1 = concat('he','llo')))\%" from dolt_constraint_violations_t;`,
-				Expected: []sql.Row{{uint64(3), 2, "hello", true}},
+				Expected: []sql.Row{{"check constraint", 2, "hello", true}},
 			},
 		},
 	},
@@ -1174,7 +1144,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_constraint_violations;",
@@ -1182,7 +1152,7 @@ var SchemaChangeTestsConstraints = []MergeScriptTest{
 			},
 			{
 				Query:    `select violation_type, c0, col0, col1, violation_info like "\%NOT((col1 = concat('he','llo')))\%" from dolt_constraint_violations_t;`,
-				Expected: []sql.Row{{uint64(3), 2, "hola", "hello", true}},
+				Expected: []sql.Row{{"check constraint", 2, "hola", "hello", true}},
 			},
 		},
 	},
@@ -1210,7 +1180,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -1249,14 +1219,14 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t order by pk;",
 				Expected: []sql.Row{
-					{1, uint64(1), uint64(3)},
-					{2, uint64(2), uint64(3)},
-					{3, uint64(3), uint64(5)},
+					{1, "blue", "blue,green"},
+					{2, "green", "blue,green"},
+					{3, "red", "blue,red"},
 				},
 			},
 		},
@@ -1280,7 +1250,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t order by pk;",
@@ -1310,7 +1280,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t order by pk;",
@@ -1340,7 +1310,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t order by pk;",
@@ -1370,7 +1340,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_conflicts;",
@@ -1400,7 +1370,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select * from dolt_conflicts;",
@@ -1430,7 +1400,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t order by pk;",
@@ -1460,7 +1430,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select count(*) from dolt_schema_conflicts where description like 'incompatible column types for column ''col1''%';",
@@ -1486,7 +1456,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select table_name, description like 'incompatible column types for column ''col1''%' from dolt_schema_conflicts;",
@@ -1512,7 +1482,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select table_name, description like 'incompatible column types for column ''col1''%' from dolt_schema_conflicts;",
@@ -1538,7 +1508,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select * from t order by pk;",
@@ -1568,7 +1538,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1 from t order by pk;",
@@ -1605,7 +1575,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1 from t order by pk;",
@@ -1638,7 +1608,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				// When MySQL converts from TINYTEXT to BINARY(255), MySQL right-pads each existing value
@@ -1666,7 +1636,7 @@ var SchemaChangeTestsTypeChanges = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select pk, col1 from t order by pk;",
@@ -1705,7 +1675,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select table_name, our_schema, their_schema, base_schema from dolt_schema_conflicts;",
@@ -1746,7 +1716,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select table_name, our_schema, their_schema, base_schema from dolt_schema_conflicts;",
@@ -1778,7 +1748,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select table_name, our_schema, their_schema, base_schema, description from dolt_schema_conflicts;",
@@ -1807,7 +1777,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select table_name, base_schema, our_schema, their_schema from dolt_schema_conflicts;",
@@ -1835,7 +1805,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select table_name from dolt_schema_conflicts",
@@ -1858,7 +1828,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query:    "select table_name from dolt_schema_conflicts",
@@ -1883,7 +1853,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select table_name, our_schema, their_schema, base_schema from dolt_schema_conflicts;",
@@ -1911,7 +1881,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select table_name, our_schema, their_schema, base_schema from dolt_schema_conflicts;",
@@ -1980,7 +1950,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 				// See the comment above about why this should NOT report a conflict and why this is skipped
 				Skip:     true,
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Skip:     true,
@@ -2007,7 +1977,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query:    "select * from t;",
@@ -2039,7 +2009,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 			{
 				SkipResultsCheck: true,
 				Query:            "call dolt_merge('right');",
-				Expected:         []sql.Row{{"", 0, 0}}, // non-symmetric result
+				Expected:         []sql.Row{{"", 0, 0, "merge successful"}}, // non-symmetric result
 			},
 			{
 				Skip:     true,
@@ -2070,7 +2040,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select pk, col1 from t;",
@@ -2084,8 +2054,8 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 			{
 				Query: "select pk, violation_type from dolt_constraint_violations_t",
 				Expected: []sql.Row{
-					{5, uint16(4)},
-					{6, uint16(4)},
+					{5, "not null"},
+					{6, "not null"},
 				},
 			},
 		},
@@ -2109,7 +2079,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select * from t;",
@@ -2123,8 +2093,8 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 			{
 				Query: "select pk, violation_type from dolt_constraint_violations_t",
 				Expected: []sql.Row{
-					{5, uint16(4)},
-					{6, uint16(4)},
+					{5, "not null"},
+					{6, "not null"},
 				},
 			},
 		},
@@ -2146,7 +2116,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{"", 0, 1}},
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
 			},
 			{
 				Query: "select pk, col1 from t;",
@@ -2158,7 +2128,7 @@ var SchemaChangeTestsSchemaConflicts = []MergeScriptTest{
 			{
 				Query: "select violation_type, pk, violation_info from dolt_constraint_violations_t",
 				Expected: []sql.Row{
-					{uint16(4), 3, merge.NullViolationMeta{Columns: []string{"col1"}}},
+					{"not null", 3, merge.NullViolationMeta{Columns: []string{"col1"}}},
 				},
 			},
 		},
@@ -2188,7 +2158,7 @@ var SchemaChangeTestsGeneratedColumns = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1, col2 from t;",
@@ -2218,7 +2188,7 @@ var SchemaChangeTestsGeneratedColumns = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1, col2, col3 from t order by pk",
@@ -2249,7 +2219,7 @@ var SchemaChangeTestsGeneratedColumns = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1, col2, col3 from t;",
@@ -2279,7 +2249,7 @@ var SchemaChangeTestsGeneratedColumns = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1 from t;",
@@ -2309,7 +2279,7 @@ var SchemaChangeTestsGeneratedColumns = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "select pk, col1 from t;",
@@ -2340,7 +2310,7 @@ var SchemaChangeTestsGeneratedColumns = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 				Skip:     true, // this fails merging right into left
 			},
 			{
@@ -2376,7 +2346,7 @@ var SchemaChangeTestsGeneratedColumns = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 				Skip:     true, // this fails merging right into left
 			},
 			{
@@ -2414,7 +2384,7 @@ var SchemaChangeTestsGeneratedColumns = []MergeScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "call dolt_merge('right');",
-				Expected: []sql.Row{{doltCommit, 0, 0}},
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
 			},
 			{
 				Query: "show create table t;",
@@ -2431,6 +2401,70 @@ var SchemaChangeTestsGeneratedColumns = []MergeScriptTest{
 			{
 				Query:    "select * from t;",
 				Expected: []sql.Row{{1, -1000, 2}},
+			},
+		},
+	},
+}
+
+var SchemaChangeTestsForJsonConflicts = []MergeScriptTest{
+	{
+		Name: "json merge succeeds without @@dolt_dont_merge_json",
+		AncSetUpScript: []string{
+			"set autocommit = 0;",
+			"CREATE table t (pk int primary key, j json);",
+			"INSERT into t values (1, '{}');",
+		},
+		RightSetUpScript: []string{
+			`update t set j = '{"a": 1}';`,
+		},
+		LeftSetUpScript: []string{
+			`update t set j = '{"b": 2}';`,
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "call dolt_merge('right');",
+				Expected: []sql.Row{{doltCommit, 0, 0, "merge successful"}},
+			},
+			{
+				Query: "select * from t;",
+				Expected: []sql.Row{
+					{
+						1, `{"a": 1, "b": 2}`,
+					},
+				},
+			},
+		},
+	},
+	{
+		Name: "json merge fails with @@dolt_dont_merge_json",
+		AncSetUpScript: []string{
+			"set autocommit = 0;",
+			"set @@dolt_dont_merge_json = 1;",
+			"CREATE table t (pk int primary key, j json);",
+			"INSERT into t values (1, '{}');",
+		},
+		RightSetUpScript: []string{
+			`update t set j = '{"a": 1}';`,
+		},
+		LeftSetUpScript: []string{
+			`update t set j = '{"b": 2}';`,
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "call dolt_merge('right');",
+				Expected: []sql.Row{{"", 0, 1, "conflicts found"}},
+			},
+			{
+				Query:    "select * from dolt_conflicts;",
+				Expected: []sql.Row{{"t", uint(1)}},
+			},
+			{
+				Query: "select base_j, our_j, their_j from dolt_conflicts_t;",
+				Expected: []sql.Row{
+					{
+						`{}`, `{"b": 2}`, `{"a": 1}`,
+					},
+				},
 			},
 		},
 	},

@@ -62,11 +62,9 @@ type SqlEngineTableWriter struct {
 }
 
 func NewSqlEngineTableWriter(ctx context.Context, dEnv *env.DoltEnv, createTableSchema, rowOperationSchema schema.Schema, options *MoverOptions, statsCB noms.StatsCB) (*SqlEngineTableWriter, error) {
-	if dEnv.IsLocked() {
-		return nil, env.ErrActiveServerLock.New(dEnv.LockFile())
-	}
+	// TODO: Assert that dEnv.DoltDB.AccessMode() != ReadOnly?
 
-	mrEnv, err := env.MultiEnvForDirectory(ctx, dEnv.Config.WriteableConfig(), dEnv.FS, dEnv.Version, dEnv.IgnoreLockFile, dEnv)
+	mrEnv, err := env.MultiEnvForDirectory(ctx, dEnv.Config.WriteableConfig(), dEnv.FS, dEnv.Version, dEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +270,7 @@ func (s *SqlEngineTableWriter) createTable() error {
 	// upstream to make the dolt schema
 	sqlCols := make([]string, len(s.tableSchema.Schema))
 	for i, c := range s.tableSchema.Schema {
-		sqlCols[i] = sql.GenerateCreateTableColumnDefinition(c, c.Default.String(), sql.Collation_Default)
+		sqlCols[i] = sql.GenerateCreateTableColumnDefinition(c, c.Default.String(), c.OnUpdate.String(), sql.Collation_Default)
 	}
 	var pks string
 	var sep string
@@ -285,11 +283,11 @@ func (s *SqlEngineTableWriter) createTable() error {
 	}
 
 	createTable := sql.GenerateCreateTableStatement(s.tableName, sqlCols, sql.CharacterSet_utf8.String(), sql.Collation_Default.String())
-	sch, iter, err := s.se.Query(s.sqlCtx, createTable)
+	_, iter, err := s.se.Query(s.sqlCtx, createTable)
 	if err != nil {
 		return err
 	}
-	_, err = sql.RowIterToRows(s.sqlCtx, sch, iter)
+	_, err = sql.RowIterToRows(s.sqlCtx, iter)
 	return err
 }
 

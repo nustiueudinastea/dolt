@@ -264,6 +264,53 @@ SQL
     [[ ! "$output" =~ "README.md" ]] || false
 }
 
+@test "remotes: clone a complicated remote" {
+    dolt remote add test-remote http://localhost:50051/test-org/test-repo
+    dolt sql -q "CREATE TABLE test (pk int primary key)"
+    dolt sql -q "INSERT INTO test VALUES (1), (2), (3)"
+    dolt add test
+    dolt commit -m "test commit"
+    dolt push test-remote main
+    dolt push test-remote main:genesis-branch # In the beginning, there was a branch.
+    dolt tag customtag main
+    dolt push test-remote customtag
+
+    ## Cloning from a remote which has tags and it's own remotes
+    ## https://github.com/dolthub/dolt/issues/7043
+    cd "dolt-repo-clones"
+    dolt clone http://localhost:50051/test-org/test-repo clone-1
+    cd clone-1
+
+    # Assert that all the branches and tags are present
+    run dolt branch -a
+    [[ "$status" -eq 0 ]] || false
+    [[ "$output" =~ "remotes/origin/main" ]] || false
+    [[ "$output" =~ "remotes/origin/genesis-branch" ]] || false
+    run dolt tag
+    [[ "$status" -eq 0 ]] || false
+    [[ "$output" =~ "customtag" ]] || false
+
+    # Make a local branch, and backup to a different remote
+    dolt checkout -b clone-1-branch HEAD
+    dolt backup add mybackup http://localhost:50051/alternate-org/backup
+    dolt backup sync mybackup
+
+    cd ..
+    dolt clone http://localhost:50051/alternate-org/backup clone-2
+    cd clone-2
+
+    # Assert that the backup creates remote branches which are correct.
+    run dolt branch -a
+    [[ "$status" -eq 0 ]] || false
+    [[ "$output" =~ "remotes/origin/clone-1-branch" ]] || false
+    [[ "$output" =~ "remotes/origin/main" ]] || false
+    ! [[ "$output" =~ "remotes/origin/genesis-branch" ]] || false
+
+    run dolt tag
+    [[ "$status" -eq 0 ]] || false
+    [[ "$output" =~ "customtag" ]] || false
+}
+
 @test "remotes: read tables test" {
     # create table t1 and commit
     dolt remote add test-remote http://localhost:50051/test-org/test-repo
@@ -1006,6 +1053,51 @@ create_five_remote_branches_main_and_master() {
     [[ "$output" =~ "remotes/origin/main" ]] || false
     [[ "$output" =~ "remotes/origin/branch-one" ]] || false
     [[ "$output" =~ "remotes/origin/branch-two" ]] || false
+}
+
+@test "remotes: clone --single-branch does not create remote refs for all remote branches" {
+    create_three_remote_branches
+    cd dolt-repo-clones
+    dolt clone --single-branch http://localhost:50051/test-org/test-repo
+    cd test-repo
+    run dolt branch -a
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "* main" ]] || false
+    [[ ! "$output" =~ " branch-one" ]] || false
+    [[ ! "$output" =~ " branch-two" ]] || false
+    [[ "$output" =~ "remotes/origin/main" ]] || false
+    [[ ! "$output" =~ "remotes/origin/branch-one" ]] || false
+    [[ ! "$output" =~ "remotes/origin/branch-two" ]] || false
+}
+
+@test "remotes: clone --branch specifies which branch to clone" {
+    create_three_remote_branches
+    cd dolt-repo-clones
+    dolt clone --branch branch-one http://localhost:50051/test-org/test-repo
+    cd test-repo
+    run dolt branch -a
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "* branch-one" ]] || false
+    [[ ! "$output" =~ " main" ]] || false
+    [[ ! "$output" =~ " branch-two" ]] || false
+    [[ "$output" =~ "remotes/origin/main" ]] || false
+    [[ "$output" =~ "remotes/origin/branch-one" ]] || false
+    [[ "$output" =~ "remotes/origin/branch-two" ]] || false
+}
+
+@test "remotes: clone --single-branch --branch does not create all remote refs" {
+    create_three_remote_branches
+    cd dolt-repo-clones
+    dolt clone --branch branch-one --single-branch http://localhost:50051/test-org/test-repo
+    cd test-repo
+    run dolt branch -a
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "* branch-one" ]] || false
+    [[ ! "$output" =~ " main" ]] || false
+    [[ ! "$output" =~ " branch-two" ]] || false
+    [[ ! "$output" =~ "remotes/origin/main" ]] || false
+    [[ "$output" =~ "remotes/origin/branch-one" ]] || false
+    [[ ! "$output" =~ "remotes/origin/branch-two" ]] || false
 }
 
 @test "remotes: fetch creates new remote refs for new remote branches" {

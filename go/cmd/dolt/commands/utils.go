@@ -308,11 +308,11 @@ func newLateBindingEngine(
 }
 
 func GetRowsForSql(queryist cli.Queryist, sqlCtx *sql.Context, query string) ([]sql.Row, error) {
-	schema, rowIter, err := queryist.Query(sqlCtx, query)
+	_, rowIter, err := queryist.Query(sqlCtx, query)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := sql.RowIterToRows(sqlCtx, schema, rowIter)
+	rows, err := sql.RowIterToRows(sqlCtx, rowIter)
 	if err != nil {
 		return nil, err
 	}
@@ -365,6 +365,19 @@ func getInt64ColAsInt64(col interface{}) (int64, error) {
 		return iv, nil
 	default:
 		return 0, fmt.Errorf("unexpected type %T, was expecting int64, uint64 or string", v)
+	}
+}
+
+// getStringColAsString returns the value of the input as a bool. This is required because depending on if we
+// go over the wire or not we may get a string or a bool when we expect a bool.
+func getStrBoolColAsBool(col interface{}) (bool, error) {
+	switch v := col.(type) {
+	case bool:
+		return col.(bool), nil
+	case string:
+		return strings.ToLower(col.(string)) == "true", nil
+	default:
+		return false, fmt.Errorf("unexpected type %T, was expecting bool or string", v)
 	}
 }
 
@@ -706,6 +719,22 @@ func getTagsForHash(queryist cli.Queryist, sqlCtx *sql.Context, targetHash strin
 		tags = append(tags, name)
 	}
 	return tags, nil
+}
+
+// getFastforward helper functions which takes a single sql.Row and an index. If that value at that index is 1, TRUE
+// is returned. This is somewhat context specific, but is used to determine if a merge resulted in a fastward, and the
+// procedures which do this return the FF flag in different columns of their results.
+func getFastforward(row sql.Row, index int) bool {
+	fastForward := false
+	if row != nil && len(row) > index {
+		if ff, ok := row[index].(int64); ok {
+			fastForward = ff == 1
+		} else if ff, ok := row[index].(string); ok {
+			// remote execution returns row as a string
+			fastForward = ff == "1"
+		}
+	}
+	return fastForward
 }
 
 func getHashOf(queryist cli.Queryist, sqlCtx *sql.Context, ref string) (string, error) {

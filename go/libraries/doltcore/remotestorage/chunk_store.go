@@ -119,9 +119,10 @@ type DoltChunkStore struct {
 	concurrency ConcurrencyParams
 	stats       cacheStats
 	logger      chunks.DebugLogger
+	wsValidate  bool
 }
 
-func NewDoltChunkStoreFromPath(ctx context.Context, nbf *types.NomsBinFormat, path, host string, csClient remotesapi.ChunkStoreServiceClient) (*DoltChunkStore, error) {
+func NewDoltChunkStoreFromPath(ctx context.Context, nbf *types.NomsBinFormat, path, host string, wsval bool, csClient remotesapi.ChunkStoreServiceClient) (*DoltChunkStore, error) {
 	var repoId *remotesapi.RepoId
 
 	path = strings.Trim(path, "/")
@@ -163,6 +164,7 @@ func NewDoltChunkStoreFromPath(ctx context.Context, nbf *types.NomsBinFormat, pa
 		nbf:         nbf,
 		httpFetcher: globalHttpFetcher,
 		concurrency: defaultConcurrency,
+		wsValidate:  wsval,
 	}
 	err = cs.loadRoot(ctx)
 	if err != nil {
@@ -828,6 +830,10 @@ func (dcs *DoltChunkStore) Version() string {
 	return dcs.metadata.NbfVersion
 }
 
+func (dcs *DoltChunkStore) AccessMode() chunks.ExclusiveAccessMode {
+	return chunks.ExclusiveAccessMode_Shared
+}
+
 // Rebase brings this ChunkStore into sync with the persistent storage's
 // current root.
 func (dcs *DoltChunkStore) Rebase(ctx context.Context) error {
@@ -862,6 +868,20 @@ func (dcs *DoltChunkStore) refreshRepoMetadata(ctx context.Context) error {
 // was opened or the most recent call to Rebase.
 func (dcs *DoltChunkStore) Root(ctx context.Context) (hash.Hash, error) {
 	return dcs.root, nil
+}
+
+func (dcs *DoltChunkStore) PushConcurrencyControl() chunks.PushConcurrencyControl {
+	if dcs.metadata.PushConcurrencyControl == remotesapi.PushConcurrencyControl_PUSH_CONCURRENCY_CONTROL_ASSERT_WORKING_SET {
+		return chunks.PushConcurrencyControl_AssertWorkingSet
+	}
+
+	if dcs.metadata.PushConcurrencyControl == remotesapi.PushConcurrencyControl_PUSH_CONCURRENCY_CONTROL_UNSPECIFIED {
+		if dcs.wsValidate {
+			return chunks.PushConcurrencyControl_AssertWorkingSet
+		}
+	}
+
+	return chunks.PushConcurrencyControl_IgnoreWorkingSet
 }
 
 func (dcs *DoltChunkStore) loadRoot(ctx context.Context) error {
@@ -1011,9 +1031,11 @@ func (dcs *DoltChunkStore) uploadTableFileWithRetries(ctx context.Context, table
 		req := &remotesapi.GetUploadLocsRequest{RepoId: id, RepoToken: token, RepoPath: dcs.repoPath, TableFileDetails: []*remotesapi.TableFileDetails{tbfd}}
 		resp, err := dcs.csClient.GetUploadLocations(ctx, req)
 		if err != nil {
-			if err != nil {
-				return NewRpcError(err, "GetUploadLocations", dcs.host, req)
+			err := NewRpcError(err, "GetUploadLocations", dcs.host, req)
+			if err.IsPermanent() {
+				return backoff.Permanent(err)
 			}
+			return err
 		}
 
 		if resp.RepoToken != "" {

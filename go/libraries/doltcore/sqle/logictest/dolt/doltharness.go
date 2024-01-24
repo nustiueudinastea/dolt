@@ -116,6 +116,10 @@ func (h *DoltHarness) ExecuteQuery(statement string) (schema string, results []s
 	return schemaString, results, nil
 }
 
+func (h *DoltHarness) GetTimeout() int64 {
+	return 0
+}
+
 func innerInit(h *DoltHarness, dEnv *env.DoltEnv) error {
 	if !dEnv.HasDoltDir() {
 		err := dEnv.InitRepoWithTime(context.Background(), types.Format_Default, name, email, env.DefaultInitBranch, time.Now())
@@ -286,7 +290,7 @@ func sqlNewEngine(dEnv *env.DoltEnv) (*sqle.Engine, dsess.DoltDatabaseProvider, 
 		return nil, nil, err
 	}
 
-	mrEnv, err := env.MultiEnvForDirectory(context.Background(), dEnv.Config.WriteableConfig(), dEnv.FS, dEnv.Version, dEnv.IgnoreLockFile, dEnv)
+	mrEnv, err := env.MultiEnvForDirectory(context.Background(), dEnv.Config.WriteableConfig(), dEnv.FS, dEnv.Version, dEnv)
 	if err != nil {
 		return nil, nil, err
 	}

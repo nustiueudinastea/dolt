@@ -118,3 +118,28 @@ CSV
     [[ "$output" =~ "color: green" ]] || false
     [[ "$output" =~ "Errors during import can be ignored using '--continue'" ]] || false
 }
+
+@test "import-append-tables: different schema warning lists differing columns" {
+    dolt sql -q "CREATE TABLE t (pk int primary key, col1 int);"
+    run dolt table import -a t <<CSV
+pk, col2
+1, 1
+CSV
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "Warning: The import file's schema does not match the table's schema" ]] || false
+    [[ "$output" =~ "If unintentional, check for any typos in the import file's header" ]] || false
+    [[ "$output" =~ "Missing columns in t:" ]] || false
+    [[ "$output" =~ "	col1" ]] || false
+    [[ "$output" =~ "Extra columns in import file:" ]] || false
+    [[ "$output" =~ "	col2" ]] || false
+}
+
+@test "import-append-tables: can't use --all-text with -a" {
+    dolt sql -q "CREATE TABLE t (pk int primary key, col1 int);"
+    run dolt table import -a t --all-text <<CSV
+pk, col1
+1, 1
+CSV
+    [ "$status" -eq 1 ]
+    [[ "$output" =~ "fatal: --all-text is only supported for create operations" ]] || false
+}

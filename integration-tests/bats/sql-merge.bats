@@ -21,10 +21,16 @@ teardown() {
 
 @test "sql-merge: DOLT_MERGE with no-ff displays hash." {
     dolt add .
-    dolt commit -m "dummy commit"
-    oldHead=$(dolt sql -r csv -q "select hashof('HEAD')" | sed -n '2 p')
+    dolt commit -m "commit on main"
+    oldHead=$(dolt merge-base HEAD HEAD)
+    dolt sql -q "INSERT INTO test VALUES (679283);"
+    dolt commit -a -m "2nd commit on main"
+
+    dolt checkout -b branch HEAD~1
+    dolt sql -q "INSERT INTO test VALUES (380989);"
+    dolt commit -a -m "commit on branch"
     mergeHead=$(dolt sql -r csv -q "call dolt_merge('--no-ff', 'main')" | sed -n '2 p' | head -c 32)
-    newHead=$(dolt sql -r csv -q "select hashof('HEAD')" | sed -n '2 p')
+    newHead=$(dolt merge-base HEAD HEAD)
     echo $mergeHead
     echo $newHead
     [ ! "$mergeHead" = "$oldHead" ]
@@ -35,13 +41,6 @@ teardown() {
     dolt sql -q "call dolt_commit('-a', '-m', 'Step 1');"
 
     run dolt sql -q "call dolt_merge('feature-branch');"
-    log_status_eq 1
-}
-
-@test "sql-merge: CALL DOLT_MERGE with unknown branch name throws an error" {
-    dolt sql -q "CALL DOLT_COMMIT('-a', '-m', 'Step 1');"
-
-    run dolt sql -q "CALL DOLT_MERGE('feature-branch');"
     log_status_eq 1
 }
 
@@ -298,24 +297,6 @@ SQL
     [[ "$output" =~ "this is a no-ff" ]] || false
 }
 
-@test "sql-merge: CALL DOLT_MERGE works with no-ff" {
-        run dolt sql << SQL
-CALL DOLT_COMMIT('-a', '-m', 'Step 1');
-CALL DOLT_CHECKOUT('-b', 'feature-branch');
-INSERT INTO test VALUES (3);
-CALL DOLT_COMMIT('-a', '-m', 'update feature-branch');
-CALL DOLT_CHECKOUT('main');
-CALL DOLT_MERGE('feature-branch', '-no-ff', '-m', 'this is a no-ff');
-SELECT COUNT(*) = 4 FROM dolt_log
-SQL
-    log_status_eq 0
-    [[ "$output" =~ "true" ]] || false
-
-    run dolt log -n 1
-    log_status_eq 0
-    [[ "$output" =~ "this is a no-ff" ]] || false
-}
-
 @test "sql-merge: DOLT_MERGE -no-ff correctly changes head and working session variables." {
     export DOLT_DBNAME_REPLACE="true"
     dolt sql << SQL
@@ -365,7 +346,7 @@ call dolt_checkout('main');
 call dolt_merge('feature-branch');
 SQL
     log_status_eq 1
-    [[ $output =~ "Merge conflict detected, transaction rolled back. Merge conflicts must be resolved using the dolt_conflicts tables before committing a transaction. To commit transactions with merge conflicts, set @@dolt_allow_commit_conflicts = 1" ]] || false
+    [[ $output =~ "Merge conflict detected, @autocommit transaction rolled back. @autocommit must be disabled so that merge conflicts can be resolved using the dolt_conflicts and dolt_schema_conflicts tables before manually committing the transaction. Alternatively, to commit transactions with merge conflicts, set @@dolt_allow_commit_conflicts = 1" ]] || false
 
     run dolt status
     log_status_eq 0
@@ -416,7 +397,7 @@ call dolt_checkout('main');
 call dolt_merge('feature-branch');
 SQL
     log_status_eq 1
-    [[ $output =~ "Merge conflict detected, transaction rolled back. Merge conflicts must be resolved using the dolt_conflicts tables before committing a transaction. To commit transactions with merge conflicts, set @@dolt_allow_commit_conflicts = 1" ]] || false
+    [[ $output =~ "Merge conflict detected, @autocommit transaction rolled back. @autocommit must be disabled so that merge conflicts can be resolved using the dolt_conflicts and dolt_schema_conflicts tables before manually committing the transaction. Alternatively, to commit transactions with merge conflicts, set @@dolt_allow_commit_conflicts = 1" ]] || false
 
     # back on the command line, our session state is clean
     run dolt status

@@ -89,7 +89,7 @@ func TestSingleQuery(t *testing.T) {
 	}
 
 	for _, q := range setupQueries {
-		enginetest.RunQuery(t, engine, harness, q)
+		enginetest.RunQueryWithContext(t, engine, harness, nil, q)
 	}
 
 	// engine.EngineAnalyzer().Debug = true
@@ -331,7 +331,7 @@ func TestSingleQueryPrepared(t *testing.T) {
 	}
 
 	for _, q := range setupQueries {
-		enginetest.RunQuery(t, engine, harness, q)
+		enginetest.RunQueryWithContext(t, engine, harness, nil, q)
 	}
 
 	//engine.Analyzer.Debug = true
@@ -478,7 +478,7 @@ func TestDoltDiffQueryPlans(t *testing.T) {
 	defer e.Close()
 
 	for _, tt := range DoltDiffPlanTests {
-		enginetest.TestQueryPlan(t, harness, e, tt.Query, tt.ExpectedPlan, false)
+		enginetest.TestQueryPlan(t, harness, e, tt.Query, tt.ExpectedPlan, sql.DescribeOptions{})
 	}
 }
 
@@ -797,7 +797,7 @@ func TestJoinOps(t *testing.T) {
 
 	h := newDoltHarness(t)
 	defer h.Close()
-	enginetest.TestJoinOps(t, h)
+	enginetest.TestJoinOps(t, h, enginetest.DefaultJoinOpTests)
 }
 
 func TestJoinPlanning(t *testing.T) {
@@ -1234,6 +1234,12 @@ func TestColumnDefaults(t *testing.T) {
 	enginetest.TestColumnDefaults(t, h)
 }
 
+func TestOnUpdateExprScripts(t *testing.T) {
+	h := newDoltHarness(t)
+	defer h.Close()
+	enginetest.TestOnUpdateExprScripts(t, h)
+}
+
 func TestAlterTable(t *testing.T) {
 	// This is a newly added test in GMS that dolt doesn't support yet
 	h := newDoltHarness(t).WithSkippedQueries([]string{"ALTER TABLE t42 ADD COLUMN s varchar(20), drop check check1"})
@@ -1482,9 +1488,9 @@ func TestDoltRevisionDbScripts(t *testing.T) {
 	_, err = enginetest.RunSetupScripts(ctx, harness.engine, setupScripts, true)
 	require.NoError(t, err)
 
-	sch, iter, err := harness.engine.Query(ctx, "select hashof('HEAD~2');")
+	_, iter, err := harness.engine.Query(ctx, "select hashof('HEAD~2');")
 	require.NoError(t, err)
-	rows, err := sql.RowIterToRows(ctx, sch, iter)
+	rows, err := sql.RowIterToRows(ctx, iter)
 	require.NoError(t, err)
 	assert.Equal(t, 1, len(rows))
 	commithash := rows[0][0].(string)
@@ -1655,6 +1661,30 @@ func TestDoltMerge(t *testing.T) {
 			defer h.Close()
 			h.Setup(setup.MydbData)
 			enginetest.TestScript(t, h, script)
+		}()
+	}
+}
+
+func TestDoltRebase(t *testing.T) {
+	for _, script := range DoltRebaseScriptTests {
+		func() {
+			h := newDoltHarness(t)
+			defer h.Close()
+			h.skipSetupCommit = true
+			enginetest.TestScript(t, h, script)
+		}()
+	}
+
+	testMultiSessionScriptTests(t, DoltRebaseMultiSessionScriptTests)
+}
+
+func TestDoltRebasePrepared(t *testing.T) {
+	for _, script := range DoltRebaseScriptTests {
+		func() {
+			h := newDoltHarness(t)
+			defer h.Close()
+			h.skipSetupCommit = true
+			enginetest.TestScriptPrepared(t, h, script)
 		}()
 	}
 }
@@ -2340,7 +2370,7 @@ func TestSystemTableIndexes(t *testing.T) {
 
 		ctx := enginetest.NewContext(harness)
 		for _, q := range stt.setup {
-			enginetest.RunQuery(t, e, harness, q)
+			enginetest.RunQueryWithContext(t, e, harness, ctx, q)
 		}
 
 		for i, c := range []string{"inner", "lookup", "hash", "merge"} {
@@ -2375,7 +2405,7 @@ func TestSystemTableIndexesPrepared(t *testing.T) {
 
 		ctx := enginetest.NewContext(harness)
 		for _, q := range stt.setup {
-			enginetest.RunQuery(t, e, harness, q)
+			enginetest.RunQueryWithContext(t, e, harness, ctx, q)
 		}
 
 		for _, tt := range stt.queries {
@@ -2504,13 +2534,40 @@ func TestQueriesPrepared(t *testing.T) {
 	enginetest.TestQueriesPrepared(t, h)
 }
 
-func TestStatistics(t *testing.T) {
+func TestStatsHistograms(t *testing.T) {
 	h := newDoltHarness(t)
 	defer h.Close()
-	for _, script := range DoltStatsTests {
+	for _, script := range DoltHistogramTests {
 		h.engine = nil
 		enginetest.TestScript(t, h, script)
 	}
+}
+
+// TestStatsIO force a provider reload in-between setup and assertions that
+// forces a round trip of the statistics table before inspecting values.
+func TestStatsIO(t *testing.T) {
+	h := newDoltHarness(t)
+	defer h.Close()
+	for _, script := range append(DoltStatsIOTests, DoltHistogramTests...) {
+		h.engine = nil
+		func() {
+			e := mustNewEngine(t, h)
+			if enginetest.IsServerEngine(e) {
+				return
+			}
+			defer e.Close()
+			TestProviderReloadScriptWithEngine(t, e, h, script)
+		}()
+	}
+}
+
+func TestJoinStats(t *testing.T) {
+	// these are sensitive to cardinality estimates,
+	// particularly the join-filter tests that trade-off
+	// smallest table first vs smallest join first
+	h := newDoltHarness(t)
+	defer h.Close()
+	enginetest.TestJoinStats(t, h)
 }
 
 func TestStatisticIndexes(t *testing.T) {
@@ -2530,7 +2587,7 @@ func TestSpatialQueriesPrepared(t *testing.T) {
 func TestPreparedStatistics(t *testing.T) {
 	h := newDoltHarness(t)
 	defer h.Close()
-	for _, script := range DoltStatsTests {
+	for _, script := range DoltHistogramTests {
 		h.engine = nil
 		enginetest.TestScriptPrepared(t, h, script)
 	}
@@ -2934,6 +2991,7 @@ func TestThreeWayMergeWithSchemaChangeScripts(t *testing.T) {
 	runMergeScriptTestsInBothDirections(t, SchemaChangeTestsConstraints, "constraint changes", false)
 	runMergeScriptTestsInBothDirections(t, SchemaChangeTestsSchemaConflicts, "schema conflicts", false)
 	runMergeScriptTestsInBothDirections(t, SchemaChangeTestsGeneratedColumns, "generated columns", false)
+	runMergeScriptTestsInBothDirections(t, SchemaChangeTestsForJsonConflicts, "json merge", false)
 
 	// Run non-symmetric schema merge tests in just one direction
 	t.Run("type changes", func(t *testing.T) {
@@ -2956,6 +3014,7 @@ func TestThreeWayMergeWithSchemaChangeScriptsPrepared(t *testing.T) {
 	runMergeScriptTestsInBothDirections(t, SchemaChangeTestsConstraints, "constraint changes", true)
 	runMergeScriptTestsInBothDirections(t, SchemaChangeTestsSchemaConflicts, "schema conflicts", true)
 	runMergeScriptTestsInBothDirections(t, SchemaChangeTestsGeneratedColumns, "generated columns", true)
+	runMergeScriptTestsInBothDirections(t, SchemaChangeTestsForJsonConflicts, "json merge", true)
 
 	// Run non-symmetric schema merge tests in just one direction
 	t.Run("type changes", func(t *testing.T) {
@@ -2968,6 +3027,36 @@ func TestThreeWayMergeWithSchemaChangeScriptsPrepared(t *testing.T) {
 			}()
 		}
 	})
+}
+
+// If CREATE DATABASE has an error within the DatabaseProvider, it should not
+// leave behind intermediate filesystem state.
+func TestCreateDatabaseErrorCleansUp(t *testing.T) {
+	dh := newDoltHarness(t)
+	require.NotNil(t, dh)
+	e, err := dh.NewEngine(t)
+	require.NoError(t, err)
+	require.NotNil(t, e)
+
+	dh.provider.(*sqle.DoltDatabaseProvider).InitDatabaseHook = func(_ *sql.Context, _ *sqle.DoltDatabaseProvider, name string, _ *env.DoltEnv) error {
+		if name == "cannot_create" {
+			return fmt.Errorf("there was an error initializing this database. abort!")
+		}
+		return nil
+	}
+
+	err = dh.provider.CreateDatabase(enginetest.NewContext(dh), "can_create")
+	require.NoError(t, err)
+
+	err = dh.provider.CreateDatabase(enginetest.NewContext(dh), "cannot_create")
+	require.Error(t, err)
+
+	fs := dh.multiRepoEnv.FileSystem()
+	exists, _ := fs.Exists("cannot_create")
+	require.False(t, exists)
+	exists, isDir := fs.Exists("can_create")
+	require.True(t, exists)
+	require.True(t, isDir)
 }
 
 // runMergeScriptTestsInBothDirections creates a new test run, named |name|, and runs the specified merge |tests|

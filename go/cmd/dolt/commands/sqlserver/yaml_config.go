@@ -66,7 +66,7 @@ func intPtr(n int) *int {
 // BehaviorYAMLConfig contains server configuration regarding how the server should behave
 type BehaviorYAMLConfig struct {
 	ReadOnly   *bool `yaml:"read_only"`
-	AutoCommit *bool
+	AutoCommit *bool `yaml:"autocommit"`
 	// PersistenceBehavior regulates loading persisted system variable configuration.
 	PersistenceBehavior *string `yaml:"persistence_behavior"`
 	// Disable processing CLIENT_MULTI_STATEMENTS support on the
@@ -85,14 +85,8 @@ type BehaviorYAMLConfig struct {
 
 // UserYAMLConfig contains server configuration regarding the user account clients must use to connect
 type UserYAMLConfig struct {
-	Name     *string
-	Password *string
-}
-
-// DatabaseYAMLConfig contains information on a database that this server will provide access to
-type DatabaseYAMLConfig struct {
-	Name string
-	Path string
+	Name     *string `yaml:"name"`
+	Password *string `yaml:"password"`
 }
 
 // ListenerYAMLConfig contains information on the network connection that the server will open
@@ -126,11 +120,16 @@ type MetricsYAMLConfig struct {
 }
 
 type RemotesapiYAMLConfig struct {
-	Port_ *int `yaml:"port"`
+	Port_     *int  `yaml:"port,omitempty"`
+	ReadOnly_ *bool `yaml:"read_only,omitempty" minver:"1.30.5"`
 }
 
 func (r RemotesapiYAMLConfig) Port() int {
 	return *r.Port_
+}
+
+func (r RemotesapiYAMLConfig) ReadOnly() bool {
+	return *r.ReadOnly_
 }
 
 type UserSessionVars struct {
@@ -174,7 +173,7 @@ func NewYamlConfig(configFileData []byte) (YAMLConfig, error) {
 	return cfg, err
 }
 
-func serverConfigAsYAMLConfig(cfg ServerConfig) YAMLConfig {
+func ServerConfigAsYAMLConfig(cfg ServerConfig) YAMLConfig {
 	return YAMLConfig{
 		LogLevelStr:       strPtr(string(cfg.LogLevel())),
 		MaxQueryLenInLogs: nillableIntPtr(cfg.MaxLoggedQueryLen()),
@@ -214,7 +213,8 @@ func serverConfigAsYAMLConfig(cfg ServerConfig) YAMLConfig {
 			Port:   intPtr(cfg.MetricsPort()),
 		},
 		RemotesapiConfig: RemotesapiYAMLConfig{
-			Port_: cfg.RemotesapiPort(),
+			Port_:     cfg.RemotesapiPort(),
+			ReadOnly_: cfg.RemotesapiReadOnly(),
 		},
 		ClusterCfg:        clusterConfigAsYAMLConfig(cfg.ClusterConfig()),
 		PrivilegeFile:     strPtr(cfg.PrivilegeFilePath()),
@@ -411,6 +411,10 @@ func (cfg YAMLConfig) MetricsPort() int {
 
 func (cfg YAMLConfig) RemotesapiPort() *int {
 	return cfg.RemotesapiConfig.Port_
+}
+
+func (cfg YAMLConfig) RemotesapiReadOnly() *bool {
+	return cfg.RemotesapiConfig.ReadOnly_
 }
 
 // PrivilegeFilePath returns the path to the file which contains all needed privilege information in the form of a

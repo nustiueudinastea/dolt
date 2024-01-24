@@ -299,9 +299,14 @@ func (c *Controller) applyCommitHooks(ctx context.Context, name string, bt *sql.
 	dialprovider := c.gRPCDialProvider(denv)
 	var hooks []*commithook
 	for _, r := range c.cfg.StandbyRemotes() {
+		remoteUrl := strings.Replace(r.RemoteURLTemplate(), dsess.URLTemplateDatabasePlaceholder, name, -1)
 		remote, ok := remotes.Get(r.Name())
 		if !ok {
-			return nil, fmt.Errorf("sqle: cluster: standby replication: destination remote %s does not exist on database %s", r.Name(), name)
+			remote = env.NewRemote(r.Name(), remoteUrl, nil)
+			err := denv.AddRemote(remote)
+			if err != nil {
+				return nil, fmt.Errorf("sqle: cluster: standby replication: could not create remote %s for database %s: %w", r.Name(), name, err)
+			}
 		}
 		commitHook := newCommitHook(c.lgr, r.Name(), remote.Url, name, c.role, func(ctx context.Context) (*doltdb.DoltDB, error) {
 			return remote.GetRemoteDB(ctx, types.Format_Default, dialprovider)
@@ -684,7 +689,7 @@ func (c *Controller) RemoteSrvServerArgs(ctxFactory func(context.Context) (*sql.
 	args.GrpcListenAddr = listenaddr
 	args.Options = c.ServerOptions()
 	var err error
-	args, err = sqle.RemoteSrvServerArgs(ctxFactory, args)
+	args.FS, args.DBCache, err = sqle.RemoteSrvFSAndDBCache(ctxFactory, sqle.CreateUnknownDatabases)
 	if err != nil {
 		return remotesrv.ServerArgs{}, err
 	}

@@ -38,10 +38,11 @@ type CommitHook interface {
 	HandleError(ctx context.Context, err error) error
 	// SetLogger lets clients specify an output stream for HandleError
 	SetLogger(ctx context.Context, wr io.Writer) error
-
+	// ExecuteForWorkingSets returns whether or not the hook should be executed for working set updates
 	ExecuteForWorkingSets() bool
 }
 
+// NotifyWaitFailedCommitHook is an optional interface that can be implemented by CommitHooks.
 // If a commit hook supports this interface, it can be notified if waiting for
 // replication in the callback returned by |Execute| failed to complete in time
 // or returned an error.
@@ -155,24 +156,24 @@ func (db hooksDatabase) WriteCommit(ctx context.Context, ds datas.Dataset, commi
 	return ds, err
 }
 
-func (db hooksDatabase) SetHead(ctx context.Context, ds datas.Dataset, newHeadAddr hash.Hash) (datas.Dataset, error) {
-	ds, err := db.Database.SetHead(ctx, ds, newHeadAddr)
+func (db hooksDatabase) SetHead(ctx context.Context, ds datas.Dataset, newHeadAddr hash.Hash, ws string) (datas.Dataset, error) {
+	ds, err := db.Database.SetHead(ctx, ds, newHeadAddr, ws)
 	if err == nil {
 		db.ExecuteCommitHooks(ctx, ds, false)
 	}
 	return ds, err
 }
 
-func (db hooksDatabase) FastForward(ctx context.Context, ds datas.Dataset, newHeadAddr hash.Hash) (datas.Dataset, error) {
-	ds, err := db.Database.FastForward(ctx, ds, newHeadAddr)
+func (db hooksDatabase) FastForward(ctx context.Context, ds datas.Dataset, newHeadAddr hash.Hash, workingSetPath string) (datas.Dataset, error) {
+	ds, err := db.Database.FastForward(ctx, ds, newHeadAddr, workingSetPath)
 	if err == nil {
 		db.ExecuteCommitHooks(ctx, ds, false)
 	}
 	return ds, err
 }
 
-func (db hooksDatabase) Delete(ctx context.Context, ds datas.Dataset) (datas.Dataset, error) {
-	ds, err := db.Database.Delete(ctx, ds)
+func (db hooksDatabase) Delete(ctx context.Context, ds datas.Dataset, workingSetPath string) (datas.Dataset, error) {
+	ds, err := db.Database.Delete(ctx, ds, workingSetPath)
 	if err == nil {
 		db.ExecuteCommitHooks(ctx, datas.NewHeadlessDataset(ds.Database(), ds.ID()), false)
 	}
@@ -183,6 +184,14 @@ func (db hooksDatabase) UpdateWorkingSet(ctx context.Context, ds datas.Dataset, 
 	ds, err := db.Database.UpdateWorkingSet(ctx, ds, workingSet, prevHash)
 	if err == nil {
 		db.ExecuteCommitHooks(ctx, ds, true)
+	}
+	return ds, err
+}
+
+func (db hooksDatabase) Tag(ctx context.Context, ds datas.Dataset, commitAddr hash.Hash, opts datas.TagOptions) (datas.Dataset, error) {
+	ds, err := db.Database.Tag(ctx, ds, commitAddr, opts)
+	if err == nil {
+		db.ExecuteCommitHooks(ctx, ds, false)
 	}
 	return ds, err
 }
