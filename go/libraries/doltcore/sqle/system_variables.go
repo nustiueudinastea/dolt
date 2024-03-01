@@ -102,6 +102,14 @@ func AddDoltSystemVariables() {
 			Type:              types.NewSystemBoolType(dsess.DoltCommitOnTransactionCommit),
 			Default:           int8(0),
 		},
+		{ // If set, use this message for automatic Dolt commits
+			Name:              dsess.DoltCommitOnTransactionCommitMessage,
+			Scope:             sql.SystemVariableScope_Both,
+			Dynamic:           true,
+			SetVarHintApplies: false,
+			Type:              types.NewSystemStringType(dsess.DoltCommitOnTransactionCommitMessage),
+			Default:           nil,
+		},
 		{
 			Name:              dsess.TransactionsDisabledSysVar,
 			Scope:             sql.SystemVariableScope_Session,
@@ -186,6 +194,34 @@ func AddDoltSystemVariables() {
 			Scope:   sql.SystemVariableScope_Both,
 			Type:    types.NewSystemBoolType("dolt_dont_merge_json"),
 			Default: int8(0),
+		},
+		{
+			Name:    dsess.DoltStatsAutoRefreshEnabled,
+			Dynamic: true,
+			Scope:   sql.SystemVariableScope_Global,
+			Type:    types.NewSystemBoolType(dsess.DoltStatsAutoRefreshEnabled),
+			Default: int8(0),
+		},
+		{
+			Name:    dsess.DoltStatsMemoryOnly,
+			Dynamic: true,
+			Scope:   sql.SystemVariableScope_Global,
+			Type:    types.NewSystemBoolType(dsess.DoltStatsMemoryOnly),
+			Default: int8(0),
+		},
+		{
+			Name:    dsess.DoltStatsAutoRefreshThreshold,
+			Dynamic: true,
+			Scope:   sql.SystemVariableScope_Global,
+			Type:    types.NewSystemDoubleType(dsess.DoltStatsAutoRefreshEnabled, 0, 10),
+			Default: float64(.5),
+		},
+		{
+			Name:    dsess.DoltStatsAutoRefreshInterval,
+			Dynamic: true,
+			Scope:   sql.SystemVariableScope_Global,
+			Type:    types.NewSystemIntType(dsess.DoltStatsAutoRefreshInterval, 0, 1<<10, false),
+			Default: 120,
 		},
 	})
 }

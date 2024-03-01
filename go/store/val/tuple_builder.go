@@ -17,6 +17,7 @@ package val
 import (
 	"time"
 
+	"github.com/dolthub/go-mysql-server/sql/analyzer/analyzererrors"
 	"github.com/shopspring/decimal"
 
 	"github.com/dolthub/dolt/go/store/hash"
@@ -292,13 +293,21 @@ func (tb *TupleBuilder) PutSet(i int, v uint64) {
 }
 
 // PutString writes a string to the ith field of the Tuple being built.
-func (tb *TupleBuilder) PutString(i int, v string) {
+func (tb *TupleBuilder) PutString(i int, v string) error {
 	tb.Desc.expectEncoding(i, StringEnc)
 	sz := ByteSize(len(v)) + 1
+	offSz := 0
+	if i > 0 {
+		offSz = 2 * int(uint16Size)
+	}
+	if int(tb.pos)+len(v)+offSz > int(MaxTupleDataSize) {
+		return analyzererrors.ErrInvalidRowLength.New(MaxTupleDataSize, int(tb.pos)+len(v)+int(offsetsSize(i)))
+	}
 	tb.ensureCapacity(sz)
 	tb.fields[i] = tb.buf[tb.pos : tb.pos+sz]
 	writeString(tb.fields[i], v)
 	tb.pos += sz
+	return nil
 }
 
 // PutByteString writes a []byte to the ith field of the Tuple being built.
@@ -345,6 +354,23 @@ func (tb *TupleBuilder) PutHash128(i int, v []byte) {
 	tb.fields[i] = tb.buf[tb.pos : tb.pos+hash128Size]
 	writeHash128(tb.fields[i], v)
 	tb.pos += hash128Size
+}
+
+// PutExtended writes a []byte to the ith field of the Tuple being built.
+func (tb *TupleBuilder) PutExtended(i int, v []byte) {
+	tb.Desc.expectEncoding(i, ExtendedEnc)
+	sz := ByteSize(len(v))
+	tb.ensureCapacity(sz)
+	tb.fields[i] = tb.buf[tb.pos : tb.pos+sz]
+	writeExtended(tb.Desc.Handlers[i], tb.fields[i], v)
+	tb.pos += sz
+}
+
+// PutExtendedAddr writes a []byte to the ith field of the Tuple being built.
+func (tb *TupleBuilder) PutExtendedAddr(i int, v hash.Hash) {
+	tb.Desc.expectEncoding(i, ExtendedAddrEnc)
+	tb.ensureCapacity(hash.ByteLen)
+	tb.putAddr(i, v)
 }
 
 // PutRaw writes a []byte to the ith field of the Tuple being built.

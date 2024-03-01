@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -262,7 +263,7 @@ func (p *DoltDatabaseProvider) attemptCloneReplica(ctx *sql.Context, dbName stri
 	// TODO: remote params for AWS, others
 	// TODO: this needs to be robust in the face of the DB not having the default branch
 	// TODO: this treats every database not found error as a clone error, need to tighten
-	err := p.CloneDatabaseFromRemote(ctx, dbName, p.defaultBranch, remoteName, remoteUrl, nil)
+	err := p.CloneDatabaseFromRemote(ctx, dbName, p.defaultBranch, remoteName, remoteUrl, -1, nil)
 	if err != nil {
 		return err
 	}
@@ -491,6 +492,7 @@ func ConfigureReplicationDatabaseHook(ctx *sql.Context, p *DoltDatabaseProvider,
 func (p *DoltDatabaseProvider) CloneDatabaseFromRemote(
 	ctx *sql.Context,
 	dbName, branch, remoteName, remoteUrl string,
+	depth int,
 	remoteParams map[string]string,
 ) error {
 	p.mu.Lock()
@@ -503,7 +505,7 @@ func (p *DoltDatabaseProvider) CloneDatabaseFromRemote(
 		return fmt.Errorf("cannot create DB, file exists at %s", dbName)
 	}
 
-	err := p.cloneDatabaseFromRemote(ctx, dbName, remoteName, branch, remoteUrl, remoteParams)
+	err := p.cloneDatabaseFromRemote(ctx, dbName, remoteName, branch, remoteUrl, depth, remoteParams)
 	if err != nil {
 		// Make a best effort to clean up any artifacts on disk from a failed clone
 		// before we return the error
@@ -527,14 +529,14 @@ func (p *DoltDatabaseProvider) CloneDatabaseFromRemote(
 func (p *DoltDatabaseProvider) cloneDatabaseFromRemote(
 	ctx *sql.Context,
 	dbName, remoteName, branch, remoteUrl string,
+	depth int,
 	remoteParams map[string]string,
 ) error {
 	if p.remoteDialer == nil {
 		return fmt.Errorf("unable to clone remote database; no remote dialer configured")
 	}
 
-	// TODO: params for AWS, others that need them
-	r := env.NewRemote(remoteName, remoteUrl, nil)
+	r := env.NewRemote(remoteName, remoteUrl, remoteParams)
 	srcDB, err := r.GetRemoteDB(ctx, types.Format_Default, p.remoteDialer)
 	if err != nil {
 		return err
@@ -545,7 +547,7 @@ func (p *DoltDatabaseProvider) cloneDatabaseFromRemote(
 		return err
 	}
 
-	err = actions.CloneRemote(ctx, srcDB, remoteName, branch, false, dEnv)
+	err = actions.CloneRemote(ctx, srcDB, remoteName, branch, false, depth, dEnv)
 	if err != nil {
 		return err
 	}
@@ -590,7 +592,7 @@ func (p *DoltDatabaseProvider) DropDatabase(ctx *sql.Context, name string) error
 	}
 
 	// If this database is re-created, we don't want to return any cached results.
-	err = dbfactory.DeleteFromSingletonCache(dropDbLoc + "/.dolt/noms")
+	err = dbfactory.DeleteFromSingletonCache(filepath.ToSlash(dropDbLoc + "/.dolt/noms"))
 	if err != nil {
 		return err
 	}
@@ -624,6 +626,10 @@ func (p *DoltDatabaseProvider) ListDroppedDatabases(ctx *sql.Context) ([]string,
 	defer p.mu.Unlock()
 
 	return p.droppedDatabaseManager.ListDroppedDatabases(ctx)
+}
+
+func (p *DoltDatabaseProvider) DbFactoryUrl() string {
+	return p.dbFactoryUrl
 }
 
 func (p *DoltDatabaseProvider) UndropDatabase(ctx *sql.Context, name string) (err error) {
@@ -1075,9 +1081,14 @@ func resolveAncestorSpec(ctx *sql.Context, revSpec string, ddb *doltdb.DoltDB) (
 		return "", err
 	}
 
-	cm, err = cm.GetAncestor(ctx, ancestorSpec)
+	optCmt, err := cm.GetAncestor(ctx, ancestorSpec)
 	if err != nil {
 		return "", err
+	}
+	ok := false
+	cm, ok = optCmt.ToCommit()
+	if !ok {
+		return "", doltdb.ErrGhostCommitEncountered
 	}
 
 	hash, err := cm.HashOf()
@@ -1466,9 +1477,13 @@ func initialStateForCommit(ctx context.Context, srcDb ReadOnlyDatabase) (dsess.I
 	if err != nil {
 		return dsess.InitialDbState{}, err
 	}
-	cm, err := srcDb.DbData().Ddb.Resolve(ctx, spec, headRef)
+	optCmt, err := srcDb.DbData().Ddb.Resolve(ctx, spec, headRef)
 	if err != nil {
 		return dsess.InitialDbState{}, err
+	}
+	cm, ok := optCmt.ToCommit()
+	if !ok {
+		return dsess.InitialDbState{}, doltdb.ErrGhostCommitEncountered
 	}
 
 	init := dsess.InitialDbState{

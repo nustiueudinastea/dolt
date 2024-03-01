@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/dolthub/go-mysql-server/sql"
+	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/dolthub/vitess/go/vt/proto/query"
 
 	"github.com/dolthub/dolt/go/gen/fb/serial"
@@ -45,6 +46,7 @@ type schemaImpl struct {
 	pkOrdinals                 []int
 	collation                  Collation
 	contentHashedFields        []uint64
+	comment                    string
 }
 
 var _ Schema = (*schemaImpl)(nil)
@@ -176,6 +178,7 @@ func ValidateForInsert(allCols *ColCollection) error {
 			seenPkCol = true
 			break
 		}
+		c.TypeInfo.ToSqlType()
 	}
 
 	if !seenPkCol && !FeatureFlagKeylessSchema {
@@ -204,6 +207,42 @@ func ValidateForInsert(allCols *ColCollection) error {
 	})
 
 	return err
+}
+
+// MaxRowStorageSize returns the storage length for Dolt types.
+func MaxRowStorageSize(sch sql.Schema) int64 {
+	var numBytesPerRow int64 = 0
+	for _, col := range sch {
+		switch n := col.Type.(type) {
+		case sql.NumberType:
+			numBytesPerRow += 8
+		case sql.StringType:
+			if gmstypes.IsTextBlob(n) {
+				numBytesPerRow += 20
+			} else {
+				numBytesPerRow += n.MaxByteLength()
+			}
+		case gmstypes.BitType:
+			numBytesPerRow += 8
+		case sql.DatetimeType:
+			numBytesPerRow += 8
+		case sql.DecimalType:
+			numBytesPerRow += int64(n.MaximumScale())
+		case sql.EnumType:
+			numBytesPerRow += 2
+		case gmstypes.JsonType:
+			numBytesPerRow += 20
+		case sql.NullType:
+			numBytesPerRow += 1
+		case gmstypes.TimeType:
+			numBytesPerRow += 16
+		case sql.YearType:
+			numBytesPerRow += 8
+		default:
+			panic(fmt.Sprintf("unknown type in create table: %s", n.String()))
+		}
+	}
+	return numBytesPerRow
 }
 
 // isAutoIncrementKind returns true is |k| is a numeric kind.
@@ -262,6 +301,14 @@ func SchemaFromPKAndNonPKCols(pkCols, nonPKCols *ColCollection) (Schema, error) 
 
 	allColColl := NewColCollection(allCols...)
 	return SchemaFromColCollections(allColColl, pkCols, nonPKCols), nil
+}
+
+func (si *schemaImpl) GetComment() string {
+	return si.comment
+}
+
+func (si *schemaImpl) SetComment(comment string) {
+	si.comment = comment
 }
 
 // GetAllCols gets the collection of all columns (pk and non-pk)
@@ -429,6 +476,7 @@ func (si *schemaImpl) getKeyColumnsDescriptor(convertAddressColumns bool) val.Tu
 	}
 
 	var tt []val.Type
+	var handlers []val.TupleTypeHandler
 	useCollations := false // We only use collations if a string exists
 	var collations []sql.CollationID
 	_ = si.GetPKCols().Iter(func(tag uint64, col Column) (stop bool, err error) {
@@ -443,12 +491,12 @@ func (si *schemaImpl) getKeyColumnsDescriptor(convertAddressColumns bool) val.Tu
 
 		if convertAddressColumns && !contentHashedField && queryType == query.Type_BLOB {
 			t = val.Type{
-				Enc:      val.Encoding(EncodingFromSqlType(query.Type_VARBINARY)),
+				Enc:      val.Encoding(EncodingFromQueryType(query.Type_VARBINARY)),
 				Nullable: columnMissingNotNullConstraint(col),
 			}
 		} else if convertAddressColumns && !contentHashedField && queryType == query.Type_TEXT {
 			t = val.Type{
-				Enc:      val.Encoding(EncodingFromSqlType(query.Type_VARCHAR)),
+				Enc:      val.Encoding(EncodingFromQueryType(query.Type_VARCHAR)),
 				Nullable: columnMissingNotNullConstraint(col),
 			}
 		} else if convertAddressColumns && !contentHashedField && queryType == query.Type_GEOMETRY {
@@ -458,7 +506,7 @@ func (si *schemaImpl) getKeyColumnsDescriptor(convertAddressColumns bool) val.Tu
 			}
 		} else {
 			t = val.Type{
-				Enc:      val.Encoding(EncodingFromSqlType(queryType)),
+				Enc:      val.Encoding(EncodingFromSqlType(sqlType)),
 				Nullable: columnMissingNotNullConstraint(col),
 			}
 		}
@@ -469,6 +517,12 @@ func (si *schemaImpl) getKeyColumnsDescriptor(convertAddressColumns bool) val.Tu
 		} else {
 			collations = append(collations, sql.Collation_Unspecified)
 		}
+
+		if extendedType, ok := sqlType.(gmstypes.ExtendedType); ok {
+			handlers = append(handlers, extendedType)
+		} else {
+			handlers = append(handlers, nil)
+		}
 		return
 	})
 
@@ -477,18 +531,20 @@ func (si *schemaImpl) getKeyColumnsDescriptor(convertAddressColumns bool) val.Tu
 			panic(fmt.Errorf("cannot create tuple descriptor from %d collations and %d types", len(collations), len(tt)))
 		}
 		cmp := CollationTupleComparator{Collations: collations}
-		return val.NewTupleDescriptorWithComparator(cmp, tt...)
+		return val.NewTupleDescriptorWithArgs(val.TupleDescriptorArgs{Comparator: cmp, Handlers: handlers}, tt...)
 	} else {
-		return val.NewTupleDescriptor(tt...)
+		return val.NewTupleDescriptorWithArgs(val.TupleDescriptorArgs{Handlers: handlers}, tt...)
 	}
 }
 
 // GetValueDescriptor implements the Schema interface.
 func (si *schemaImpl) GetValueDescriptor() val.TupleDesc {
 	var tt []val.Type
+	var handlers []val.TupleTypeHandler
 	var collations []sql.CollationID
 	if IsKeyless(si) {
 		tt = []val.Type{val.KeylessCardType}
+		handlers = []val.TupleTypeHandler{nil}
 		collations = []sql.CollationID{sql.Collation_Unspecified}
 	}
 
@@ -501,7 +557,7 @@ func (si *schemaImpl) GetValueDescriptor() val.TupleDesc {
 		sqlType := col.TypeInfo.ToSqlType()
 		queryType := sqlType.Type()
 		tt = append(tt, val.Type{
-			Enc:      val.Encoding(EncodingFromSqlType(queryType)),
+			Enc:      val.Encoding(EncodingFromSqlType(sqlType)),
 			Nullable: col.IsNullable(),
 		})
 		if queryType == query.Type_CHAR || queryType == query.Type_VARCHAR {
@@ -509,6 +565,12 @@ func (si *schemaImpl) GetValueDescriptor() val.TupleDesc {
 			collations = append(collations, sqlType.(sql.StringType).Collation())
 		} else {
 			collations = append(collations, sql.Collation_Unspecified)
+		}
+
+		if extendedType, ok := sqlType.(gmstypes.ExtendedType); ok {
+			handlers = append(handlers, extendedType)
+		} else {
+			handlers = append(handlers, nil)
 		}
 		return
 	})
@@ -518,9 +580,9 @@ func (si *schemaImpl) GetValueDescriptor() val.TupleDesc {
 			panic(fmt.Errorf("cannot create tuple descriptor from %d collations and %d types", len(collations), len(tt)))
 		}
 		cmp := CollationTupleComparator{Collations: collations}
-		return val.NewTupleDescriptorWithComparator(cmp, tt...)
+		return val.NewTupleDescriptorWithArgs(val.TupleDescriptorArgs{Comparator: cmp, Handlers: handlers}, tt...)
 	} else {
-		return val.NewTupleDescriptor(tt...)
+		return val.NewTupleDescriptorWithArgs(val.TupleDescriptorArgs{Handlers: handlers}, tt...)
 	}
 }
 

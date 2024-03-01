@@ -18,6 +18,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -66,7 +67,7 @@ import (
 )
 
 const (
-	Version = "1.32.2"
+	Version = "1.35.0"
 )
 
 var dumpDocsCommand = &commands.DumpDocsCmd{}
@@ -236,6 +237,7 @@ const stdErrFlag = "--stderr"
 const stdOutAndErrFlag = "--out-and-err"
 const ignoreLocksFlag = "--ignore-lock-file"
 const verboseEngineSetupFlag = "--verbose-engine-setup"
+const profilePath = "--prof-path"
 
 const cpuProf = "cpu"
 const memProf = "mem"
@@ -266,25 +268,44 @@ func runMain() int {
 	verboseEngineSetup := false
 	if len(args) > 0 {
 		var doneDebugFlags bool
+		var profileOpts []func(p *profile.Profile)
+		hasUnstartedProfile := false
 		for !doneDebugFlags && len(args) > 0 {
 			switch args[0] {
+			case profilePath:
+				path := args[1]
+				if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+					panic(fmt.Sprintf("profile path does not exist: %s", path))
+				}
+				profileOpts = append(profileOpts, profile.ProfilePath(path))
+				args = args[2:]
 			case profFlag:
+				if hasUnstartedProfile {
+					defer profile.Start(profileOpts...).Stop()
+					profileOpts = nil
+					hasUnstartedProfile = false
+				}
+
+				profileOpts = append(profileOpts, profile.NoShutdownHook)
+				hasUnstartedProfile = true
+
 				switch args[1] {
 				case cpuProf:
+					profileOpts = append(profileOpts, profile.CPUProfile)
 					cli.Println("cpu profiling enabled.")
-					defer profile.Start(profile.CPUProfile, profile.NoShutdownHook).Stop()
 				case memProf:
+					profileOpts = append(profileOpts, profile.MemProfile)
 					cli.Println("mem profiling enabled.")
-					defer profile.Start(profile.MemProfile, profile.NoShutdownHook).Stop()
 				case blockingProf:
+					profileOpts = append(profileOpts, profile.BlockProfile)
 					cli.Println("block profiling enabled")
-					defer profile.Start(profile.BlockProfile, profile.NoShutdownHook).Stop()
 				case traceProf:
+					profileOpts = append(profileOpts, profile.TraceProfile)
 					cli.Println("trace profiling enabled")
-					defer profile.Start(profile.TraceProfile, profile.NoShutdownHook).Stop()
 				default:
 					panic("Unexpected prof flag: " + args[1])
 				}
+
 				args = args[2:]
 
 			case pprofServerFlag:
@@ -427,6 +448,9 @@ func runMain() int {
 				doneDebugFlags = true
 			}
 		}
+		if hasUnstartedProfile {
+			defer profile.Start(profileOpts...).Stop()
+		}
 	}
 
 	seedGlobalRand()
@@ -452,6 +476,16 @@ func runMain() int {
 		cli.PrintErrln(color.RedString("Failed to load the HOME directory: %v", err))
 		return 1
 	}
+
+	strMetricsDisabled := dEnv.Config.GetStringOrDefault(config.MetricsDisabled, "false")
+	var metricsEmitter events.Emitter
+	metricsEmitter = events.NewFileEmitter(homeDir, dbfactory.DoltDir)
+	metricsDisabled, err := strconv.ParseBool(strMetricsDisabled)
+	if err != nil || metricsDisabled {
+		metricsEmitter = events.NullEmitter{}
+	}
+
+	events.SetGlobalCollector(events.NewCollector(Version, metricsEmitter))
 
 	if dEnv.CfgLoadErr != nil {
 		cli.PrintErrln(color.RedString("Failed to load the global config. %v", dEnv.CfgLoadErr))
@@ -495,7 +529,7 @@ func runMain() int {
 		return 1
 	}
 
-	defer emitUsageEvents(dEnv, homeDir, args)
+	defer emitUsageEvents(metricsEmitter, args)
 
 	if needsWriteAccess(subcommandName) {
 		err = reconfigIfTempFileMoveFails(dEnv)
@@ -770,16 +804,11 @@ func seedGlobalRand() {
 //  1. The config key |metrics.disabled|, when set to |true|, disables all metrics emission
 //  2. The environment key |DOLT_DISABLE_EVENT_FLUSH| allows writing events to disk but not sending them to the server.
 //     This is mostly used for testing.
-func emitUsageEvents(dEnv *env.DoltEnv, homeDir string, args []string) {
-	metricsDisabled := dEnv.Config.GetStringOrDefault(config.MetricsDisabled, "false")
-	disabled, err := strconv.ParseBool(metricsDisabled)
-	if err != nil || disabled {
-		return
-	}
-
+func emitUsageEvents(emitter events.Emitter, args []string) {
 	// write events
-	emitter := events.NewFileEmitter(homeDir, dbfactory.DoltDir)
-	_ = emitter.LogEvents(Version, events.GlobalCollector.Close())
+	collector := events.GlobalCollector()
+	ctx := context.Background()
+	_ = emitter.LogEvents(ctx, Version, collector.Close())
 
 	// flush events
 	if !eventFlushDisabled && len(args) > 0 && shouldFlushEvents(args[0]) {

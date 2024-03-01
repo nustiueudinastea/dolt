@@ -16,6 +16,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"runtime"
 	"strconv"
@@ -34,7 +35,6 @@ import (
 	"github.com/dolthub/dolt/go/cmd/dolt/cli"
 	"github.com/dolthub/dolt/go/libraries/doltcore/branch_control"
 	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	dsqle "github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 	dblr "github.com/dolthub/dolt/go/libraries/doltcore/sqle/binlogreplication"
@@ -104,16 +104,6 @@ func NewSqlEngine(
 		return nil, err
 	}
 
-	var doltdbs []*doltdb.DoltDB
-	var dbNames []string
-	for _, db := range dbs {
-		ddbs := db.DoltDatabases()
-		if len(ddbs) > 0 {
-			dbNames = append(dbNames, strings.ToLower(db.Name()))
-			doltdbs = append(doltdbs, ddbs[0])
-		}
-	}
-
 	config.ClusterController.ManageSystemVariables(sql.SystemVariables)
 
 	err = config.ClusterController.ApplyStandbyReplicationConfig(ctx, bThreads, mrEnv, dbs...)
@@ -126,7 +116,7 @@ func NewSqlEngine(
 		return nil, err
 	}
 
-	all := append(dbs)
+	all := dbs[:]
 
 	clusterDB := config.ClusterController.ClusterDatabase()
 	if clusterDB != nil {
@@ -190,14 +180,21 @@ func NewSqlEngine(
 		"authentication_dolt_jwt": NewAuthenticateDoltJWTPlugin(config.JwksConfig),
 	})
 
+	statsPro := stats.NewProvider()
+	engine.Analyzer.Catalog.StatsProvider = statsPro
+
 	engine.Analyzer.ExecBuilder = rowexec.DefaultBuilder
-	sessFactory := doltSessionFactory(pro, mrEnv.Config(), bcController, config.Autocommit)
+	sessFactory := doltSessionFactory(pro, statsPro, mrEnv.Config(), bcController, config.Autocommit)
 	sqlEngine.provider = pro
 	sqlEngine.contextFactory = sqlContextFactory()
 	sqlEngine.dsessFactory = sessFactory
+	sqlEngine.engine = engine
 
-	engine.Analyzer.Catalog.StatsProvider = stats.NewProvider()
-	engine.Analyzer.Catalog.StatsProvider.(*stats.Provider).Load(sql.NewContext(ctx), dbNames, doltdbs)
+	// configuring stats depends on sessionBuilder
+	// sessionBuilder needs ref to statsProv
+	if err = statsPro.Configure(ctx, sqlEngine.NewDefaultContext, bThreads, pro, dbs); err != nil {
+		fmt.Fprintln(cli.CliErr, err)
+	}
 
 	// Load MySQL Db information
 	if err = engine.Analyzer.Catalog.MySQLDb.LoadData(sql.NewEmptyContext(), data); err != nil {
@@ -239,8 +236,6 @@ func NewSqlEngine(
 			return nil, err
 		}
 	}
-
-	sqlEngine.engine = engine
 
 	return sqlEngine, nil
 }
@@ -397,9 +392,9 @@ func sqlContextFactory() contextFactory {
 }
 
 // doltSessionFactory returns a sessionFactory that creates a new DoltSession
-func doltSessionFactory(pro *dsqle.DoltDatabaseProvider, config config.ReadWriteConfig, bc *branch_control.Controller, autocommit bool) sessionFactory {
+func doltSessionFactory(pro *dsqle.DoltDatabaseProvider, statsPro sql.StatsProvider, config config.ReadWriteConfig, bc *branch_control.Controller, autocommit bool) sessionFactory {
 	return func(mysqlSess *sql.BaseSession, provider sql.DatabaseProvider) (*dsess.DoltSession, error) {
-		doltSession, err := dsess.NewDoltSession(mysqlSess, pro, config, bc)
+		doltSession, err := dsess.NewDoltSession(mysqlSess, pro, config, bc, statsPro)
 		if err != nil {
 			return nil, err
 		}

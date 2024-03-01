@@ -235,9 +235,14 @@ func BranchHeadRoot(ctx context.Context, db *doltdb.DoltDB, brName string) (*dol
 		return nil, doltdb.RootValueUnreadable{RootType: doltdb.HeadRoot, Cause: err}
 	}
 
-	cm, err := db.Resolve(ctx, cs, nil)
+	optCmt, err := db.Resolve(ctx, cs, nil)
 	if err != nil {
 		return nil, doltdb.RootValueUnreadable{RootType: doltdb.HeadRoot, Cause: err}
+	}
+
+	cm, ok := optCmt.ToCommit()
+	if !ok {
+		return nil, doltdb.ErrGhostCommitEncountered
 	}
 
 	branchRoot, err := cm.GetRootValue(ctx)
@@ -383,9 +388,18 @@ func mergeForeignKeyChanges(
 		newFksForTable, _ := newFks.KeysForTable(tblName)
 		changedFksForTable, _ := changedFks.KeysForTable(tblName)
 
-		oldHash := doltdb.CombinedHash(oldFksForTable)
-		newHash := doltdb.CombinedHash(newFksForTable)
-		changedHash := doltdb.CombinedHash(changedFksForTable)
+		oldHash, err := doltdb.CombinedHash(oldFksForTable)
+		if err != nil {
+			return nil, err
+		}
+		newHash, err := doltdb.CombinedHash(newFksForTable)
+		if err != nil {
+			return nil, err
+		}
+		changedHash, err := doltdb.CombinedHash(changedFksForTable)
+		if err != nil {
+			return nil, err
+		}
 
 		if oldHash == changedHash {
 			fksByTable[tblName] = append(fksByTable[tblName], newFksForTable...)
@@ -406,10 +420,16 @@ func mergeForeignKeyChanges(
 	for _, tblName := range tblNames {
 		if _, exists := fksByTable[tblName]; !exists {
 			oldKeys, _ := oldFks.KeysForTable(tblName)
-			oldHash := doltdb.CombinedHash(oldKeys)
+			oldHash, err := doltdb.CombinedHash(oldKeys)
+			if err != nil {
+				return nil, err
+			}
 
 			changedKeys, _ := changedFks.KeysForTable(tblName)
-			changedHash := doltdb.CombinedHash(changedKeys)
+			changedHash, err := doltdb.CombinedHash(changedKeys)
+			if err != nil {
+				return nil, err
+			}
 
 			if oldHash == emptyHash {
 				fksByTable[tblName] = append(fksByTable[tblName], changedKeys...)

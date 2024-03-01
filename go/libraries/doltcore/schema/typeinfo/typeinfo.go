@@ -17,7 +17,6 @@ package typeinfo
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"github.com/dolthub/go-mysql-server/sql"
 	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
@@ -56,6 +55,7 @@ const (
 	MultiLineStringTypeIdentifier    Identifier = "multilinestring"
 	MultiPolygonTypeIdentifier       Identifier = "multipolygon"
 	GeometryCollectionTypeIdentifier Identifier = "geometrycollection"
+	ExtendedTypeIdentifier           Identifier = "extended"
 )
 
 var Identifiers = map[Identifier]struct{}{
@@ -86,6 +86,7 @@ var Identifiers = map[Identifier]struct{}{
 	MultiLineStringTypeIdentifier:    {},
 	MultiPolygonTypeIdentifier:       {},
 	GeometryCollectionTypeIdentifier: {},
+	ExtendedTypeIdentifier:           {},
 }
 
 // TypeInfo is an interface used for encoding type information.
@@ -135,6 +136,9 @@ type TypeInfo interface {
 
 // FromSqlType takes in a sql.Type and returns the most relevant TypeInfo.
 func FromSqlType(sqlType sql.Type) (TypeInfo, error) {
+	if gmsExtendedType, ok := sqlType.(gmstypes.ExtendedType); ok {
+		return CreateExtendedTypeFromSqlType(gmsExtendedType), nil
+	}
 	sqlType, err := fillInCollationWithDefault(sqlType)
 	if err != nil {
 		return nil, err
@@ -293,6 +297,8 @@ func FromTypeParams(id Identifier, params map[string]string) (TypeInfo, error) {
 		return CreateBlobStringTypeFromParams(params)
 	case BoolTypeIdentifier:
 		return BoolType, nil
+	case ExtendedTypeIdentifier:
+		return CreateExtendedTypeFromParams(params)
 	case DatetimeTypeIdentifier:
 		return CreateDatetimeTypeFromParams(params)
 	case DecimalTypeIdentifier:
@@ -301,28 +307,28 @@ func FromTypeParams(id Identifier, params map[string]string) (TypeInfo, error) {
 		return CreateEnumTypeFromParams(params)
 	case FloatTypeIdentifier:
 		return CreateFloatTypeFromParams(params)
+	case GeometryCollectionTypeIdentifier:
+		return CreateGeomCollTypeFromParams(params)
+	case GeometryTypeIdentifier:
+		return CreateGeometryTypeFromParams(params)
 	case InlineBlobTypeIdentifier:
 		return CreateInlineBlobTypeFromParams(params)
 	case IntTypeIdentifier:
 		return CreateIntTypeFromParams(params)
 	case JSONTypeIdentifier:
 		return JSONType, nil
-	case GeometryTypeIdentifier:
-		return CreateGeometryTypeFromParams(params)
-	case PointTypeIdentifier:
-		return CreatePointTypeFromParams(params)
 	case LineStringTypeIdentifier:
 		return CreateLineStringTypeFromParams(params)
-	case PolygonTypeIdentifier:
-		return CreatePolygonTypeFromParams(params)
 	case MultiPointTypeIdentifier:
 		return CreateMultiPointTypeFromParams(params)
 	case MultiLineStringTypeIdentifier:
 		return CreateMultiLineStringTypeFromParams(params)
 	case MultiPolygonTypeIdentifier:
 		return CreateMultiPolygonTypeFromParams(params)
-	case GeometryCollectionTypeIdentifier:
-		return CreateGeomCollTypeFromParams(params)
+	case PointTypeIdentifier:
+		return CreatePointTypeFromParams(params)
+	case PolygonTypeIdentifier:
+		return CreatePolygonTypeFromParams(params)
 	case SetTypeIdentifier:
 		return CreateSetTypeFromParams(params)
 	case TimeTypeIdentifier:
@@ -351,10 +357,12 @@ func FromKind(kind types.NomsKind) TypeInfo {
 		return &varBinaryType{gmstypes.LongBlob}
 	case types.BoolKind:
 		return BoolType
+	case types.ExtendedKind:
+		panic(fmt.Errorf(`type not supported by the old format "%v"`, kind.String()))
 	case types.FloatKind:
 		return Float64Type
 	case types.InlineBlobKind:
-		return &inlineBlobType{gmstypes.MustCreateBinary(sqltypes.VarBinary, math.MaxUint16)}
+		return &inlineBlobType{gmstypes.MustCreateBinary(sqltypes.VarBinary, MaxVarcharLength/16)}
 	case types.IntKind:
 		return Int64Type
 	case types.JSONKind:

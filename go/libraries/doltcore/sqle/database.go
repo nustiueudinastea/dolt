@@ -25,6 +25,7 @@ import (
 	sqle "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/analyzer"
+	"github.com/dolthub/go-mysql-server/sql/analyzer/analyzererrors"
 	"github.com/dolthub/go-mysql-server/sql/expression"
 	"github.com/dolthub/go-mysql-server/sql/fulltext"
 	"github.com/dolthub/go-mysql-server/sql/plan"
@@ -50,6 +51,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
 	"github.com/dolthub/dolt/go/libraries/utils/concurrentmap"
 	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/val"
 )
 
 var ErrInvalidTableName = errors.NewKind("Invalid table name %s.")
@@ -88,6 +90,7 @@ var _ sql.EventDatabase = Database{}
 var _ sql.AliasedDatabase = Database{}
 var _ fulltext.Database = Database{}
 var _ rebase.RebasePlanDatabase = Database{}
+var _ sql.SchemaValidator = Database{}
 
 type ReadOnlyDatabase struct {
 	Database
@@ -121,6 +124,15 @@ func (db Database) WithBranchRevision(requestedName string, branchSpec dsess.Ses
 	db.requestedName = requestedName
 
 	return db, nil
+}
+
+func (db Database) ValidateSchema(sch sql.Schema) error {
+	if rowLen := schema.MaxRowStorageSize(sch); rowLen > int64(val.MaxTupleDataSize) {
+		// |val.MaxTupleDataSize| is less than |types.MaxRowLength| to account for
+		// serial message metadata
+		return analyzererrors.ErrInvalidRowLength.New(val.MaxTupleDataSize, rowLen)
+	}
+	return nil
 }
 
 // Revision implements dsess.RevisionDatabase
@@ -313,7 +325,7 @@ func (db Database) getTableInsensitive(ctx *sql.Context, head *doltdb.Commit, ds
 		}
 
 		tableName := tblName[len(doltdb.DoltDiffTablePrefix):]
-		dt, err := dtables.NewDiffTable(ctx, tableName, db.ddb, root, head)
+		dt, err := dtables.NewDiffTable(ctx, db.Name(), tableName, db.ddb, root, head)
 		if err != nil {
 			return nil, false, err
 		}
@@ -321,7 +333,7 @@ func (db Database) getTableInsensitive(ctx *sql.Context, head *doltdb.Commit, ds
 
 	case strings.HasPrefix(lwrName, doltdb.DoltCommitDiffTablePrefix):
 		suffix := tblName[len(doltdb.DoltCommitDiffTablePrefix):]
-		dt, err := dtables.NewCommitDiffTable(ctx, suffix, db.ddb, root)
+		dt, err := dtables.NewCommitDiffTable(ctx, db.Name(), suffix, db.ddb, root)
 		if err != nil {
 			return nil, false, err
 		}
@@ -382,7 +394,7 @@ func (db Database) getTableInsensitive(ctx *sql.Context, head *doltdb.Commit, ds
 			}
 		}
 
-		dt, found = dtables.NewLogTable(ctx, db.RevisionQualifiedName(), db.ddb, head), true
+		dt, found = dtables.NewLogTable(ctx, db.Name(), db.ddb, head), true
 	case doltdb.DiffTableName:
 		if head == nil {
 			var err error
@@ -392,7 +404,7 @@ func (db Database) getTableInsensitive(ctx *sql.Context, head *doltdb.Commit, ds
 			}
 		}
 
-		dt, found = dtables.NewUnscopedDiffTable(ctx, db.RevisionQualifiedName(), db.ddb, head), true
+		dt, found = dtables.NewUnscopedDiffTable(ctx, db.Name(), db.ddb, head), true
 	case doltdb.ColumnDiffTableName:
 		if head == nil {
 			var err error
@@ -402,7 +414,7 @@ func (db Database) getTableInsensitive(ctx *sql.Context, head *doltdb.Commit, ds
 			}
 		}
 
-		dt, found = dtables.NewColumnDiffTable(ctx, db.RevisionQualifiedName(), db.ddb, head), true
+		dt, found = dtables.NewColumnDiffTable(ctx, db.Name(), db.ddb, head), true
 	case doltdb.TableOfTablesInConflictName:
 		dt, found = dtables.NewTableOfTablesInConflict(ctx, db.RevisionQualifiedName(), db.ddb), true
 	case doltdb.TableOfTablesWithViolationsName:
@@ -416,9 +428,9 @@ func (db Database) getTableInsensitive(ctx *sql.Context, head *doltdb.Commit, ds
 	case doltdb.RemotesTableName:
 		dt, found = dtables.NewRemotesTable(ctx, db.ddb), true
 	case doltdb.CommitsTableName:
-		dt, found = dtables.NewCommitsTable(ctx, db.RevisionQualifiedName(), db.ddb), true
+		dt, found = dtables.NewCommitsTable(ctx, db.Name(), db.ddb), true
 	case doltdb.CommitAncestorsTableName:
-		dt, found = dtables.NewCommitAncestorsTable(ctx, db.RevisionQualifiedName(), db.ddb), true
+		dt, found = dtables.NewCommitAncestorsTable(ctx, db.Name(), db.ddb), true
 	case doltdb.StatusTableName:
 		sess := dsess.DSessFromSess(ctx.Session)
 		adapter := dsess.NewSessionStateAdapter(
@@ -505,9 +517,13 @@ func resolveAsOfTime(ctx *sql.Context, ddb *doltdb.DoltDB, head ref.DoltRef, asO
 		return nil, nil, err
 	}
 
-	cm, err := ddb.Resolve(ctx, cs, head)
+	optCmt, err := ddb.Resolve(ctx, cs, head)
 	if err != nil {
 		return nil, nil, err
+	}
+	cm, ok := optCmt.ToCommit()
+	if !ok {
+		return nil, nil, doltdb.ErrGhostCommitEncountered
 	}
 
 	h, err := cm.HashOf()
@@ -521,11 +537,15 @@ func resolveAsOfTime(ctx *sql.Context, ddb *doltdb.DoltDB, head ref.DoltRef, asO
 	}
 
 	for {
-		_, curr, err := cmItr.Next(ctx)
+		_, optCmt, err := cmItr.Next(ctx)
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			return nil, nil, err
+		}
+		curr, ok := optCmt.ToCommit()
+		if !ok {
+			return nil, nil, doltdb.ErrGhostCommitEncountered
 		}
 
 		meta, err := curr.GetCommitMeta(ctx)
@@ -572,9 +592,13 @@ func resolveAsOfCommitRef(ctx *sql.Context, db Database, head ref.DoltRef, commi
 		return nil, nil, err
 	}
 
-	cm, err := ddb.ResolveByNomsRoot(ctx, cs, head, nomsRoot)
+	optCmt, err := ddb.ResolveByNomsRoot(ctx, cs, head, nomsRoot)
 	if err != nil {
 		return nil, nil, err
+	}
+	cm, ok := optCmt.ToCommit()
+	if !ok {
+		return nil, nil, doltdb.ErrGhostCommitEncountered
 	}
 
 	root, err := cm.GetRootValue(ctx)
@@ -886,7 +910,7 @@ func (db Database) removeTableFromAutoIncrementTracker(
 }
 
 // CreateTable creates a table with the name and schema given.
-func (db Database) CreateTable(ctx *sql.Context, tableName string, sch sql.PrimaryKeySchema, collation sql.CollationID) error {
+func (db Database) CreateTable(ctx *sql.Context, tableName string, sch sql.PrimaryKeySchema, collation sql.CollationID, comment string) error {
 	if err := dsess.CheckAccessForDb(ctx, db, branch_control.Permissions_Write); err != nil {
 		return err
 	}
@@ -898,7 +922,7 @@ func (db Database) CreateTable(ctx *sql.Context, tableName string, sch sql.Prima
 		return ErrInvalidTableName.New(tableName)
 	}
 
-	return db.createSqlTable(ctx, tableName, sch, collation)
+	return db.createSqlTable(ctx, tableName, sch, collation, comment)
 }
 
 // CreateIndexedTable creates a table with the name and schema given.
@@ -944,7 +968,7 @@ OuterLoop:
 }
 
 // createSqlTable is the private version of CreateTable. It doesn't enforce any table name checks.
-func (db Database) createSqlTable(ctx *sql.Context, tableName string, sch sql.PrimaryKeySchema, collation sql.CollationID) error {
+func (db Database) createSqlTable(ctx *sql.Context, tableName string, sch sql.PrimaryKeySchema, collation sql.CollationID, comment string) error {
 	ws, err := db.GetWorkingSet(ctx)
 	if err != nil {
 		return err
@@ -966,6 +990,7 @@ func (db Database) createSqlTable(ctx *sql.Context, tableName string, sch sql.Pr
 	if err != nil {
 		return err
 	}
+	doltSch.SetComment(comment)
 
 	// Prevent any tables that use Spatial Types as Primary Key from being created
 	if schema.IsUsingSpatialColAsKey(doltSch) {
@@ -1043,12 +1068,12 @@ func (db Database) createDoltTable(ctx *sql.Context, tableName string, root *dol
 
 	var conflictingTbls []string
 	_ = doltSch.GetAllCols().Iter(func(tag uint64, col schema.Column) (stop bool, err error) {
-		_, tbl, exists, err := root.GetTableByColTag(ctx, tag)
+		_, oldTableName, exists, err := root.GetTableByColTag(ctx, tag)
 		if err != nil {
 			return true, err
 		}
-		if exists && tbl != tableName {
-			errStr := schema.ErrTagPrevUsed(tag, col.Name, tbl).Error()
+		if exists && oldTableName != tableName {
+			errStr := schema.ErrTagPrevUsed(tag, col.Name, tableName, oldTableName).Error()
 			conflictingTbls = append(conflictingTbls, errStr)
 		}
 		return false, nil
@@ -1709,7 +1734,7 @@ func (db Database) LoadRebasePlan(ctx *sql.Context) (*rebase.RebasePlan, error) 
 func (db Database) SaveRebasePlan(ctx *sql.Context, plan *rebase.RebasePlan) error {
 	pkSchema := sql.NewPrimaryKeySchema(dprocedures.DoltRebaseSystemTableSchema)
 	// we use createSqlTable, instead of CreateTable to avoid the "dolt_" reserved prefix table name check
-	err := db.createSqlTable(ctx, doltdb.RebaseTableName, pkSchema, sql.Collation_Default)
+	err := db.createSqlTable(ctx, doltdb.RebaseTableName, pkSchema, sql.Collation_Default, "")
 	if err != nil {
 		return err
 	}

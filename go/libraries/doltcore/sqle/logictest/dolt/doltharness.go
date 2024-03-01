@@ -33,6 +33,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	dsql "github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/stats"
 	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
 	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 	"github.com/dolthub/dolt/go/store/types"
@@ -141,7 +142,7 @@ func innerInit(h *DoltHarness, dEnv *env.DoltEnv) error {
 		return err
 	}
 
-	ctx := dsql.NewTestSQLCtxWithProvider(context.Background(), pro)
+	ctx := dsql.NewTestSQLCtxWithProvider(context.Background(), pro, stats.NewProvider())
 	h.sess = ctx.Session.(*dsess.DoltSession)
 
 	dbs := h.engine.Analyzer.Catalog.AllDatabases(ctx)
@@ -225,7 +226,8 @@ func toSqlString(val interface{}) string {
 		return fmt.Sprintf("%.3f", v)
 	case decimal.Decimal:
 		// exactly 3 decimal points for floats
-		return v.StringFixed(3)
+		res, _ := v.Float64()
+		return fmt.Sprintf("%.3f", res)
 	case int:
 		return strconv.Itoa(v)
 	case uint:
@@ -302,6 +304,7 @@ func sqlNewEngine(dEnv *env.DoltEnv) (*sqle.Engine, dsess.DoltDatabaseProvider, 
 	}
 
 	pro = pro.WithDbFactoryUrl(doltdb.InMemDoltDB)
+
 	engine := sqle.NewDefault(pro)
 
 	return engine, pro, nil

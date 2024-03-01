@@ -145,7 +145,7 @@ func (t *DoltTable) LockedToRoot(ctx *sql.Context, root *doltdb.RootValue) (sql.
 		return
 	})
 
-	sqlSch, err := sqlutil.FromDoltSchema("", t.tableName, sch)
+	sqlSch, err := sqlutil.FromDoltSchema(t.db.Name(), t.tableName, sch)
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +172,7 @@ type doltReadOnlyTableInterface interface {
 	sql.StatisticsTable
 	sql.CheckTable
 	sql.PrimaryKeyTable
+	sql.CommentedTable
 }
 
 var _ doltReadOnlyTableInterface = (*DoltTable)(nil)
@@ -358,6 +359,11 @@ func (t *DoltTable) Schema() sql.Schema {
 // Collation returns the collation for this table.
 func (t *DoltTable) Collation() sql.CollationID {
 	return sql.CollationID(t.sch.GetCollation())
+}
+
+// Comment returns the comment for this table.
+func (t *DoltTable) Comment() string {
+	return t.sch.GetComment()
 }
 
 func (t *DoltTable) sqlSchema() sql.PrimaryKeySchema {
@@ -1550,6 +1556,16 @@ func (t *AlterableDoltTable) RewriteInserter(
 		})
 	}
 
+	// Grab the next auto_increment value before we call truncate, since truncate will delete the table
+	// and clear out the auto_increment tracking for this table.
+	var nextAutoIncValue uint64
+	if t.autoIncCol.AutoIncrement {
+		nextAutoIncValue, err = t.PeekNextAutoIncrementValue(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// TODO: test for this when the table is auto increment and exists on another branch
 	dt, err = t.truncate(ctx, dt, newSch, sess)
 	if err != nil {
@@ -1583,6 +1599,14 @@ func (t *AlterableDoltTable) RewriteInserter(
 	}
 
 	newWs := ws.WithWorkingRoot(newRoot)
+
+	// Restore the next auto increment value, since it was cleared when we truncated the table
+	if t.autoIncCol.AutoIncrement {
+		err = t.AutoIncrementSetter(ctx).SetAutoIncrementValue(ctx, nextAutoIncValue)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	opts := dbState.WriteSession().GetOptions()
 	opts.ForeignKeyChecksDisabled = true
@@ -1939,8 +1963,9 @@ func validateSchemaChange(
 }
 
 func (t *AlterableDoltTable) adjustForeignKeysForDroppedPk(ctx *sql.Context, tbl string, root *doltdb.RootValue) (*doltdb.RootValue, error) {
-	if t.autoIncCol.AutoIncrement {
-		return nil, sql.ErrWrongAutoKey.New()
+	err := sql.ValidatePrimaryKeyDrop(ctx, t, t.PrimaryKeySchema())
+	if err != nil {
+		return nil, err
 	}
 
 	fkc, err := root.GetForeignKeyCollection(ctx)

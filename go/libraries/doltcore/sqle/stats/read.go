@@ -16,6 +16,7 @@ package stats
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -34,14 +35,14 @@ import (
 	"github.com/dolthub/dolt/go/store/val"
 )
 
-func loadStats(ctx *sql.Context, dbName string, m prolly.Map) (*dbStats, error) {
-	dbStat := &dbStats{db: dbName, active: make(map[hash.Hash]int), stats: make(map[sql.StatQualifier]*DoltStats)}
+func loadStats(ctx *sql.Context, db dsess.SqlDatabase, m prolly.Map) (*dbStats, error) {
+	dbStat := newDbStats(db.Name())
 
 	iter, err := dtables.NewStatsIter(ctx, m)
 	if err != nil {
 		return nil, err
 	}
-	currentStat := &DoltStats{}
+	currentStat := NewDoltStats()
 	var lowerBound sql.Row
 	for {
 		row, err := iter.Next(ctx)
@@ -111,14 +112,25 @@ func loadStats(ctx *sql.Context, dbName string, m prolly.Map) (*dbStats, error) 
 
 		qual := sql.NewStatQualifier(dbName, tableName, indexName)
 		if currentStat.Qual.String() != qual.String() {
-			if currentStat.Qual.String() != "" {
+			if !currentStat.Qual.Empty() {
 				currentStat.LowerBound, err = loadLowerBound(ctx, currentStat.Qual)
 				if err != nil {
 					return nil, err
 				}
+				fds, colSet, err := loadFuncDeps(ctx, db, currentStat.Qual)
+				if err != nil {
+					return nil, err
+				}
+				currentStat.fds = fds
+				currentStat.colSet = colSet
+				currentStat.updateActive()
 				dbStat.stats[currentStat.Qual] = currentStat
 			}
-			currentStat = &DoltStats{Qual: qual, Columns: columns, LowerBound: lowerBound}
+
+			currentStat = NewDoltStats()
+			currentStat.Qual = qual
+			currentStat.Columns = columns
+			currentStat.LowerBound = lowerBound
 		}
 
 		if currentStat.Histogram == nil {
@@ -141,7 +153,7 @@ func loadStats(ctx *sql.Context, dbName string, m prolly.Map) (*dbStats, error) 
 			UpperBound:    boundRow,
 		}
 
-		dbStat.active[commit] = position
+		currentStat.active[commit] = position
 		currentStat.Histogram = append(currentStat.Histogram, bucket)
 		currentStat.RowCount += uint64(rowCount)
 		currentStat.DistinctCount += uint64(distinctCount)
@@ -150,6 +162,18 @@ func loadStats(ctx *sql.Context, dbName string, m prolly.Map) (*dbStats, error) 
 			currentStat.CreatedAt = createdAt
 		}
 	}
+	currentStat.LowerBound, err = loadLowerBound(ctx, currentStat.Qual)
+	if err != nil {
+		return nil, err
+	}
+	fds, colSet, err := loadFuncDeps(ctx, db, currentStat.Qual)
+	if err != nil {
+		return nil, err
+	}
+	currentStat.fds = fds
+	currentStat.colSet = colSet
+	currentStat.updateActive()
+	dbStat.setIndexStats(currentStat.Qual, currentStat)
 	dbStat.stats[currentStat.Qual] = currentStat
 	return dbStat, nil
 }
@@ -198,4 +222,37 @@ func loadLowerBound(ctx *sql.Context, qual sql.StatQualifier) (sql.Row, error) {
 		}
 	}
 	return firstRow, nil
+}
+
+func loadFuncDeps(ctx *sql.Context, db dsess.SqlDatabase, qual sql.StatQualifier) (*sql.FuncDepSet, sql.ColSet, error) {
+	tab, ok, err := db.GetTableInsensitive(ctx, qual.Table())
+	if err != nil {
+		return nil, sql.ColSet{}, err
+	} else if !ok {
+		return nil, sql.ColSet{}, fmt.Errorf("%w: table not found: '%s'", ErrFailedToLoad, qual.Table())
+	}
+
+	iat, ok := tab.(sql.IndexAddressable)
+	if !ok {
+		return nil, sql.ColSet{}, fmt.Errorf("%w: table does not have indexes: '%s'", ErrFailedToLoad, qual.Table())
+	}
+
+	indexes, err := iat.GetIndexes(ctx)
+	if err != nil {
+		return nil, sql.ColSet{}, err
+	}
+
+	var idx sql.Index
+	for _, i := range indexes {
+		if strings.EqualFold(i.ID(), qual.Index()) {
+			idx = i
+			break
+		}
+	}
+
+	if idx == nil {
+		return nil, sql.ColSet{}, fmt.Errorf("%w: index not found: '%s'", ErrFailedToLoad, qual.Index())
+	}
+
+	return stats.IndexFds(qual.Table(), tab.Schema(), idx)
 }

@@ -58,11 +58,11 @@ func (dt *SchemaConflictsTable) String() string {
 // Schema is a sql.Table interface function that gets the sql.Schema of the log system table.
 func (dt *SchemaConflictsTable) Schema() sql.Schema {
 	return []*sql.Column{
-		{Name: "table_name", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: true},
-		{Name: "base_schema", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: false},
-		{Name: "our_schema", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: false},
-		{Name: "their_schema", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: false},
-		{Name: "description", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: false},
+		{Name: "table_name", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: true, DatabaseSource: dt.dbName},
+		{Name: "base_schema", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: false, DatabaseSource: dt.dbName},
+		{Name: "our_schema", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: false, DatabaseSource: dt.dbName},
+		{Name: "their_schema", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: false, DatabaseSource: dt.dbName},
+		{Name: "description", Type: types.Text, Source: doltdb.SchemaConflictsTableName, PrimaryKey: false, DatabaseSource: dt.dbName},
 	}
 }
 
@@ -103,9 +103,13 @@ func (dt *SchemaConflictsTable) PartitionRows(ctx *sql.Context, part sql.Partiti
 		return nil, errors.New("unexpected partition for schema conflicts table")
 	}
 
-	base, err := doltdb.GetCommitAncestor(ctx, p.head, p.state.Commit())
+	optCmt, err := doltdb.GetCommitAncestor(ctx, p.head, p.state.Commit())
 	if err != nil {
 		return nil, err
+	}
+	base, ok := optCmt.ToCommit()
+	if !ok {
+		return nil, doltdb.ErrGhostCommitEncountered
 	}
 
 	baseRoot, err := base.GetRootValue(ctx)
@@ -115,6 +119,7 @@ func (dt *SchemaConflictsTable) PartitionRows(ctx *sql.Context, part sql.Partiti
 
 	var conflicts []schemaConflict
 	err = p.state.IterSchemaConflicts(ctx, p.ddb, func(table string, cnf doltdb.SchemaConflict) error {
+
 		c, err := newSchemaConflict(ctx, table, baseRoot, cnf)
 		if err != nil {
 			return err
@@ -162,19 +167,47 @@ func newSchemaConflict(ctx context.Context, table string, baseRoot *doltdb.RootV
 	}
 	baseFKs, _ := fkc.KeysForTable(table)
 
-	base, err := getCreateTableStatement(table, baseSch, baseFKs, bs)
-	if err != nil {
-		return schemaConflict{}, err
+	var base string
+	if baseSch != nil {
+		var err error
+		base, err = getCreateTableStatement(table, baseSch, baseFKs, bs)
+		if err != nil {
+			return schemaConflict{}, err
+		}
+	} else {
+		base = "<deleted>"
 	}
 
-	ours, err := getCreateTableStatement(table, c.ToSch, c.ToFks, c.ToParentSchemas)
-	if err != nil {
-		return schemaConflict{}, err
+	var ours string
+	if c.ToSch != nil {
+		var err error
+		ours, err = getCreateTableStatement(table, c.ToSch, c.ToFks, c.ToParentSchemas)
+		if err != nil {
+			return schemaConflict{}, err
+		}
+	} else {
+		ours = "<deleted>"
 	}
 
-	theirs, err := getCreateTableStatement(table, c.FromSch, c.FromFks, c.FromParentSchemas)
-	if err != nil {
-		return schemaConflict{}, err
+	var theirs string
+	if c.FromSch != nil {
+		var err error
+		theirs, err = getCreateTableStatement(table, c.FromSch, c.FromFks, c.FromParentSchemas)
+		if err != nil {
+			return schemaConflict{}, err
+		}
+	} else {
+		theirs = "<deleted>"
+	}
+
+	if c.ToSch == nil || c.FromSch == nil {
+		return schemaConflict{
+			table:       table,
+			baseSch:     base,
+			ourSch:      ours,
+			theirSch:    theirs,
+			description: "cannot merge a table deletion with schema modification",
+		}, nil
 	}
 
 	desc, err := getSchemaConflictDescription(ctx, table, baseSch, c.ToSch, c.FromSch)
