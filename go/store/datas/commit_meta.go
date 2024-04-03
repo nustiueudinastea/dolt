@@ -115,7 +115,7 @@ func NewCommitMetaWithUserTS(name, email, desc string, userTS time.Time) (*Commi
 		return nil, ErrEmptyCommitMessage
 	}
 
-	committerDateMillis := uint64(CommitterDate().UnixMilli())
+	committerDateMillis := uint64(userTS.UnixMilli())
 	authorDateMillis := userTS.UnixMilli()
 
 	return &CommitMeta{n, e, committerDateMillis, d, authorDateMillis}, nil
