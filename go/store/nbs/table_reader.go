@@ -116,16 +116,16 @@ type indexEntry interface {
 }
 
 type indexResult struct {
-	o uint64
-	l uint32
+	offset uint64
+	length uint32
 }
 
 func (ir indexResult) Offset() uint64 {
-	return ir.o
+	return ir.offset
 }
 
 func (ir indexResult) Length() uint32 {
-	return ir.l
+	return ir.length
 }
 
 type tableReaderAt interface {
@@ -233,14 +233,14 @@ func (tr tableReader) index() (tableIndex, error) {
 }
 
 // returns true iff |h| can be found in this table.
-func (tr tableReader) has(h addr) (bool, error) {
+func (tr tableReader) has(h hash.Hash) (bool, error) {
 	_, ok, err := tr.idx.lookup(&h)
 	return ok, err
 }
 
 // returns the storage associated with |h|, iff present. Returns nil if absent. On success,
 // the returned byte slice directly references the underlying storage.
-func (tr tableReader) get(ctx context.Context, h addr, stats *Stats) ([]byte, error) {
+func (tr tableReader) get(ctx context.Context, h hash.Hash, stats *Stats) ([]byte, error) {
 	e, found, err := tr.idx.lookup(&h)
 	if err != nil {
 		return nil, err
@@ -263,7 +263,7 @@ func (tr tableReader) get(ctx context.Context, h addr, stats *Stats) ([]byte, er
 		return nil, errors.New("failed to read all data")
 	}
 
-	cmp, err := NewCompressedChunk(hash.Hash(h), buff)
+	cmp, err := NewCompressedChunk(h, buff)
 
 	if err != nil {
 		return nil, err
@@ -283,7 +283,7 @@ func (tr tableReader) get(ctx context.Context, h addr, stats *Stats) ([]byte, er
 }
 
 type offsetRec struct {
-	a      *addr
+	a      *hash.Hash
 	offset uint64
 	length uint32
 }
@@ -639,12 +639,12 @@ func (tr tableReader) extract(ctx context.Context, chunks chan<- extractRecord) 
 
 	var ors offsetRecSlice
 	for i := uint32(0); i < tr.idx.chunkCount(); i++ {
-		a := new(addr)
-		e, err := tr.idx.indexEntry(i, a)
+		h := new(hash.Hash)
+		e, err := tr.idx.indexEntry(i, h)
 		if err != nil {
 			return err
 		}
-		ors = append(ors, offsetRec{a, e.Offset(), e.Length()})
+		ors = append(ors, offsetRec{h, e.Offset(), e.Length()})
 	}
 	sort.Sort(ors)
 	for _, or := range ors {
@@ -675,7 +675,7 @@ func (tr tableReader) getRecordRanges(requests []getRecord) (map[hash.Hash]Range
 	}
 	ranges := make(map[hash.Hash]Range, len(recs))
 	for _, r := range recs {
-		ranges[hash.Hash(*r.a)] = Range{
+		ranges[*r.a] = Range{
 			Offset: r.offset,
 			Length: r.length,
 		}

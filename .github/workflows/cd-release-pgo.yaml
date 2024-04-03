@@ -44,7 +44,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go/go.mod
-          check-latest: true
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2.2.0
         with:
@@ -83,9 +82,9 @@ jobs:
         run: |
           latest=$(git rev-parse HEAD)
           echo "commitish=$latest" >> $GITHUB_OUTPUT
-          GO_BUILD_VERSION=1.21 go/utils/publishrelease/buildpgobinaries.sh
+          GO_BUILD_VERSION=1.22 go/utils/publishrelease/buildpgobinaries.sh
         env:
-          GO_BUILD_VERSION: "1.21"
+          GO_BUILD_VERSION: "1.22"
           PROFILE: ${{ format('{0}/dolt-cpu-profile.pprof', github.workspace) }}
       - name: Create Release
         id: create_release
@@ -179,7 +178,7 @@ jobs:
           token: ${{ secrets.REPO_ACCESS_TOKEN }}
           event-type: upload-msi
           repository: dolthub/windows-msi-creator
-          client-payload: '{"tag": "${{ needs.format-version.outputs.version }}", "release_id": "${{ needs.create-release.outputs.release_id }}", "actor": "${{ github.actor }}", "bucket": "${{ github.event.inputs.profile_bucket || github.event.client_payload.bucket }}", "profile_key": "${{ github.event.inputs.profile_key || github.event.client_payload.profile_key }}"}'
+          client-payload: '{"tag": "${{ needs.format-version.outputs.version }}", "release_id": "${{ needs.create-pgo-release.outputs.release_id }}", "actor": "${{ github.actor }}", "bucket": "${{ github.event.inputs.profile_bucket || github.event.client_payload.bucket }}", "profile_key": "${{ github.event.inputs.profile_key || github.event.client_payload.profile_key }}"}'
 
   create-release-notes:
     needs: [format-version, create-pgo-release]

@@ -41,7 +41,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/stats"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/statspro"
 	"github.com/dolthub/dolt/go/libraries/utils/config"
 	"github.com/dolthub/dolt/go/store/datas"
 	"github.com/dolthub/dolt/go/store/types"
@@ -114,6 +114,29 @@ func TestSingleQuery(t *testing.T) {
 	}
 
 	enginetest.TestQueryWithEngine(t, harness, engine, test)
+}
+
+func TestSchemaOverrides(t *testing.T) {
+	tcc := &testCommitClock{}
+	cleanup := installTestCommitClock(tcc)
+	defer cleanup()
+
+	for _, script := range SchemaOverrideTests {
+		sql.RunWithNowFunc(tcc.Now, func() error {
+			harness := newDoltHarness(t)
+			harness.Setup(setup.MydbData)
+
+			engine, err := harness.NewEngine(t)
+			if err != nil {
+				panic(err)
+			}
+			// engine.EngineAnalyzer().Debug = true
+			// engine.EngineAnalyzer().Verbose = true
+
+			enginetest.TestScriptWithEngine(t, engine, harness, script)
+			return nil
+		})
+	}
 }
 
 // Convenience test for debugging a single query. Unskip and set to the desired query.
@@ -437,6 +460,7 @@ func TestQueryPlans(t *testing.T) {
 	// Parallelism introduces Exchange nodes into the query plans, so disable.
 	// TODO: exchange nodes should really only be part of the explain plan under certain debug settings
 	harness := newDoltHarness(t).WithSkippedQueries(skipped)
+	harness.configureStats = true
 	if !types.IsFormat_DOLT(types.Format_Default) {
 		// only new format supports reverse IndexTableAccess
 		reverseIndexSkip := []string{
@@ -462,7 +486,7 @@ func TestQueryPlans(t *testing.T) {
 
 func TestIntegrationQueryPlans(t *testing.T) {
 	harness := newDoltHarness(t)
-
+	harness.configureStats = true
 	defer harness.Close()
 	enginetest.TestIntegrationPlans(t, harness)
 }
@@ -814,6 +838,7 @@ func TestJoinPlanning(t *testing.T) {
 		t.Skip("DOLT_LD keyless indexes are not sorted")
 	}
 	h := newDoltHarness(t)
+	h.configureStats = true
 	defer h.Close()
 	enginetest.TestJoinPlanning(t, h)
 }
@@ -861,6 +886,7 @@ func TestJSONTableScriptsPrepared(t *testing.T) {
 func TestUserPrivileges(t *testing.T) {
 	h := newDoltHarness(t)
 	h.setupTestProcedures = true
+	h.configureStats = true
 	defer h.Close()
 	enginetest.TestUserPrivileges(t, h)
 }
@@ -1308,7 +1334,10 @@ func TestSelectIntoFile(t *testing.T) {
 func TestJsonScripts(t *testing.T) {
 	h := newDoltHarness(t)
 	defer h.Close()
-	enginetest.TestJsonScripts(t, h)
+	skippedTests := []string{
+		"round-trip into table", // The current Dolt JSON format does not preserve decimals and unsigneds in JSON.
+	}
+	enginetest.TestJsonScripts(t, h, skippedTests)
 }
 
 func TestTriggers(t *testing.T) {
@@ -2113,11 +2142,28 @@ func TestColumnDiffSystemTablePrepared(t *testing.T) {
 	}
 }
 
+func TestStatBranchTests(t *testing.T) {
+	harness := newDoltHarness(t)
+	defer harness.Close()
+	harness.Setup(setup.MydbData)
+	harness.configureStats = true
+	for _, test := range StatBranchTests {
+		t.Run(test.Name, func(t *testing.T) {
+			// reset engine so provider statistics are clean
+			harness.engine = nil
+			e := mustNewEngine(t, harness)
+			defer e.Close()
+			enginetest.TestScriptWithEngine(t, e, harness, test)
+		})
+	}
+}
+
 func TestStatsFunctions(t *testing.T) {
 	harness := newDoltHarness(t)
 	defer harness.Close()
 	harness.Setup(setup.MydbData)
 	harness.configureStats = true
+	harness.skipSetupCommit = true
 	for _, test := range StatProcTests {
 		t.Run(test.Name, func(t *testing.T) {
 			// reset engine so provider statistics are clean
@@ -2341,11 +2387,11 @@ func TestDiffSystemTablePrepared(t *testing.T) {
 	}
 }
 
-func TestSchemaDiffSystemTable(t *testing.T) {
+func TestSchemaDiffTableFunction(t *testing.T) {
 	harness := newDoltHarness(t)
 	defer harness.Close()
 	harness.Setup(setup.MydbData)
-	for _, test := range SchemaDiffSystemTableScriptTests {
+	for _, test := range SchemaDiffTableFunctionScriptTests {
 		harness.engine = nil
 		t.Run(test.Name, func(t *testing.T) {
 			enginetest.TestScript(t, harness, test)
@@ -2353,11 +2399,11 @@ func TestSchemaDiffSystemTable(t *testing.T) {
 	}
 }
 
-func TestSchemaDiffSystemTablePrepared(t *testing.T) {
+func TestSchemaDiffTableFunctionPrepared(t *testing.T) {
 	harness := newDoltHarness(t)
 	defer harness.Close()
 	harness.Setup(setup.MydbData)
-	for _, test := range SchemaDiffSystemTableScriptTests {
+	for _, test := range SchemaDiffTableFunctionScriptTests {
 		harness.engine = nil
 		t.Run(test.Name, func(t *testing.T) {
 			enginetest.TestScriptPrepared(t, harness, test)
@@ -2581,6 +2627,7 @@ func TestQueriesPrepared(t *testing.T) {
 func TestStatsHistograms(t *testing.T) {
 	h := newDoltHarness(t)
 	defer h.Close()
+	h.configureStats = true
 	for _, script := range DoltHistogramTests {
 		h.engine = nil
 		enginetest.TestScript(t, h, script)
@@ -2591,6 +2638,7 @@ func TestStatsHistograms(t *testing.T) {
 // forces a round trip of the statistics table before inspecting values.
 func TestStatsIO(t *testing.T) {
 	h := newDoltHarness(t)
+	h.configureStats = true
 	defer h.Close()
 	for _, script := range append(DoltStatsIOTests, DoltHistogramTests...) {
 		h.engine = nil
@@ -2611,6 +2659,7 @@ func TestJoinStats(t *testing.T) {
 	// smallest table first vs smallest join first
 	h := newDoltHarness(t)
 	defer h.Close()
+	h.configureStats = true
 	enginetest.TestJoinStats(t, h)
 }
 
@@ -2631,6 +2680,7 @@ func TestSpatialQueriesPrepared(t *testing.T) {
 func TestPreparedStatistics(t *testing.T) {
 	h := newDoltHarness(t)
 	defer h.Close()
+	h.configureStats = true
 	for _, script := range DoltHistogramTests {
 		h.engine = nil
 		enginetest.TestScriptPrepared(t, h, script)
@@ -2708,7 +2758,10 @@ func TestJsonScriptsPrepared(t *testing.T) {
 	skipPreparedTests(t)
 	h := newDoltHarness(t)
 	defer h.Close()
-	enginetest.TestJsonScriptsPrepared(t, h)
+	skippedTests := []string{
+		"round-trip into table", // The current Dolt JSON format does not preserve decimals and unsigneds in JSON.
+	}
+	enginetest.TestJsonScriptsPrepared(t, h, skippedTests)
 }
 
 func TestCreateCheckConstraintsScriptsPrepared(t *testing.T) {
@@ -2763,6 +2816,13 @@ func TestPrepared(t *testing.T) {
 	h := newDoltHarness(t)
 	defer h.Close()
 	enginetest.TestPrepared(t, h)
+}
+
+func TestDoltPreparedScripts(t *testing.T) {
+	skipPreparedTests(t)
+	h := newDoltHarness(t)
+	defer h.Close()
+	DoltPreparedScripts(t, h)
 }
 
 func TestPreparedInsert(t *testing.T) {
@@ -3086,7 +3146,7 @@ func TestCreateDatabaseErrorCleansUp(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, e)
 
-	dh.provider.(*sqle.DoltDatabaseProvider).InitDatabaseHook = func(_ *sql.Context, _ *sqle.DoltDatabaseProvider, name string, _ *env.DoltEnv) error {
+	dh.provider.(*sqle.DoltDatabaseProvider).InitDatabaseHook = func(_ *sql.Context, _ *sqle.DoltDatabaseProvider, name string, _ *env.DoltEnv, _ dsess.SqlDatabase) error {
 		if name == "cannot_create" {
 			return fmt.Errorf("there was an error initializing this database. abort!")
 		}
@@ -3128,7 +3188,8 @@ func TestStatsAutoRefreshConcurrency(t *testing.T) {
 	intervalSec := time.Duration(0)
 	thresholdf64 := 0.
 	bThreads := sql.NewBackgroundThreads()
-	statsProv := engine.EngineAnalyzer().Catalog.StatsProvider.(*stats.Provider)
+	branches := []string{"main"}
+	statsProv := engine.EngineAnalyzer().Catalog.StatsProvider.(*statspro.Provider)
 
 	// it is important to use new sessions for this test, to avoid working root conflicts
 	readCtx := enginetest.NewSession(harness)
@@ -3137,7 +3198,7 @@ func TestStatsAutoRefreshConcurrency(t *testing.T) {
 		return enginetest.NewSession(harness), nil
 	}
 
-	err := statsProv.InitAutoRefresh(newCtx, sqlDb.Name(), bThreads, intervalSec, thresholdf64)
+	err := statsProv.InitAutoRefreshWithParams(newCtx, sqlDb.Name(), bThreads, intervalSec, thresholdf64, branches)
 	require.NoError(t, err)
 
 	execQ := func(ctx *sql.Context, q string, id int, tag string) {
@@ -3211,6 +3272,10 @@ func TestStatsAutoRefreshConcurrency(t *testing.T) {
 
 		wg.Wait()
 	}
+}
+
+func TestStatusVariables(t *testing.T) {
+	enginetest.TestStatusVariables(t, newDoltHarness(t))
 }
 
 // runMergeScriptTestsInBothDirections creates a new test run, named |name|, and runs the specified merge |tests|

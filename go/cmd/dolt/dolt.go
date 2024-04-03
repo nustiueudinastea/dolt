@@ -67,7 +67,7 @@ import (
 )
 
 const (
-	Version = "1.35.0"
+	Version = "1.35.7"
 )
 
 var dumpDocsCommand = &commands.DumpDocsCmd{}
@@ -594,6 +594,7 @@ func runMain() int {
 		return false, nil
 	})
 
+	// TODO: we set persisted vars here, and this should be deferred until after we know what command line arguments might change them
 	err = dsess.InitPersistedSystemVars(dEnv)
 	if err != nil {
 		cli.Printf("error: failed to load persisted global variables: %s\n", err.Error())
