@@ -42,6 +42,7 @@ var ErrAlreadyOnWorkspace = errors.New("Already on workspace")
 
 var ErrNomsIO = errors.New("error reading from or writing to noms")
 
+// ErrUpToDate is returned when a merge is up-to-date. Not actually an error, and we do use this message in non-error contexts.
 var ErrUpToDate = errors.New("Everything up-to-date")
 var ErrIsAhead = errors.New("cannot fast forward from a to b. a is ahead of b already")
 var ErrIsBehind = errors.New("cannot reverse from b to a. b is a is behind a already")
@@ -175,7 +176,7 @@ func GetUnreachableRootCause(err error) error {
 
 // DoltIgnoreConflictError is an error that is returned when the user attempts to stage a table that matches conflicting dolt_ignore patterns
 type DoltIgnoreConflictError struct {
-	Table         string
+	Table         TableName
 	TruePatterns  []string
 	FalsePatterns []string
 }
@@ -183,7 +184,7 @@ type DoltIgnoreConflictError struct {
 func (dc DoltIgnoreConflictError) Error() string {
 	var buffer bytes.Buffer
 	buffer.WriteString("the table ")
-	buffer.WriteString(dc.Table)
+	buffer.WriteString(dc.Table.Name)
 	buffer.WriteString(" matches conflicting patterns in dolt_ignore:")
 
 	for _, pattern := range dc.TruePatterns {

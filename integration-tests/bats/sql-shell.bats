@@ -21,6 +21,21 @@ teardown() {
     teardown_common
 }
 
+
+# bats test_tags=no_lambda
+@test "sql-shell: warnings are not suppressed" {
+    skiponwindows "Need to install expect and make this script work on windows."
+    if [ "$SQL_ENGINE" = "remote-engine" ]; then
+     skip "session ctx in shell is no the same as session in server"
+    fi
+    run $BATS_TEST_DIRNAME/sql-shell-warnings.expect
+    echo "$output"
+
+    [[ "$output" =~ "Warning" ]] || false
+    [[ "$output" =~ "1365" ]] || false
+    [[ "$output" =~ "Division by 0" ]] || false
+}
+
 @test "sql-shell: use user without privileges, and no superuser created" {
     rm -rf .doltcfg
 
@@ -65,6 +80,18 @@ teardown() {
     [[ "$output" =~ "| test                " ]] || false
     [[ "$output" =~ "| test_expect         " ]] || false
     [[ "$output" =~ "+---------------------" ]] || false
+}
+
+# bats test_tags=no_lambda
+@test "sql-shell: sql shell executes slash commands" {
+    skiponwindows "Need to install expect and make this script work on windows."
+    if [ "$SQL_ENGINE" = "remote-engine" ]; then
+      skip "Current test setup results in remote calls having a clean branch, where this expect script expects dirty."
+    fi
+    run $BATS_TEST_DIRNAME/sql-shell-slash-cmds.expect
+    echo "$output"
+
+    [ "$status" -eq 0 ]
 }
 
 # bats test_tags=no_lambda
@@ -935,9 +962,7 @@ SQL
   dolt sql -q "SELECT * FROM test2" -r json
   run dolt sql -q "SELECT * FROM test2" -r json
   [ $status -eq 0 ]
-  # The golang json encoder escapes < and > and & for HTML compatibility
-  JSON_TESTSTR='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^\u0026*()){}[]/=?+|,.\u003c\u003e;:_-_%d%s%f'
-  [[ "$output" =~ "$JSON_TESTSTR" ]] || false
+  [[ "$output" =~ "$TESTSTR" ]] || false
 
   dolt add .
   dolt commit -m "added data"

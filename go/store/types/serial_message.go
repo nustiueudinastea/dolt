@@ -20,8 +20,12 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/dolthub/dolt/go/store/val"
 
 	"github.com/dolthub/dolt/go/gen/fb/serial"
 	"github.com/dolthub/dolt/go/store/hash"
@@ -54,7 +58,7 @@ func (sm SerialMessage) Hash(nbf *NomsBinFormat) (hash.Hash, error) {
 }
 
 func (sm SerialMessage) HumanReadableString() string {
-	return sm.humanReadableStringAtIndentationLevel(0)
+	return sm.HumanReadableStringAtIndentationLevel(0)
 }
 
 func printWithIndendationLevel(level int, builder *strings.Builder, format string, a ...any) {
@@ -62,7 +66,7 @@ func printWithIndendationLevel(level int, builder *strings.Builder, format strin
 	fmt.Fprintf(builder, format, a...)
 }
 
-func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string {
+func (sm SerialMessage) HumanReadableStringAtIndentationLevel(level int) string {
 	id := serial.GetFileID(sm)
 	switch id {
 	// NOTE: splunk uses a separate path for some printing
@@ -72,14 +76,14 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 		ret := &strings.Builder{}
 		mapbytes := msg.AddressMapBytes()
 		printWithIndendationLevel(level, ret, "StoreRoot{%s}",
-			SerialMessage(mapbytes).humanReadableStringAtIndentationLevel(level+1))
+			SerialMessage(mapbytes).HumanReadableStringAtIndentationLevel(level+1))
 		return ret.String()
 	case serial.StashListFileID:
 		msg, _ := serial.TryGetRootAsStashList([]byte(sm), serial.MessagePrefixSz)
 		ret := &strings.Builder{}
 		mapbytes := msg.AddressMapBytes()
 		printWithIndendationLevel(level, ret, "StashList{%s}",
-			SerialMessage(mapbytes).humanReadableStringAtIndentationLevel(level+1))
+			SerialMessage(mapbytes).HumanReadableStringAtIndentationLevel(level+1))
 		return ret.String()
 	case serial.StashFileID:
 		msg, _ := serial.TryGetRootAsStash(sm, serial.MessagePrefixSz)
@@ -165,9 +169,11 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 		printWithIndendationLevel(level, ret, "\tFeatureVersion: %d\n", msg.FeatureVersion())
 		printWithIndendationLevel(level, ret, "\tForeignKeys: #%s\n", hash.New(msg.ForeignKeyAddrBytes()).String())
 		printWithIndendationLevel(level, ret, "\tTables: %s\n",
-			SerialMessage(msg.TablesBytes()).humanReadableStringAtIndentationLevel(level+1))
+			SerialMessage(msg.TablesBytes()).HumanReadableStringAtIndentationLevel(level+1))
 		printWithIndendationLevel(level, ret, "}")
 		return ret.String()
+	case serial.DoltgresRootValueFileID:
+		return DoltgresRootValueHumanReadableStringAtIndentationLevel(sm, level)
 	case serial.TableFileID:
 		msg, _ := serial.TryGetRootAsTable(sm, serial.MessagePrefixSz)
 		ret := &strings.Builder{}
@@ -181,7 +187,7 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 
 		printWithIndendationLevel(level, ret, "\tPrimary index: #%s\n", hash.Of(msg.PrimaryIndexBytes()))
 		printWithIndendationLevel(level, ret, "\tSecondary indexes: %s\n",
-			SerialMessage(msg.SecondaryIndexesBytes()).humanReadableStringAtIndentationLevel(level+1))
+			SerialMessage(msg.SecondaryIndexesBytes()).HumanReadableStringAtIndentationLevel(level+1))
 		printWithIndendationLevel(level, ret, "}")
 		return ret.String()
 	case serial.AddressMapFileID:
@@ -283,10 +289,137 @@ func (sm SerialMessage) humanReadableStringAtIndentationLevel(level int) string 
 		level -= 1
 		printWithIndendationLevel(level, ret, "}")
 		return ret.String()
+	case serial.ProllyTreeNodeFileID:
+		ret := &strings.Builder{}
+		printWithIndendationLevel(level, ret, "{\n")
+		level++
+
+		_ = OutputProllyNodeBytes(ret, serial.Message(sm))
+
+		level -= 1
+		printWithIndendationLevel(level, ret, "}")
+		return ret.String()
+	case serial.BlobFileID:
+		ret := &strings.Builder{}
+		printWithIndendationLevel(level, ret, "{\n")
+		level++
+		_ = OutputBlobNodeBytes(ret, level, serial.Message(sm))
+		level -= 1
+		printWithIndendationLevel(level, ret, "}")
+		return ret.String()
 	default:
 
 		return fmt.Sprintf("SerialMessage (HumanReadableString not implemented), [%v]: %s", id, strings.ToUpper(hex.EncodeToString(sm)))
 	}
+}
+
+func OutputBlobNodeBytes(w *strings.Builder, indentationLevel int, msg serial.Message) error {
+	keys, values, treeLevel, count, err := message.UnpackFields(msg)
+	if err != nil {
+		return err
+	}
+	isLeaf := treeLevel == 0
+
+	if isLeaf {
+		printWithIndendationLevel(indentationLevel, w, "Blob - ")
+		w.Write(values.GetItem(0, msg))
+		w.WriteString("\n")
+		return nil
+	}
+
+	for i := 0; i < int(count); i++ {
+		k := keys.GetItem(i, msg)
+		kt := val.Tuple(k)
+
+		w.Write([]byte("\n    { key: "))
+		for j := 0; j < kt.Count(); j++ {
+			if j > 0 {
+				w.Write([]byte(", "))
+			}
+
+			w.Write([]byte(hex.EncodeToString(kt.GetField(j))))
+		}
+
+		ref := hash.New(values.GetItem(i, msg))
+
+		w.Write([]byte(" ref: #"))
+		w.Write([]byte(ref.String()))
+		w.Write([]byte(" }"))
+	}
+
+	w.Write([]byte("\n"))
+	return nil
+}
+
+func OutputProllyNodeBytes(w io.Writer, msg serial.Message) error {
+	keys, values, treeLevel, count, err := message.UnpackFields(msg)
+	if err != nil {
+		return err
+	}
+	isLeaf := treeLevel == 0
+
+	node, err := serial.TryGetRootAsProllyTreeNode(msg, serial.MessagePrefixSz)
+	if err != nil {
+		return err
+	}
+
+	addresses := make([][]byte, node.ValueAddressOffsetsLength())
+	for i := 0; i < node.ValueAddressOffsetsLength(); i++ {
+		offset := node.ValueAddressOffsets(i)
+		addresses[i] = node.ValueItemsBytes()[offset : offset+20]
+	}
+
+	for i := 0; i < int(count); i++ {
+		k := keys.GetItem(i, msg)
+		kt := val.Tuple(k)
+
+		w.Write([]byte("\n    { key: "))
+		for j := 0; j < kt.Count(); j++ {
+			if j > 0 {
+				w.Write([]byte(", "))
+			}
+
+			w.Write([]byte(hex.EncodeToString(kt.GetField(j))))
+		}
+
+		if isLeaf {
+			v := values.GetItem(i, msg)
+			vt := val.Tuple(v)
+
+			w.Write([]byte(" value: "))
+			for j := 0; j < vt.Count(); j++ {
+				if j > 0 {
+					w.Write([]byte(", "))
+				}
+				field := vt.GetField(j)
+				if len(field) == hash.ByteLen {
+					// This value may be an address. Check to see if it's in `addresses`
+					isAddress := slices.ContainsFunc(addresses, func(address []byte) bool {
+						return slices.Equal(address, field)
+					})
+					if isAddress {
+						ref := hash.New(field)
+
+						w.Write([]byte(" #"))
+						w.Write([]byte(ref.String()))
+						continue
+					}
+				}
+				w.Write([]byte(hex.EncodeToString(field)))
+			}
+
+			w.Write([]byte(" }"))
+		} else {
+			ref := hash.New(values.GetItem(i, msg))
+
+			w.Write([]byte(" ref: #"))
+			w.Write([]byte(ref.String()))
+			w.Write([]byte(" }"))
+		}
+	}
+
+	w.Write([]byte("\n"))
+	return nil
 }
 
 func (sm SerialMessage) Less(ctx context.Context, nbf *NomsBinFormat, other LesserValuable) (bool, error) {
@@ -399,6 +532,11 @@ func (sm SerialMessage) WalkAddrs(nbf *NomsBinFormat, cb func(addr hash.Hash) er
 				return err
 			}
 		}
+	case serial.DoltgresRootValueFileID:
+		if !nbf.UsesFlatbuffers() {
+			return fmt.Errorf("root values for Doltgres only use flatbuffer serialization")
+		}
+		return DoltgresRootValueWalkAddrs(sm, cb)
 	case serial.TableFileID:
 		var msg serial.Table
 		err := serial.InitTableRoot(&msg, []byte(sm), serial.MessagePrefixSz)
@@ -540,4 +678,16 @@ func (sm SerialMessage) writeTo(w nomsWriter, nbf *NomsBinFormat) error {
 
 func (sm SerialMessage) valueReadWriter() ValueReadWriter {
 	return nil
+}
+
+// DoltgresRootValueHumanReadableStringAtIndentationLevel returns the human readable string at the given indentation
+// level for root values. This is a variable as it's changed in Doltgres.
+var DoltgresRootValueHumanReadableStringAtIndentationLevel = func(sm SerialMessage, level int) string {
+	return "DOLTGRES ROOT VALUE"
+}
+
+// DoltgresRootValueWalkAddrs walks the given message using the given callback. This is a variable as it's changed in
+// Doltgres.
+var DoltgresRootValueWalkAddrs = func(sm SerialMessage, cb func(addr hash.Hash) error) error {
+	return fmt.Errorf("cannot walk a Doltgres root value from within Dolt")
 }

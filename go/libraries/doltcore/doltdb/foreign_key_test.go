@@ -175,7 +175,7 @@ func testForeignKeys(t *testing.T, test foreignKeyTest) {
 
 	for _, fk := range test.fks {
 		// verify parent index
-		pt, _, ok, err := root.GetTableInsensitive(ctx, fk.ReferencedTableName)
+		pt, _, ok, err := doltdb.GetTableInsensitive(ctx, root, doltdb.TableName{Name: fk.ReferencedTableName})
 		require.NoError(t, err)
 		require.True(t, ok)
 		ps, err := pt.GetSchema(ctx)
@@ -185,7 +185,7 @@ func testForeignKeys(t *testing.T, test foreignKeyTest) {
 		require.Equal(t, fk.ReferencedTableColumns, pi.IndexedColumnTags())
 
 		// verify child index
-		ct, _, ok, err := root.GetTableInsensitive(ctx, fk.TableName)
+		ct, _, ok, err := doltdb.GetTableInsensitive(ctx, root, doltdb.TableName{Name: fk.TableName})
 		require.NoError(t, err)
 		require.True(t, ok)
 		cs, err := ct.GetSchema(ctx)
@@ -296,8 +296,8 @@ var foreignKeyTests = []foreignKeyTest{
 			{
 				Name:      "new_fk",
 				TableName: "new_table",
-				// unnamed indexes take the column name
-				TableIndex:             "v1",
+				// FK created indexes use the supplied FK name
+				TableIndex:             "new_fk",
 				TableColumns:           []uint64{7597},
 				ReferencedTableName:    "parent",
 				ReferencedTableIndex:   "v1_idx",
@@ -402,7 +402,7 @@ var foreignKeyTests = []foreignKeyTest{
 			{
 				Name:                   "fk1",
 				TableName:              "sibling",
-				TableIndex:             "v1",
+				TableIndex:             "fk1",
 				TableColumns:           []uint64{16080},
 				ReferencedTableName:    "parent",
 				ReferencedTableIndex:   "v1_idx",
@@ -415,7 +415,7 @@ var foreignKeyTests = []foreignKeyTest{
 			{
 				Name:                   "fk2",
 				TableName:              "sibling",
-				TableIndex:             "v2",
+				TableIndex:             "fk2",
 				TableColumns:           []uint64{7576},
 				ReferencedTableName:    "parent",
 				ReferencedTableIndex:   "v2_idx",
@@ -430,7 +430,7 @@ var foreignKeyTests = []foreignKeyTest{
 			{
 				Name:                   "fk3",
 				TableName:              "sibling",
-				TableIndex:             "v3",
+				TableIndex:             "fk3",
 				TableColumns:           []uint64{16245},
 				ReferencedTableName:    "parent",
 				ReferencedTableIndex:   "v3_idx",
@@ -445,7 +445,7 @@ var foreignKeyTests = []foreignKeyTest{
 			{
 				Name:                   "fk4",
 				TableName:              "sibling",
-				TableIndex:             "v4",
+				TableIndex:             "fk4",
 				TableColumns:           []uint64{9036},
 				ReferencedTableName:    "parent",
 				ReferencedTableIndex:   "v4_idx",
@@ -460,7 +460,7 @@ var foreignKeyTests = []foreignKeyTest{
 			{
 				Name:                   "fk5",
 				TableName:              "sibling",
-				TableIndex:             "v5",
+				TableIndex:             "fk5",
 				TableColumns:           []uint64{11586},
 				ReferencedTableName:    "parent",
 				ReferencedTableIndex:   "v5_idx",
@@ -483,8 +483,8 @@ var foreignKeyTests = []foreignKeyTest{
 			{
 				Name:      "child_fk",
 				TableName: "child",
-				// unnamed indexes take the column name
-				TableIndex:             "v1",
+				// FK created indexes use the supplied FK name
+				TableIndex:             "child_fk",
 				TableColumns:           []uint64{1215},
 				ReferencedTableName:    "parent",
 				ReferencedTableIndex:   "v1_idx",
@@ -504,7 +504,7 @@ var foreignKeyTests = []foreignKeyTest{
 		},
 		fks: []doltdb.ForeignKey{
 			{
-				Name:                   "1ncba7pr",
+				Name:                   "child_ibfk_1",
 				TableName:              "child",
 				TableIndex:             "v1_idx",
 				TableColumns:           []uint64{1215},
@@ -529,7 +529,7 @@ var foreignKeyTests = []foreignKeyTest{
 		},
 		fks: []doltdb.ForeignKey{
 			{
-				Name:      "7nt5f9b0",
+				Name:      "new_table_ibfk_1",
 				TableName: "new_table",
 				// unnamed indexes take the column name
 				TableIndex:             "v1",
@@ -555,7 +555,7 @@ var foreignKeyTests = []foreignKeyTest{
 		},
 		fks: []doltdb.ForeignKey{
 			{
-				Name:                   "k48mbatd",
+				Name:                   "child_ibfk_1",
 				TableName:              "child",
 				TableIndex:             "v1v2_idx",
 				TableColumns:           []uint64{1215, 8734},
@@ -581,7 +581,7 @@ var foreignKeyTests = []foreignKeyTest{
 		},
 		fks: []doltdb.ForeignKey{
 			{
-				Name:                   "1ncba7pr",
+				Name:                   "child_ibfk_1",
 				TableName:              "child",
 				TableIndex:             "v1_idx",
 				TableColumns:           []uint64{1215},
@@ -594,7 +594,7 @@ var foreignKeyTests = []foreignKeyTest{
 				},
 			},
 			{
-				Name:                   "8geddp18",
+				Name:                   "child_ibfk_2",
 				TableName:              "child",
 				TableIndex:             "v2_idx",
 				TableColumns:           []uint64{8734},

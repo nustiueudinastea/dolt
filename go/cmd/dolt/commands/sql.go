@@ -96,7 +96,7 @@ const (
 
 	welcomeMsg = `# Welcome to the DoltSQL shell.
 # Statements must be terminated with ';'.
-# "exit" or "quit" (or Ctrl-D) to exit.`
+# "exit" or "quit" (or Ctrl-D) to exit. "\help" for help.`
 )
 
 // TODO: get rid of me, use a real integration point to define system variables
@@ -260,7 +260,7 @@ func (cmd SqlCmd) Exec(ctx context.Context, commandStr string, args []string, dE
 		}
 
 		if isTty {
-			err := execShell(sqlCtx, queryist, format)
+			err := execShell(sqlCtx, queryist, format, cliCtx)
 			if err != nil {
 				return sqlHandleVErrAndExitCode(queryist, errhand.VerboseErrorFromError(err), usage)
 			}
@@ -344,7 +344,7 @@ func listSavedQueries(ctx *sql.Context, qryist cli.Queryist, dEnv *env.DoltEnv, 
 		return sqlHandleVErrAndExitCode(qryist, errhand.VerboseErrorFromError(err), usage)
 	}
 
-	hasQC, err := workingRoot.HasTable(ctx, doltdb.DoltQueryCatalogTableName)
+	hasQC, err := workingRoot.HasTable(ctx, doltdb.TableName{Name: doltdb.DoltQueryCatalogTableName})
 
 	if err != nil {
 		verr := errhand.BuildDError("error: Failed to read from repository.").AddCause(err).Build()
@@ -601,7 +601,7 @@ func validateSqlArgs(apr *argparser.ArgParseResults) error {
 }
 
 // Saves the query given to the catalog with the name and message given.
-func saveQuery(ctx *sql.Context, root *doltdb.RootValue, query string, name string, message string) (*doltdb.RootValue, errhand.VerboseError) {
+func saveQuery(ctx *sql.Context, root doltdb.RootValue, query string, name string, message string) (doltdb.RootValue, errhand.VerboseError) {
 	_, newRoot, err := dtables.NewQueryCatalogEntryWithNameAsID(ctx, root, name, query, message)
 	if err != nil {
 		return nil, errhand.BuildDError("Couldn't save query").AddCause(err).Build()
@@ -626,7 +626,7 @@ func execBatchMode(ctx *sql.Context, qryist cli.Queryist, input io.Reader, conti
 
 		sqlMode := sql.LoadSqlMode(ctx)
 
-		sqlStatement, err := sqlparser.ParseWithOptions(query, sqlMode.ParserOptions())
+		sqlStatement, err := sqlparser.ParseWithOptions(ctx, query, sqlMode.ParserOptions())
 		if err == sqlparser.ErrEmpty {
 			continue
 		} else if err != nil {
@@ -685,7 +685,7 @@ func buildBatchSqlErr(stmtStartLine int, query string, err error) error {
 
 // execShell starts a SQL shell. Returns when the user exits the shell. The Root of the sqlEngine may
 // be updated by any queries which were processed.
-func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResultFormat) error {
+func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResultFormat, cliCtx cli.CliContext) error {
 	_ = iohelp.WriteLine(cli.CliOut, welcomeMsg)
 	historyFile := filepath.Join(".sqlhistory") // history file written to working dir
 
@@ -708,14 +708,19 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 	}
 
 	verticalOutputLineTerminators := []string{"\\g", "\\G"}
+	backSlashCommands := make([]string, 0, len(slashCmds))
+	for _, cmd := range slashCmds {
+		backSlashCommands = append(backSlashCommands, "\\"+cmd.Name())
+	}
 
 	shellConf := ishell.UninterpretedConfig{
 		ReadlineConfig: &rlConf,
 		QuitKeywords: []string{
 			"quit", "exit", "quit()", "exit()",
 		},
-		LineTerminator: ";",
-		MysqlShellCmds: verticalOutputLineTerminators,
+		LineTerminator:     ";",
+		SpecialTerminators: verticalOutputLineTerminators,
+		BackSlashCmds:      backSlashCommands,
 	}
 
 	shell := ishell.NewUninterpreted(&shellConf)
@@ -746,11 +751,10 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 
 	shell.Uninterpreted(func(c *ishell.Context) {
 		query := c.Args[0]
-		if len(strings.TrimSpace(query)) == 0 {
+		query = strings.TrimSpace(query)
+		if len(query) == 0 {
 			return
 		}
-
-		closureFormat := format
 
 		// TODO: there's a bug in the readline library when editing multi-line history entries.
 		// Longer term we need to switch to a new readline library, like in this bug:
@@ -765,6 +769,7 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 
 		query = strings.TrimSuffix(query, shell.LineTerminator())
 
+		closureFormat := format
 		// TODO: it would be better to build this into the statement parser rather than special case it here
 		for _, terminator := range verticalOutputLineTerminators {
 			if strings.HasSuffix(query, terminator) {
@@ -775,39 +780,39 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 
 		var nextPrompt string
 		var multiPrompt string
-		var sqlSch sql.Schema
-		var rowIter sql.RowIter
-
 		cont := func() bool {
 			subCtx, stop := signal.NotifyContext(initialCtx, os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
 			sqlCtx := sql.NewContext(subCtx, sql.WithSession(sqlCtx.Session))
 
-			if sqlSch, rowIter, err = processQuery(sqlCtx, query, qryist); err != nil {
-				verr := formatQueryError("", err)
-				shell.Println(verr.Verbose())
-			} else if rowIter != nil {
-				switch closureFormat {
-				case engine.FormatTabular, engine.FormatVertical:
-					err = engine.PrettyPrintResultsExtended(sqlCtx, closureFormat, sqlSch, rowIter)
-				default:
-					err = engine.PrettyPrintResults(sqlCtx, closureFormat, sqlSch, rowIter)
-				}
-
+			subCmd, foundCmd := findSlashCmd(query)
+			if foundCmd {
+				err := handleSlashCommand(sqlCtx, subCmd, query, cliCtx)
 				if err != nil {
 					shell.Println(color.RedString(err.Error()))
 				}
+			} else {
+				var sqlSch sql.Schema
+				var rowIter sql.RowIter
+				if sqlSch, rowIter, err = processQuery(sqlCtx, query, qryist); err != nil {
+					verr := formatQueryError("", err)
+					shell.Println(verr.Verbose())
+				} else if rowIter != nil {
+					switch closureFormat {
+					case engine.FormatTabular, engine.FormatVertical:
+						err = engine.PrettyPrintResultsExtended(sqlCtx, closureFormat, sqlSch, rowIter)
+					default:
+						err = engine.PrettyPrintResults(sqlCtx, closureFormat, sqlSch, rowIter)
+					}
+
+					if err != nil {
+						shell.Println(color.RedString(err.Error()))
+					}
+				}
 			}
 
-			db, branch, ok := getDBBranchFromSession(sqlCtx, qryist)
-			if ok {
-				sqlCtx.SetCurrentDatabase(db)
-			}
-			if branch != "" {
-				dirty, _ = isDirty(sqlCtx, qryist)
-			}
-			nextPrompt, multiPrompt = formattedPrompts(db, branch, dirty)
+			nextPrompt, multiPrompt = postCommandUpdate(sqlCtx, qryist)
 
 			return true
 		}()
@@ -824,6 +829,20 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 	_ = iohelp.WriteLine(cli.CliOut, "Bye")
 
 	return nil
+}
+
+// postCommandUpdate is a helper function that is run after the shell has completed a command. It updates the the database
+// if needed, and generates new prompts for the shell (based on the branch and if the workspace is dirty).
+func postCommandUpdate(sqlCtx *sql.Context, qryist cli.Queryist) (string, string) {
+	db, branch, ok := getDBBranchFromSession(sqlCtx, qryist)
+	if ok {
+		sqlCtx.SetCurrentDatabase(db)
+	}
+	dirty := false
+	if branch != "" {
+		dirty, _ = isDirty(sqlCtx, qryist)
+	}
+	return formattedPrompts(db, branch, dirty)
 }
 
 // formattedPrompts returns the prompt and multiline prompt for the current session. If the db is empty, the prompt will
@@ -859,6 +878,9 @@ func formattedPrompts(db, branch string, dirty bool) (string, string) {
 // along the way by printing red error messages to the CLI. If there was an issue getting the db name, the ok return
 // value will be false and the strings will be empty.
 func getDBBranchFromSession(sqlCtx *sql.Context, qryist cli.Queryist) (db string, branch string, ok bool) {
+	sqlCtx.Session.LockWarnings()
+	defer sqlCtx.Session.UnlockWarnings()
+
 	_, resp, err := qryist.Query(sqlCtx, "select database() as db, active_branch() as branch")
 	if err != nil {
 		cli.Println(color.RedString("Failure to get DB Name for session: " + err.Error()))
@@ -887,7 +909,7 @@ func getDBBranchFromSession(sqlCtx *sql.Context, qryist cli.Queryist) (db string
 
 		// It is possible to `use mydb/branch`, and as far as your session is concerned your database is mydb/branch. We
 		// allow that, but also want to show the user the branch name in the prompt. So we munge the DB in this case.
-		if strings.HasSuffix(db, "/"+branch) {
+		if strings.HasSuffix(strings.ToLower(db), strings.ToLower("/"+branch)) {
 			db = db[:len(db)-len(branch)-1]
 		}
 	}
@@ -898,7 +920,10 @@ func getDBBranchFromSession(sqlCtx *sql.Context, qryist cli.Queryist) (db string
 // isDirty returns true if the workspace is dirty, false otherwise. This function _assumes_ you are on a database
 // with a branch. If you are not, you will get an error.
 func isDirty(sqlCtx *sql.Context, qryist cli.Queryist) (bool, error) {
-	_, resp, err := qryist.Query(sqlCtx, "select count(table_name) > 0 as dirty from dolt_Status")
+	sqlCtx.Session.LockWarnings()
+	defer sqlCtx.Session.UnlockWarnings()
+
+	_, resp, err := qryist.Query(sqlCtx, "select count(table_name) > 0 as dirty from dolt_status")
 
 	if err != nil {
 		cli.Println(color.RedString("Failure to get DB Name for session: " + err.Error()))
@@ -929,6 +954,8 @@ func newCompleter(
 
 	sqlCtx := sql.NewContext(subCtx, sql.WithSession(ctx.Session))
 
+	sqlCtx.Session.LockWarnings()
+	defer sqlCtx.Session.UnlockWarnings()
 	_, iter, err := qryist.Query(sqlCtx, "select table_schema, table_name, column_name from information_schema.columns;")
 	if err != nil {
 		return nil, err
@@ -1080,8 +1107,6 @@ func processParsedQuery(ctx *sql.Context, query string, qryist cli.Queryist, sql
 			return nil, nil, err
 		}
 		return nil, nil, nil
-	case *sqlparser.DBDDL:
-		return dbddl(ctx, qryist, s, query)
 	case *sqlparser.Load:
 		if s.Local {
 			return nil, nil, fmt.Errorf("LOCAL supported only in sql-server mode")
@@ -1168,36 +1193,4 @@ func updateFileReadProgressOutput() {
 	fileReadProg.printed = fileReadProg.bytesRead
 	displayStr := fmt.Sprintf("Processed %.1f%% of the file", percent)
 	fileReadProg.displayStrLen = cli.DeleteAndPrint(fileReadProg.displayStrLen, displayStr)
-}
-
-func dbddl(ctx *sql.Context, queryist cli.Queryist, dbddl *sqlparser.DBDDL, query string) (sql.Schema, sql.RowIter, error) {
-	action := strings.ToLower(dbddl.Action)
-	var rowIter sql.RowIter = nil
-	var err error = nil
-
-	if action != sqlparser.CreateStr && action != sqlparser.DropStr {
-		return nil, nil, fmt.Errorf("Unhandled DBDDL action %v in Query %v", action, query)
-	}
-
-	if action == sqlparser.DropStr {
-		// Should not be allowed to delete repo name and information schema
-		if dbddl.DBName == sql.InformationSchemaDatabaseName {
-			return nil, nil, fmt.Errorf("DROP DATABASE isn't supported for database %s", sql.InformationSchemaDatabaseName)
-		}
-	}
-
-	sch, rowIter, err := queryist.Query(ctx, query)
-
-	if rowIter != nil {
-		err = rowIter.Close(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return sch, nil, nil
 }

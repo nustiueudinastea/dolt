@@ -307,10 +307,12 @@ func (m Map) HasPrefix(ctx context.Context, preKey val.Tuple, preDesc val.TupleD
 }
 
 // IterRange returns a mutableMapIter that iterates over a Range.
-func (m Map) IterRange(ctx context.Context, rng Range) (MapIter, error) {
-	iter, err := treeIterFromRange(ctx, m.tuples.Root, m.tuples.NodeStore, rng)
-	if err != nil {
-		return nil, err
+func (m Map) IterRange(ctx context.Context, rng Range) (iter MapIter, err error) {
+	stop, ok := rng.KeyRangeLookup(m.Pool())
+	if ok {
+		iter, err = m.IterKeyRange(ctx, rng.Tup, stop)
+	} else {
+		iter, err = treeIterFromRange(ctx, m.tuples.Root, m.tuples.NodeStore, rng)
 	}
 	return filteredIter{iter: iter, rng: rng}, nil
 }
@@ -435,9 +437,15 @@ func DebugFormat(ctx context.Context, m Map) (string, error) {
 func ConvertToSecondaryKeylessIndex(m Map) Map {
 	keyDesc, valDesc := m.Descriptors()
 	newTypes := make([]val.Type, len(keyDesc.Types)+1)
+	handlers := make([]val.TupleTypeHandler, len(keyDesc.Types)+1)
 	copy(newTypes, keyDesc.Types)
+	copy(handlers, keyDesc.Handlers)
 	newTypes[len(newTypes)-1] = val.Type{Enc: val.Hash128Enc}
-	newKeyDesc := val.NewTupleDescriptorWithArgs(val.TupleDescriptorArgs{Comparator: keyDesc.Comparator()}, newTypes...)
+	handlers[len(handlers)-1] = nil
+	newKeyDesc := val.NewTupleDescriptorWithArgs(val.TupleDescriptorArgs{
+		Comparator: keyDesc.Comparator(),
+		Handlers:   handlers,
+	}, newTypes...)
 	newTuples := m.tuples
 	newTuples.Order = newKeyDesc
 	return Map{

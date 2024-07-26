@@ -114,11 +114,11 @@ func TestRevisionDatabasePrivileges(t *testing.T) {
 
 				if assertion.ExpectedErr != nil {
 					t.Run(assertion.Query, func(t *testing.T) {
-						enginetest.AssertErrWithCtx(t, engine, harness, ctx, assertion.Query, assertion.ExpectedErr)
+						enginetest.AssertErrWithCtx(t, engine, harness, ctx, assertion.Query, nil, assertion.ExpectedErr)
 					})
 				} else if assertion.ExpectedErrStr != "" {
 					t.Run(assertion.Query, func(t *testing.T) {
-						enginetest.AssertErrWithCtx(t, engine, harness, ctx, assertion.Query, nil, assertion.ExpectedErrStr)
+						enginetest.AssertErrWithCtx(t, engine, harness, ctx, assertion.Query, nil, nil, assertion.ExpectedErrStr)
 					})
 				} else {
 					t.Run(assertion.Query, func(t *testing.T) {
@@ -589,8 +589,8 @@ var DoltOnlyRevisionDbPrivilegeTests = []queries.UserPrivilegeTest{
 				Host:  "localhost",
 				Query: "desc test;",
 				Expected: []sql.Row{
-					{"pk", "bigint", "NO", "PRI", "NULL", ""},
-					{"a", "int", "YES", "", "NULL", ""},
+					{"pk", "bigint", "NO", "PRI", nil, ""},
+					{"a", "int", "YES", "", nil, ""},
 				},
 			},
 		},
@@ -641,8 +641,8 @@ var DoltOnlyRevisionDbPrivilegeTests = []queries.UserPrivilegeTest{
 				Host:  "localhost",
 				Query: "desc test;",
 				Expected: []sql.Row{
-					{"pk", "bigint", "NO", "PRI", "NULL", ""},
-					{"a", "int", "YES", "MUL", "NULL", ""},
+					{"pk", "bigint", "NO", "PRI", nil, ""},
+					{"a", "int", "YES", "MUL", nil, ""},
 				},
 			},
 			{
@@ -674,8 +674,8 @@ var DoltOnlyRevisionDbPrivilegeTests = []queries.UserPrivilegeTest{
 				Host:  "localhost",
 				Query: "desc test;",
 				Expected: []sql.Row{
-					{"pk", "bigint", "NO", "PRI", "NULL", ""},
-					{"a", "int", "YES", "", "NULL", ""},
+					{"pk", "bigint", "NO", "PRI", nil, ""},
+					{"a", "int", "YES", "", nil, ""},
 				},
 			},
 		},
@@ -1008,11 +1008,11 @@ func TestDoltOnlyRevisionDatabasePrivileges(t *testing.T) {
 
 				if assertion.ExpectedErr != nil {
 					t.Run(assertion.Query, func(t *testing.T) {
-						enginetest.AssertErrWithCtx(t, engine, harness, ctx, assertion.Query, assertion.ExpectedErr)
+						enginetest.AssertErrWithCtx(t, engine, harness, ctx, assertion.Query, nil, assertion.ExpectedErr)
 					})
 				} else if assertion.ExpectedErrStr != "" {
 					t.Run(assertion.Query, func(t *testing.T) {
-						enginetest.AssertErrWithCtx(t, engine, harness, ctx, assertion.Query, nil, assertion.ExpectedErrStr)
+						enginetest.AssertErrWithCtx(t, engine, harness, ctx, assertion.Query, nil, nil, assertion.ExpectedErrStr)
 					})
 				} else {
 					t.Run(assertion.Query, func(t *testing.T) {

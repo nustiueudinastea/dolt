@@ -55,7 +55,7 @@ type CommitInfo struct {
 
 var fwtStageName = "fwt"
 
-func GetWorkingWithVErr(dEnv *env.DoltEnv) (*doltdb.RootValue, errhand.VerboseError) {
+func GetWorkingWithVErr(dEnv *env.DoltEnv) (doltdb.RootValue, errhand.VerboseError) {
 	working, err := dEnv.WorkingRoot(context.Background())
 
 	if err != nil {
@@ -65,7 +65,7 @@ func GetWorkingWithVErr(dEnv *env.DoltEnv) (*doltdb.RootValue, errhand.VerboseEr
 	return working, nil
 }
 
-func GetStagedWithVErr(dEnv *env.DoltEnv) (*doltdb.RootValue, errhand.VerboseError) {
+func GetStagedWithVErr(dEnv *env.DoltEnv) (doltdb.RootValue, errhand.VerboseError) {
 	staged, err := dEnv.StagedRoot(context.Background())
 
 	if err != nil {
@@ -75,7 +75,7 @@ func GetStagedWithVErr(dEnv *env.DoltEnv) (*doltdb.RootValue, errhand.VerboseErr
 	return staged, nil
 }
 
-func UpdateWorkingWithVErr(dEnv *env.DoltEnv, updatedRoot *doltdb.RootValue) errhand.VerboseError {
+func UpdateWorkingWithVErr(dEnv *env.DoltEnv, updatedRoot doltdb.RootValue) errhand.VerboseError {
 	err := dEnv.UpdateWorkingRoot(context.Background(), updatedRoot)
 
 	switch err {
@@ -390,14 +390,14 @@ func getUint64ColAsUint64(col interface{}) (uint64, error) {
 	}
 }
 
-// getStringColAsString returns the value of the input as a bool. This is required because depending on if we
+// getStrBoolColAsBool returns the value of the input as a bool. This is required because depending on if we
 // go over the wire or not we may get a string or a bool when we expect a bool.
 func getStrBoolColAsBool(col interface{}) (bool, error) {
 	switch v := col.(type) {
 	case bool:
 		return col.(bool), nil
 	case string:
-		return strings.ToLower(col.(string)) == "true", nil
+		return strings.ToLower(col.(string)) == "true" || strings.ToLower(col.(string)) == "1", nil
 	default:
 		return false, fmt.Errorf("unexpected type %T, was expecting bool or string", v)
 	}
@@ -535,7 +535,7 @@ func GetDoltStatus(queryist cli.Queryist, sqlCtx *sql.Context) (stagedChangedTab
 			stagedChangedTables[tableName] = true
 		} else {
 			// filter out ignored tables from untracked tables
-			ignored, err := ignoredPatterns.IsTableNameIgnored(tableName)
+			ignored, err := ignoredPatterns.IsTableNameIgnored(doltdb.TableName{Name: tableName})
 			if conflict := doltdb.AsDoltIgnoreInConflict(err); conflict != nil {
 				continue
 			} else if err != nil {
@@ -772,6 +772,35 @@ func getHashOf(queryist cli.Queryist, sqlCtx *sql.Context, ref string) (string, 
 		return "", fmt.Errorf("no commits found for ref %s", ref)
 	}
 	return rows[0][0].(string), nil
+}
+
+// ParseArgsOrPrintHelp is used by most commands to parse arguments and print help if necessary. It's a wrapper around
+// cli.ParseArgs that returns an argparser.ArgParseResults IFF parsing the given arguments was successful with the
+// provided argparser.ArgParser. Additional return values are a usage printer, a boolean indicating whether the command
+// should terminate, and an exit status code.
+//
+// The caller of this method should check the boolean value to determine if the command should terminate. Termination
+// does not necessarily mean an error occurred. For example, if the user requested help, the command should terminate
+// with a successful exit code and print the help message with the provided usage printer.
+//
+// There may be cases where the usage printer is still used by the caller. For example if the arguments parse but they
+// don't make sense in the context of other arguments, the caller may want to print the usage message and exit with an
+// error code.
+func ParseArgsOrPrintHelp(
+	ap *argparser.ArgParser,
+	commandStr string,
+	args []string,
+	docs cli.CommandDocumentationContent) (apr *argparser.ArgParseResults, usage cli.UsagePrinter, terminate bool, exitStatus int) {
+	helpPrt, usagePrt := cli.HelpAndUsagePrinters(cli.CommandDocsForCommandString(commandStr, docs, ap))
+	var err error
+	apr, err = cli.ParseArgs(ap, args, helpPrt)
+	if err != nil {
+		if err == argparser.ErrHelp {
+			return nil, usagePrt, true, 0
+		}
+		return nil, usagePrt, true, HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), usagePrt)
+	}
+	return apr, usagePrt, false, 0
 }
 
 func HandleVErrAndExitCode(verr errhand.VerboseError, usage cli.UsagePrinter) int {

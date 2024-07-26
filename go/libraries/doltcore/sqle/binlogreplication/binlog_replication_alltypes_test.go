@@ -15,6 +15,7 @@
 package binlogreplication
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -27,7 +28,7 @@ import (
 // data types can be successfully replicated.
 func TestBinlogReplicationForAllTypes(t *testing.T) {
 	defer teardown(t)
-	startSqlServers(t)
+	startSqlServersWithDoltSystemVars(t, doltReplicaSystemVars)
 	startReplication(t, mySqlPort)
 
 	// Set the session's timezone to UTC, to avoid TIMESTAMP test values changing
@@ -521,11 +522,16 @@ func assertValues(t *testing.T, assertionIndex int, row map[string]interface{}) 
 		if typeDesc.TypeDefinition == "json" {
 			// LD_1 and DOLT storage formats return JSON strings slightly differently; DOLT removes spaces
 			// while LD_1 add whitespace, so for json comparison, we sanitize by removing whitespace.
-			actualValue = strings.ReplaceAll(actualValue, " ", "")
+			var actual interface{}
+			json.Unmarshal([]byte(actualValue), &actual)
+			var expected interface{}
+			json.Unmarshal([]byte(expectedValue.(string)), &expected)
+			require.EqualValues(t, expected, actual,
+				"Failed on assertion %d for for column %q", assertionIndex, typeDesc.ColumnName())
+		} else {
+			require.EqualValues(t, expectedValue, actualValue,
+				"Failed on assertion %d for for column %q", assertionIndex, typeDesc.ColumnName())
 		}
-
-		require.EqualValues(t, expectedValue, actualValue,
-			"Failed on assertion %d for for column %q", assertionIndex, typeDesc.ColumnName())
 	}
 }
 

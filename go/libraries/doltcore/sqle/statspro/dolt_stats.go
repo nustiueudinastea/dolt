@@ -15,6 +15,7 @@
 package statspro
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -35,6 +36,10 @@ type DoltStats struct {
 	// field on disk
 	Active map[hash.Hash]int
 	Hist   sql.Histogram
+}
+
+func (s *DoltStats) Clone(_ context.Context) sql.JSONWrapper {
+	return s
 }
 
 var _ sql.Statistic = (*DoltStats)(nil)
@@ -136,15 +141,23 @@ func NewDoltStats() *DoltStats {
 	return &DoltStats{mu: &sync.Mutex{}, Active: make(map[hash.Hash]int), Statistic: &stats.Statistic{}}
 }
 
-func (s *DoltStats) ToInterface() interface{} {
-	ret := s.Statistic.ToInterface().(map[string]interface{})
+func (s *DoltStats) ToInterface() (interface{}, error) {
+	statVal, err := s.Statistic.ToInterface()
+	if err != nil {
+		return nil, err
+	}
+	ret := statVal.(map[string]interface{})
 
 	var hist sql.Histogram
 	for _, b := range s.Hist {
 		hist = append(hist, b)
 	}
-	ret["statistic"].(map[string]interface{})["buckets"] = hist.ToInterface()
-	return ret
+	histVal, err := hist.ToInterface()
+	if err != nil {
+		return nil, err
+	}
+	ret["statistic"].(map[string]interface{})["buckets"] = histVal
+	return ret, nil
 }
 
 func (s *DoltStats) WithHistogram(h sql.Histogram) (sql.Statistic, error) {
@@ -153,7 +166,7 @@ func (s *DoltStats) WithHistogram(h sql.Histogram) (sql.Statistic, error) {
 	for _, b := range h {
 		doltB, ok := b.(DoltBucket)
 		if !ok {
-			return nil, fmt.Errorf("invalid bucket type: %T", b)
+			return nil, fmt.Errorf("invalid bucket type: %T, %s", b, h.DebugString())
 		}
 		ret.Hist = append(ret.Hist, doltB)
 	}
@@ -193,9 +206,37 @@ func (s *DoltStats) UpdateActive() {
 type DoltHistogram []DoltBucket
 
 type DoltBucket struct {
-	*stats.Bucket
+	Bucket  *stats.Bucket
 	Chunk   hash.Hash
 	Created time.Time
+}
+
+func (d DoltBucket) RowCount() uint64 {
+	return d.Bucket.RowCount()
+}
+
+func (d DoltBucket) DistinctCount() uint64 {
+	return d.Bucket.DistinctCount()
+}
+
+func (d DoltBucket) NullCount() uint64 {
+	return d.Bucket.NullCount()
+}
+
+func (d DoltBucket) BoundCount() uint64 {
+	return d.Bucket.BoundCount()
+}
+
+func (d DoltBucket) UpperBound() sql.Row {
+	return d.Bucket.UpperBound()
+}
+
+func (d DoltBucket) McvCounts() []uint64 {
+	return d.Bucket.McvCounts()
+}
+
+func (d DoltBucket) Mcvs() []sql.Row {
+	return d.Bucket.Mcvs()
 }
 
 func DoltBucketChunk(b sql.HistogramBucket) hash.Hash {
@@ -230,7 +271,7 @@ func DoltHistFromSql(hist sql.Histogram, types []sql.Type) (sql.Histogram, error
 			}
 		}
 		ret[i] = DoltBucket{
-			Bucket: stats.NewHistogramBucket(b.RowCount(), b.DistinctCount(), b.NullCount(), b.BoundCount(), upperBound, b.McvCounts(), mcvs),
+			Bucket: stats.NewHistogramBucket(b.RowCount(), b.DistinctCount(), b.NullCount(), b.BoundCount(), upperBound, b.McvCounts(), mcvs).(*stats.Bucket),
 		}
 	}
 	return ret, nil

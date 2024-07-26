@@ -109,6 +109,7 @@ func init() {
 
 // ErrInvalidTableFile is an error returned when a table file is corrupt or invalid.
 var ErrInvalidTableFile = errors.New("invalid or corrupt table file")
+var ErrUnsupportedTableFileFormat = errors.New("unsupported table file format")
 
 type indexEntry interface {
 	Offset() uint64
@@ -667,7 +668,7 @@ func (tr tableReader) reader(ctx context.Context) (io.ReadCloser, uint64, error)
 	return r, sz, nil
 }
 
-func (tr tableReader) getRecordRanges(requests []getRecord) (map[hash.Hash]Range, error) {
+func (tr tableReader) getRecordRanges(ctx context.Context, requests []getRecord) (map[hash.Hash]Range, error) {
 	// findOffsets sets getRecord.found
 	recs, _, err := tr.findOffsets(requests)
 	if err != nil {

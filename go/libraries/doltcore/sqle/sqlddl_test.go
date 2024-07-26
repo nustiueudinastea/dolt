@@ -36,6 +36,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtables"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/writer"
 	"github.com/dolthub/dolt/go/store/types"
 )
 
@@ -280,7 +281,7 @@ func TestCreateTable(t *testing.T) {
 
 			require.NotNil(t, updatedRoot)
 
-			table, ok, err := updatedRoot.GetTable(ctx, tt.expectedTable)
+			table, ok, err := updatedRoot.GetTable(ctx, doltdb.TableName{Name: tt.expectedTable})
 			require.True(t, ok)
 			require.NoError(t, err)
 
@@ -357,7 +358,7 @@ func TestDropTable(t *testing.T) {
 
 			require.NotNil(t, updatedRoot)
 			for _, tableName := range tt.tableNames {
-				has, err := updatedRoot.HasTable(ctx, tableName)
+				has, err := updatedRoot.HasTable(ctx, doltdb.TableName{Name: tableName})
 				assert.NoError(t, err)
 				assert.False(t, has)
 			}
@@ -532,7 +533,7 @@ func TestAddColumn(t *testing.T) {
 			}
 
 			assert.NotNil(t, updatedRoot)
-			table, _, err := updatedRoot.GetTable(ctx, PeopleTableName)
+			table, _, err := updatedRoot.GetTable(ctx, doltdb.TableName{Name: PeopleTableName})
 
 			assert.NoError(t, err)
 			sch, err := table.GetSchema(ctx)
@@ -543,7 +544,7 @@ func TestAddColumn(t *testing.T) {
 				return // todo: convert these to enginetests
 			}
 
-			updatedTable, ok, err := updatedRoot.GetTable(ctx, "people")
+			updatedTable, ok, err := updatedRoot.GetTable(ctx, doltdb.TableName{Name: "people"})
 			assert.NoError(t, err)
 			require.True(t, ok)
 
@@ -653,7 +654,7 @@ func TestRenameColumn(t *testing.T) {
 			}
 
 			require.NotNil(t, updatedRoot)
-			table, _, err := updatedRoot.GetTable(ctx, PeopleTableName)
+			table, _, err := updatedRoot.GetTable(ctx, doltdb.TableName{Name: PeopleTableName})
 			assert.NoError(t, err)
 			sch, err := table.GetSchema(ctx)
 			require.NoError(t, err)
@@ -663,7 +664,7 @@ func TestRenameColumn(t *testing.T) {
 				return // todo: convert these to enginetests
 			}
 
-			updatedTable, ok, err := updatedRoot.GetTable(ctx, "people")
+			updatedTable, ok, err := updatedRoot.GetTable(ctx, doltdb.TableName{Name: "people"})
 			assert.NoError(t, err)
 			require.True(t, ok)
 
@@ -769,11 +770,11 @@ func TestRenameTableStatements(t *testing.T) {
 			}
 			require.NotNil(t, updatedRoot)
 
-			has, err := updatedRoot.HasTable(ctx, tt.oldTableName)
+			has, err := updatedRoot.HasTable(ctx, doltdb.TableName{Name: tt.oldTableName})
 			require.NoError(t, err)
 			assert.False(t, has)
 
-			newTable, ok, err := updatedRoot.GetTable(ctx, tt.newTableName)
+			newTable, ok, err := updatedRoot.GetTable(ctx, doltdb.TableName{Name: tt.newTableName})
 			require.NoError(t, err)
 			require.True(t, ok)
 
@@ -818,9 +819,8 @@ func TestAlterSystemTables(t *testing.T) {
 			"INSERT INTO dolt_docs VALUES ('LICENSE.md','A license')")
 		CreateTestTable(t, dEnv, doltdb.DoltQueryCatalogTableName, dtables.DoltQueryCatalogSchema,
 			"INSERT INTO dolt_query_catalog VALUES ('abc123', 1, 'example', 'select 2+2 from dual', 'description')")
-		CreateTestTable(t, dEnv, doltdb.SchemasTableName, schemaTableSchema,
-			"INSERT INTO dolt_schemas (type, name, fragment) VALUES ('view', 'name', 'create view name as select 2+2 from dual')")
 		ExecuteSetupSQL(context.Background(), `
+    CREATE VIEW name as select 2+2 from dual;
 		CREATE PROCEDURE simple_proc2() SELECT 1+1;
 		INSERT INTO dolt_ignore VALUES ('test', 1);`)(t, dEnv)
 	}
@@ -1113,7 +1113,7 @@ func newTestEngine(ctx context.Context, dEnv *env.DoltEnv) (*gms.Engine, *sql.Co
 		panic(err)
 	}
 
-	doltSession, err := dsess.NewDoltSession(sql.NewBaseSession(), pro, dEnv.Config.WriteableConfig(), nil, nil)
+	doltSession, err := dsess.NewDoltSession(sql.NewBaseSession(), pro, dEnv.Config.WriteableConfig(), nil, nil, writer.NewWriteSession)
 	if err != nil {
 		panic(err)
 	}
@@ -1198,7 +1198,7 @@ INSERT INTO child_non_unq VALUES ('1', 1), ('2', NULL), ('3', 3), ('4', 3), ('5'
 	require.Equal(t, "abc_unq", fkChildUnq.TableIndex)
 	fkChildNonUnq, ok := fkc.GetByNameCaseInsensitive("fk_child_non_unq")
 	require.True(t, ok)
-	require.Equal(t, "parent_value", fkChildNonUnq.TableIndex)
+	require.Equal(t, "fk_child_non_unq", fkChildNonUnq.TableIndex)
 
 	// insert tests against index
 	root, err = ExecuteSql(dEnv, root, "INSERT INTO child VALUES ('6', 5)")
@@ -1252,7 +1252,7 @@ func TestDropPrimaryKey(t *testing.T) {
 		require.NoError(t, err)
 		fkChild, ok := fkc.GetByNameCaseInsensitive("fk_child")
 		require.True(t, ok)
-		require.Equal(t, "xy", fkChild.TableIndex)
+		require.Equal(t, "fk_child", fkChild.TableIndex)
 		require.Equal(t, "ij", fkChild.ReferencedTableIndex)
 
 		// add primary key
@@ -1268,7 +1268,7 @@ func TestDropPrimaryKey(t *testing.T) {
 		require.NoError(t, err)
 		fkChild, ok = fkc.GetByNameCaseInsensitive("fk_child")
 		require.True(t, ok)
-		require.Equal(t, "xy", fkChild.TableIndex)
+		require.Equal(t, "fk_child", fkChild.TableIndex)
 		require.Equal(t, "ijk", fkChild.ReferencedTableIndex)
 
 		// dropping secondary index ijk, should switch to primary key
@@ -1280,7 +1280,7 @@ func TestDropPrimaryKey(t *testing.T) {
 		require.NoError(t, err)
 		fkChild, ok = fkc.GetByNameCaseInsensitive("fk_child")
 		require.True(t, ok)
-		require.Equal(t, "xy", fkChild.TableIndex)
+		require.Equal(t, "fk_child", fkChild.TableIndex)
 		require.Equal(t, "", fkChild.ReferencedTableIndex)
 
 		// no viable secondary indexes left, should be unable to drop primary key
@@ -1315,7 +1315,7 @@ func TestDropIndex(t *testing.T) {
 		require.NoError(t, err)
 		fkChild, ok := fkc.GetByNameCaseInsensitive("fk_child")
 		require.True(t, ok)
-		require.Equal(t, "j", fkChild.TableIndex)
+		require.Equal(t, "fk_child", fkChild.TableIndex)
 		require.Equal(t, "idx1", fkChild.ReferencedTableIndex)
 
 		// dropping secondary index, should switch to existing index
@@ -1325,7 +1325,7 @@ func TestDropIndex(t *testing.T) {
 		require.NoError(t, err)
 		fkChild, ok = fkc.GetByNameCaseInsensitive("fk_child")
 		require.True(t, ok)
-		require.Equal(t, "j", fkChild.TableIndex)
+		require.Equal(t, "fk_child", fkChild.TableIndex)
 		require.Equal(t, "idx2", fkChild.ReferencedTableIndex)
 
 		// dropping secondary index, should switch to existing index
@@ -1335,7 +1335,7 @@ func TestDropIndex(t *testing.T) {
 		require.NoError(t, err)
 		fkChild, ok = fkc.GetByNameCaseInsensitive("fk_child")
 		require.True(t, ok)
-		require.Equal(t, "j", fkChild.TableIndex)
+		require.Equal(t, "fk_child", fkChild.TableIndex)
 		require.Equal(t, "idx3", fkChild.ReferencedTableIndex)
 
 		// dropping secondary index, should fail since there are no indexes to replace it

@@ -36,6 +36,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dfunctions"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dprocedures"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/resolve"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqlserver"
 	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
 	"github.com/dolthub/dolt/go/libraries/utils/concurrentmap"
@@ -52,8 +53,8 @@ type DoltDatabaseProvider struct {
 	functions          map[string]sql.Function
 	tableFunctions     map[string]sql.TableFunction
 	externalProcedures sql.ExternalStoredProcedureRegistry
-	InitDatabaseHook   InitDatabaseHook
-	DropDatabaseHook   DropDatabaseHook
+	InitDatabaseHooks  []InitDatabaseHook
+	DropDatabaseHooks  []DropDatabaseHook
 	mu                 *sync.RWMutex
 
 	droppedDatabaseManager *droppedDatabaseManager
@@ -65,6 +66,14 @@ type DoltDatabaseProvider struct {
 	dbFactoryUrl string
 	isStandby    *bool
 }
+
+var _ sql.DatabaseProvider = (*DoltDatabaseProvider)(nil)
+var _ sql.FunctionProvider = (*DoltDatabaseProvider)(nil)
+var _ sql.MutableDatabaseProvider = (*DoltDatabaseProvider)(nil)
+var _ sql.CollatedDatabaseProvider = (*DoltDatabaseProvider)(nil)
+var _ sql.ExternalStoredProcedureProvider = (*DoltDatabaseProvider)(nil)
+var _ sql.TableFunctionProvider = (*DoltDatabaseProvider)(nil)
+var _ dsess.DoltDatabaseProvider = (*DoltDatabaseProvider)(nil)
 
 func (p *DoltDatabaseProvider) DefaultBranch() string {
 	return p.defaultBranch
@@ -79,14 +88,6 @@ func (p *DoltDatabaseProvider) WithTableFunctions(fns ...sql.TableFunction) (sql
 	cp.tableFunctions = funcs
 	return &cp, nil
 }
-
-var _ sql.DatabaseProvider = (*DoltDatabaseProvider)(nil)
-var _ sql.FunctionProvider = (*DoltDatabaseProvider)(nil)
-var _ sql.MutableDatabaseProvider = (*DoltDatabaseProvider)(nil)
-var _ sql.CollatedDatabaseProvider = (*DoltDatabaseProvider)(nil)
-var _ sql.ExternalStoredProcedureProvider = (*DoltDatabaseProvider)(nil)
-var _ sql.TableFunctionProvider = (*DoltDatabaseProvider)(nil)
-var _ dsess.DoltDatabaseProvider = (*DoltDatabaseProvider)(nil)
 
 // NewDoltDatabaseProvider returns a new provider, initialized without any databases, along with any
 // errors that occurred while trying to create the database provider.
@@ -146,7 +147,7 @@ func NewDoltDatabaseProviderWithDatabases(defaultBranch string, fs filesys.Files
 		fs:                     fs,
 		defaultBranch:          defaultBranch,
 		dbFactoryUrl:           dbFactoryUrl,
-		InitDatabaseHook:       ConfigureReplicationDatabaseHook,
+		InitDatabaseHooks:      []InitDatabaseHook{ConfigureReplicationDatabaseHook},
 		isStandby:              new(bool),
 		droppedDatabaseManager: newDroppedDatabaseManager(fs),
 	}, nil
@@ -177,6 +178,18 @@ func (p *DoltDatabaseProvider) WithRemoteDialer(provider dbfactory.GRPCDialProvi
 	cp := *p
 	cp.remoteDialer = provider
 	return &cp
+}
+
+// AddInitDatabaseHook adds an InitDatabaseHook to this provider. The hook will be invoked
+// whenever this provider creates a new database.
+func (p *DoltDatabaseProvider) AddInitDatabaseHook(hook InitDatabaseHook) {
+	p.InitDatabaseHooks = append(p.InitDatabaseHooks, hook)
+}
+
+// AddDropDatabaseHook adds a DropDatabaseHook to this provider. The hook will be invoked
+// whenever this provider drops a database.
+func (p *DoltDatabaseProvider) AddDropDatabaseHook(hook DropDatabaseHook) {
+	p.DropDatabaseHooks = append(p.DropDatabaseHooks, hook)
 }
 
 func (p *DoltDatabaseProvider) FileSystem() filesys.Filesys {
@@ -455,13 +468,42 @@ func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name str
 		}
 	}
 
+	// If the search path is enabled, we need to create our initial schema object (public and pg_catalog are available
+	// by default)
+	if resolve.UseSearchPath {
+		workingRoot, err := newEnv.WorkingRoot(ctx)
+		if err != nil {
+			return err
+		}
+
+		workingRoot, err = workingRoot.CreateDatabaseSchema(ctx, schema.DatabaseSchema{
+			Name: "public",
+		})
+		if err != nil {
+			return err
+		}
+		workingRoot, err = workingRoot.CreateDatabaseSchema(ctx, schema.DatabaseSchema{
+			Name: "pg_catalog",
+		})
+		if err != nil {
+			return err
+		}
+
+		if err = newEnv.UpdateWorkingRoot(ctx, workingRoot); err != nil {
+			return err
+		}
+		if err = newEnv.UpdateStagedRoot(ctx, workingRoot); err != nil {
+			return err
+		}
+	}
+
 	return p.registerNewDatabase(ctx, name, newEnv)
 }
 
 type InitDatabaseHook func(ctx *sql.Context, pro *DoltDatabaseProvider, name string, env *env.DoltEnv, db dsess.SqlDatabase) error
-type DropDatabaseHook func(name string)
+type DropDatabaseHook func(ctx *sql.Context, name string)
 
-// ConfigureReplicationDatabaseHook sets up replication for a newly created database as necessary
+// ConfigureReplicationDatabaseHook sets up the hooks to push to a remote to replicate a newly created database.
 // TODO: consider the replication heads / all heads setting
 func ConfigureReplicationDatabaseHook(ctx *sql.Context, p *DoltDatabaseProvider, name string, newEnv *env.DoltEnv, _ dsess.SqlDatabase) error {
 	_, replicationRemoteName, _ := sql.SystemVariables.GetGlobal(dsess.ReplicateToRemote)
@@ -598,8 +640,14 @@ func (p *DoltDatabaseProvider) DropDatabase(ctx *sql.Context, name string) error
 	dbKey := formatDbMapKeyName(name)
 	db := p.databases[dbKey]
 
-	ddb := db.(Database).ddb
-	err := ddb.Close()
+	var database *doltdb.DoltDB
+	if ddb, ok := db.(Database); ok {
+		database = ddb.ddb
+	} else {
+		return fmt.Errorf("unable to drop database: %s", name)
+	}
+
+	err := database.Close()
 	if err != nil {
 		return err
 	}
@@ -630,10 +678,10 @@ func (p *DoltDatabaseProvider) DropDatabase(ctx *sql.Context, name string) error
 		return err
 	}
 
-	if p.DropDatabaseHook != nil {
+	for _, dropHook := range p.DropDatabaseHooks {
 		// For symmetry with InitDatabaseHook and the names we see in
 		// MultiEnv initialization, we use `name` here, not `dbKey`.
-		p.DropDatabaseHook(name)
+		dropHook(ctx, name)
 	}
 
 	// We not only have to delete tracking metadata for this database, but also for any derivative
@@ -707,16 +755,27 @@ func (p *DoltDatabaseProvider) registerNewDatabase(ctx *sql.Context, name string
 		return err
 	}
 
-	// If we have an initialization hook, invoke it.  By default, this will
-	// be ConfigureReplicationDatabaseHook, which will setup replication
-	// for the new database if a remote url template is set.
-	err = p.InitDatabaseHook(ctx, p, name, newEnv, db)
+	// If we have any initialization hooks, invoke them, until any error is returned.
+	// By default, this will be ConfigureReplicationDatabaseHook, which will set up
+	// replication for the new database if a remote url template is set.
+	for _, initHook := range p.InitDatabaseHooks {
+		err = initHook(ctx, p, name, newEnv, db)
+		if err != nil {
+			return err
+		}
+	}
+
+	mrEnv, err := env.MultiEnvForSingleEnv(ctx, newEnv)
+	if err != nil {
+		return err
+	}
+	dbs, err := ApplyReplicationConfig(ctx, sql.NewBackgroundThreads(), mrEnv, cli.CliErr, db)
 	if err != nil {
 		return err
 	}
 
 	formattedName := formatDbMapKeyName(db.Name())
-	p.databases[formattedName] = db
+	p.databases[formattedName] = dbs[0]
 	p.dbLocations[formattedName] = newEnv.FS
 	return nil
 }
@@ -871,13 +930,13 @@ func revisionDbType(ctx *sql.Context, srcDb dsess.SqlDatabase, revSpec string) (
 		return dsess.RevisionTypeBranch, caseSensitiveBranchName, nil
 	}
 
-	isTag, err := isTag(ctx, srcDb, resolvedRevSpec)
+	caseSensitiveTagName, isTag, err := isTag(ctx, srcDb, resolvedRevSpec)
 	if err != nil {
 		return dsess.RevisionTypeNone, "", err
 	}
 
 	if isTag {
-		return dsess.RevisionTypeTag, resolvedRevSpec, nil
+		return dsess.RevisionTypeTag, caseSensitiveTagName, nil
 	}
 
 	if doltdb.IsValidCommitHash(resolvedRevSpec) {
@@ -1342,21 +1401,21 @@ func isRemoteBranch(ctx context.Context, ddbs []*doltdb.DoltDB, branchName strin
 }
 
 // isTag returns whether a tag with the given name is in scope for the database given
-func isTag(ctx context.Context, db dsess.SqlDatabase, tagName string) (bool, error) {
+func isTag(ctx context.Context, db dsess.SqlDatabase, tagName string) (string, bool, error) {
 	ddbs := db.DoltDatabases()
 
 	for _, ddb := range ddbs {
-		tagExists, err := ddb.HasTag(ctx, tagName)
+		tName, tagExists, err := ddb.HasTag(ctx, tagName)
 		if err != nil {
-			return false, err
+			return "", false, err
 		}
 
 		if tagExists {
-			return true, nil
+			return tName, true, nil
 		}
 	}
 
-	return false, nil
+	return "", false, nil
 }
 
 // revisionDbForBranch returns a new database that is tied to the branch named by revSpec

@@ -16,7 +16,6 @@ package merge
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -159,7 +158,8 @@ func (c ChkConflict) String() string {
 	return ""
 }
 
-var ErrMergeWithDifferentPks = errors.New("error: cannot merge two tables with different primary keys")
+var ErrMergeWithDifferentPks = errorkinds.NewKind("error: cannot merge because table %s has different primary keys")
+var ErrMergeWithDifferentPksFromAncestor = errorkinds.NewKind("error: cannot merge because table %s has different primary keys in its common ancestor")
 
 // SchemaMerge performs a three-way merge of |ourSch|, |theirSch|, and |ancSch|, and returns: the merged schema,
 // any schema conflicts identified, whether moving to the new schema requires a full table rewrite, and any
@@ -172,8 +172,11 @@ func SchemaMerge(ctx context.Context, format *storetypes.NomsBinFormat, ourSch, 
 
 	// TODO: We'll remove this once it's possible to get diff and merge on different primary key sets
 	// TODO: decide how to merge different orders of PKS
-	if !schema.ArePrimaryKeySetsDiffable(format, ourSch, theirSch) || !schema.ArePrimaryKeySetsDiffable(format, ourSch, ancSch) {
-		return nil, SchemaConflict{}, mergeInfo, diffInfo, ErrMergeWithDifferentPks
+	if !schema.ArePrimaryKeySetsDiffable(format, ourSch, theirSch) {
+		return nil, SchemaConflict{}, mergeInfo, diffInfo, ErrMergeWithDifferentPks.New(tblName)
+	}
+	if !schema.ArePrimaryKeySetsDiffable(format, ourSch, ancSch) {
+		return nil, SchemaConflict{}, mergeInfo, diffInfo, ErrMergeWithDifferentPksFromAncestor.New(tblName)
 	}
 
 	var mergedCC *schema.ColCollection
@@ -245,7 +248,7 @@ func SchemaMerge(ctx context.Context, format *storetypes.NomsBinFormat, ourSch, 
 }
 
 // ForeignKeysMerge performs a three-way merge of (ourRoot, theirRoot, ancRoot) and using mergeRoot to validate FKs.
-func ForeignKeysMerge(ctx context.Context, mergedRoot, ourRoot, theirRoot, ancRoot *doltdb.RootValue) (*doltdb.ForeignKeyCollection, []FKConflict, error) {
+func ForeignKeysMerge(ctx context.Context, mergedRoot, ourRoot, theirRoot, ancRoot doltdb.RootValue) (*doltdb.ForeignKeyCollection, []FKConflict, error) {
 	ours, err := ourRoot.GetForeignKeyCollection(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -261,7 +264,7 @@ func ForeignKeysMerge(ctx context.Context, mergedRoot, ourRoot, theirRoot, ancRo
 		return nil, nil, err
 	}
 
-	ancSchs, err := ancRoot.GetAllSchemas(ctx)
+	ancSchs, err := doltdb.GetAllSchemas(ctx, ancRoot)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -580,7 +583,7 @@ func checkSchemaConflicts(columnMappings columnMappings) ([]ColConflict, error) 
 			case theirs == nil && anc != nil:
 				// Column doesn't exist on their side, but does exist in ancestor
 				// This means the column was deleted on theirs side
-				if !anc.Equals(*ours) {
+				if !anc.EqualsWithoutTag(*ours) {
 					// col altered on our branch and deleted on their branch
 					conflicts = append(conflicts, ColConflict{
 						Kind: NameCollision,
@@ -620,7 +623,7 @@ func checkSchemaConflicts(columnMappings columnMappings) ([]ColConflict, error) 
 			case theirs != nil && anc != nil:
 				// Column exists on their side and in ancestor
 				// If ancs doesn't match theirs, the column was altered on both sides
-				if !anc.Equals(*theirs) {
+				if !anc.EqualsWithoutTag(*theirs) {
 					// col deleted on our branch and altered on their branch
 					conflicts = append(conflicts, ColConflict{
 						Kind:   NameCollision,
@@ -906,7 +909,11 @@ func foreignKeysInCommon(ourFKs, theirFKs, ancFKs *doltdb.ForeignKeyCollection, 
 	common, _ = doltdb.NewForeignKeyCollection()
 	err = ourFKs.Iter(func(ours doltdb.ForeignKey) (stop bool, err error) {
 
-		theirs, ok := theirFKs.GetMatchingKey(ours, ancSchs)
+		// Since we aren't using an ancestor root here, pass true for the
+		// matchUnresolvedKeyToResolvedKey parameter. This allows us to match
+		// resolved FKs with both resolved and unresolved FKs in theirFKs.
+		// See GetMatchingKey's documentation for more info.
+		theirs, ok := theirFKs.GetMatchingKey(ours, ancSchs, true)
 		if !ok {
 			return false, nil
 		}
@@ -916,7 +923,7 @@ func foreignKeysInCommon(ourFKs, theirFKs, ancFKs *doltdb.ForeignKeyCollection, 
 			return false, err
 		}
 
-		anc, ok := ancFKs.GetMatchingKey(ours, ancSchs)
+		anc, ok := ancFKs.GetMatchingKey(ours, ancSchs, false)
 		if !ok {
 			// FKs added on both branch with different defs
 			conflicts = append(conflicts, FKConflict{
@@ -978,7 +985,7 @@ func foreignKeysInCommon(ourFKs, theirFKs, ancFKs *doltdb.ForeignKeyCollection, 
 func fkCollSetDifference(fkColl, ancestorFkColl *doltdb.ForeignKeyCollection, ancSchs map[string]schema.Schema) (d *doltdb.ForeignKeyCollection, err error) {
 	d, _ = doltdb.NewForeignKeyCollection()
 	err = fkColl.Iter(func(fk doltdb.ForeignKey) (stop bool, err error) {
-		_, ok := ancestorFkColl.GetMatchingKey(fk, ancSchs)
+		_, ok := ancestorFkColl.GetMatchingKey(fk, ancSchs, false)
 		if !ok {
 			err = d.AddKeys(fk)
 		}
@@ -993,10 +1000,10 @@ func fkCollSetDifference(fkColl, ancestorFkColl *doltdb.ForeignKeyCollection, an
 }
 
 // pruneInvalidForeignKeys removes from a ForeignKeyCollection any ForeignKey whose parent/child table/columns have been removed.
-func pruneInvalidForeignKeys(ctx context.Context, fkColl *doltdb.ForeignKeyCollection, mergedRoot *doltdb.RootValue) (pruned *doltdb.ForeignKeyCollection, err error) {
+func pruneInvalidForeignKeys(ctx context.Context, fkColl *doltdb.ForeignKeyCollection, mergedRoot doltdb.RootValue) (pruned *doltdb.ForeignKeyCollection, err error) {
 	pruned, _ = doltdb.NewForeignKeyCollection()
 	err = fkColl.Iter(func(fk doltdb.ForeignKey) (stop bool, err error) {
-		parentTbl, ok, err := mergedRoot.GetTable(ctx, fk.ReferencedTableName)
+		parentTbl, ok, err := mergedRoot.GetTable(ctx, doltdb.TableName{Name: fk.ReferencedTableName})
 		if err != nil || !ok {
 			return false, err
 		}
@@ -1010,7 +1017,7 @@ func pruneInvalidForeignKeys(ctx context.Context, fkColl *doltdb.ForeignKeyColle
 			}
 		}
 
-		childTbl, ok, err := mergedRoot.GetTable(ctx, fk.TableName)
+		childTbl, ok, err := mergedRoot.GetTable(ctx, doltdb.TableName{Name: fk.TableName})
 		if err != nil || !ok {
 			return false, err
 		}

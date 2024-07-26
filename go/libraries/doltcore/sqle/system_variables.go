@@ -32,6 +32,14 @@ func init() {
 func AddDoltSystemVariables() {
 	sql.SystemVariables.AddSystemVariables([]sql.SystemVariable{
 		&sql.MysqlSystemVariable{
+			Name:              "log_bin_branch",
+			Scope:             sql.GetMysqlScope(sql.SystemVariableScope_Persist),
+			Dynamic:           true,
+			SetVarHintApplies: false,
+			Type:              types.NewSystemStringType("log_bin_branch"),
+			Default:           "main",
+		},
+		&sql.MysqlSystemVariable{
 			Name:              dsess.DoltOverrideSchema,
 			Scope:             sql.GetMysqlScope(sql.SystemVariableScope_Both),
 			Dynamic:           true,
@@ -210,6 +218,13 @@ func AddDoltSystemVariables() {
 			Scope:   sql.GetMysqlScope(sql.SystemVariableScope_Global),
 			Type:    types.NewSystemBoolType(dsess.DoltStatsAutoRefreshEnabled),
 			Default: int8(0),
+		},
+		&sql.MysqlSystemVariable{
+			Name:    dsess.DoltStatsBootstrapEnabled,
+			Dynamic: true,
+			Scope:   sql.GetMysqlScope(sql.SystemVariableScope_Global),
+			Type:    types.NewSystemBoolType(dsess.DoltStatsBootstrapEnabled),
+			Default: int8(1),
 		},
 		&sql.MysqlSystemVariable{
 			Name:    dsess.DoltStatsMemoryOnly,

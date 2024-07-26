@@ -43,7 +43,8 @@ type CommitDiffTable struct {
 	ddb         *doltdb.DoltDB
 	joiner      *rowconv.Joiner
 	sqlSch      sql.PrimaryKeySchema
-	workingRoot *doltdb.RootValue
+	workingRoot doltdb.RootValue
+	stagedRoot  doltdb.RootValue
 	// toCommit and fromCommit are set via the
 	// sql.IndexAddressable interface
 	toCommit          string
@@ -56,10 +57,11 @@ var _ sql.Table = (*CommitDiffTable)(nil)
 var _ sql.IndexAddressable = (*CommitDiffTable)(nil)
 var _ sql.StatisticsTable = (*CommitDiffTable)(nil)
 
-func NewCommitDiffTable(ctx *sql.Context, dbName, tblName string, ddb *doltdb.DoltDB, root *doltdb.RootValue) (sql.Table, error) {
+func NewCommitDiffTable(ctx *sql.Context, dbName, tblName string, ddb *doltdb.DoltDB, wRoot, sRoot doltdb.RootValue) (sql.Table, error) {
 	diffTblName := doltdb.DoltCommitDiffTablePrefix + tblName
 
-	table, _, ok, err := root.GetTableInsensitive(ctx, tblName)
+	// TODO: schema
+	table, _, ok, err := doltdb.GetTableInsensitive(ctx, wRoot, doltdb.TableName{Name: tblName})
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +88,8 @@ func NewCommitDiffTable(ctx *sql.Context, dbName, tblName string, ddb *doltdb.Do
 		dbName:       dbName,
 		name:         tblName,
 		ddb:          ddb,
-		workingRoot:  root,
+		workingRoot:  wRoot,
+		stagedRoot:   sRoot,
 		joiner:       j,
 		sqlSch:       sqlSch,
 		targetSchema: sch,
@@ -191,12 +194,12 @@ func (dt *CommitDiffTable) LookupPartitions(ctx *sql.Context, i sql.IndexLookup)
 		return nil, err
 	}
 
-	toTable, _, _, err := toRoot.GetTableInsensitive(ctx, dt.name)
+	toTable, _, _, err := doltdb.GetTableInsensitive(ctx, toRoot, doltdb.TableName{Name: dt.name})
 	if err != nil {
 		return nil, err
 	}
 
-	fromTable, _, _, err := fromRoot.GetTableInsensitive(ctx, dt.name)
+	fromTable, _, _, err := doltdb.GetTableInsensitive(ctx, fromRoot, doltdb.TableName{Name: dt.name})
 	if err != nil {
 		return nil, err
 	}
@@ -256,11 +259,13 @@ func (itr *SliceOfPartitionsItr) Close(*sql.Context) error {
 	return nil
 }
 
-func (dt *CommitDiffTable) rootValForHash(ctx *sql.Context, hashStr string) (*doltdb.RootValue, string, *types.Timestamp, error) {
-	var root *doltdb.RootValue
+func (dt *CommitDiffTable) rootValForHash(ctx *sql.Context, hashStr string) (doltdb.RootValue, string, *types.Timestamp, error) {
+	var root doltdb.RootValue
 	var commitTime *types.Timestamp
-	if strings.ToLower(hashStr) == "working" {
+	if strings.EqualFold(hashStr, doltdb.Working) {
 		root = dt.workingRoot
+	} else if strings.EqualFold(hashStr, doltdb.Staged) {
+		root = dt.stagedRoot
 	} else {
 		cs, err := doltdb.NewCommitSpec(hashStr)
 		if err != nil {

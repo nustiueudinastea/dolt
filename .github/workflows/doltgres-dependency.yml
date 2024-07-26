@@ -1,0 +1,60 @@
+name: Test Integration with DoltgreSQL
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  test-integration:
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request != '' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check for a DoltgreSQL PR link
+        run: |
+          COMMENTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments)
+          COMMENT_EXISTS=$(echo "$COMMENTS" | jq -r '.[] | select(.body | contains("github.com/dolthub/doltgresql/pull/"))')
+          if [ -n "$COMMENT_EXISTS" ]; then
+            exit 0
+          fi
+
+      - name: Checkout Dolt
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+
+      - name: Clone DoltgreSQL repository
+        run: git clone https://github.com/dolthub/doltgresql.git
+
+      - name: Build DoltgreSQL's parser
+        run: |
+          cd doltgresql
+          ./postgres/parser/build.sh
+
+      - name: Test DoltgreSQL against main
+        id: test_doltgresql_main
+        continue-on-error: true
+        run: |
+          cd doltgresql
+          go get github.com/dolthub/dolt/go@main
+          go mod tidy
+          cd testing/go
+          go test ./... --count=1 -skip Replication
+
+      - name: Test DoltgreSQL against PR
+        if: steps.test_doltgresql_main.outcome == 'success'
+        run: |
+          cd doltgresql
+          git reset --hard
+          go get github.com/${{ github.event.pull_request.head.repo.full_name }}/go@${{ github.event.pull_request.head.sha }}
+          go mod tidy
+          cd testing/go
+          go test ./... --count=1 -skip Replication

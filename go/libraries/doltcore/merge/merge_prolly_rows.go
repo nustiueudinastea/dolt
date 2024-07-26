@@ -33,6 +33,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/durable"
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/expranalysis"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
 	"github.com/dolthub/dolt/go/store/hash"
 	"github.com/dolthub/dolt/go/store/pool"
@@ -374,7 +375,7 @@ func newCheckValidator(ctx *sql.Context, tm *TableMerger, vm *valueMerger, sch s
 			continue
 		}
 
-		expr, err := index.ResolveCheckExpression(ctx, tm.name, sch, check.Expression())
+		expr, err := expranalysis.ResolveCheckExpression(ctx, tm.name, sch, check.Expression())
 		if err != nil {
 			return checkValidator{}, err
 		}
@@ -470,13 +471,15 @@ func (cv checkValidator) validateDiff(ctx *sql.Context, diff tree.ThreeWayDiff) 
 			// https://dev.mysql.com/doc/refman/8.0/en/create-table-check-constraints.html
 			continue
 		} else {
-			conflictCount++
-			meta, err := newCheckCVMeta(cv.sch, checkName)
-			if err != nil {
-				return 0, err
-			}
-			if err = cv.insertArtifact(ctx, diff.Key, newTuple, meta); err != nil {
-				return conflictCount, err
+			if cv.tableMerger.recordViolations {
+				conflictCount++
+				meta, err := newCheckCVMeta(cv.sch, checkName)
+				if err != nil {
+					return 0, err
+				}
+				if err = cv.insertArtifact(ctx, diff.Key, newTuple, meta); err != nil {
+					return conflictCount, err
+				}
 			}
 		}
 	}
@@ -538,7 +541,7 @@ func newUniqValidator(ctx *sql.Context, sch schema.Schema, tm *TableMerger, vm *
 			continue // todo: how do we validate in this case?
 		}
 
-		idx, err := indexes.GetIndex(ctx, sch, def.Name())
+		idx, err := indexes.GetIndex(ctx, sch, nil, def.Name())
 		if err != nil {
 			return uniqValidator{}, err
 		}
@@ -600,13 +603,15 @@ func (uv uniqValidator) validateDiff(ctx *sql.Context, diff tree.ThreeWayDiff) (
 		return uv.clearArtifact(ctx, diff.Key, diff.Base)
 	}
 
-	for _, idx := range uv.indexes {
-		err = idx.findCollisions(ctx, diff.Key, value, func(k, v val.Tuple) error {
-			violations++
-			return uv.insertArtifact(ctx, k, v, idx.meta)
-		})
-		if err != nil {
-			break
+	if uv.tm.recordViolations {
+		for _, idx := range uv.indexes {
+			err = idx.findCollisions(ctx, diff.Key, value, func(k, v val.Tuple) error {
+				violations++
+				return uv.insertArtifact(ctx, k, v, idx.meta)
+			})
+			if err != nil {
+				break
+			}
 		}
 	}
 
@@ -1188,7 +1193,7 @@ func resolveDefaults(ctx *sql.Context, tableName string, mergedSchema schema.Sch
 		}
 
 		if col.Default != "" || col.Generated != "" || col.OnUpdate != "" {
-			expr, err := index.ResolveDefaultExpression(ctx, tableName, mergedSchema, col)
+			expr, err := expranalysis.ResolveDefaultExpression(ctx, tableName, mergedSchema, col)
 			if err != nil {
 				return true, err
 			}
@@ -1819,7 +1824,7 @@ func (m *valueMerger) processBaseColumn(ctx context.Context, i int, left, right,
 	if err != nil {
 		return false, err
 	}
-	if modifiedVD.Comparator().CompareValues(i, baseCol, modifiedCol, modifiedVD.Types[i]) == 0 {
+	if modifiedVD.Comparator().CompareValues(i, baseCol, modifiedCol, modifiedVD.Types[modifiedColIdx]) == 0 {
 		return false, nil
 	}
 	return true, nil
@@ -1986,7 +1991,7 @@ func (m *valueMerger) mergeJSONAddr(ctx context.Context, baseAddr []byte, leftAd
 		return nil, true, err
 	}
 
-	mergedDoc, conflict, err := mergeJSON(baseDoc, leftDoc, rightDoc)
+	mergedDoc, conflict, err := mergeJSON(ctx, baseDoc, leftDoc, rightDoc)
 	if err != nil {
 		return nil, true, err
 	}
@@ -1994,7 +1999,11 @@ func (m *valueMerger) mergeJSONAddr(ctx context.Context, baseAddr []byte, leftAd
 		return nil, true, nil
 	}
 
-	mergedBytes, err := json.Marshal(mergedDoc.ToInterface())
+	mergedVal, err := mergedDoc.ToInterface()
+	if err != nil {
+		return nil, true, err
+	}
+	mergedBytes, err := json.Marshal(mergedVal)
 	if err != nil {
 		return nil, true, err
 	}
@@ -2006,7 +2015,7 @@ func (m *valueMerger) mergeJSONAddr(ctx context.Context, baseAddr []byte, leftAd
 
 }
 
-func mergeJSON(base types.JSONDocument, left types.JSONDocument, right types.JSONDocument) (resultDoc types.JSONDocument, conflict bool, err error) {
+func mergeJSON(ctx context.Context, base types.JSONDocument, left types.JSONDocument, right types.JSONDocument) (resultDoc types.JSONDocument, conflict bool, err error) {
 	// First, deserialize each value into JSON.
 	// We can only merge if the value at all three commits is a JSON object.
 
@@ -2037,19 +2046,19 @@ func mergeJSON(base types.JSONDocument, left types.JSONDocument, right types.JSO
 
 	// Compute the merged object by applying diffs to the left object as needed.
 	for {
-		threeWayDiff, err := threeWayDiffer.Next()
+		threeWayDiff, err := threeWayDiffer.Next(ctx)
 		if err == io.EOF {
 			return merged, false, nil
 		}
 
 		switch threeWayDiff.Op {
 		case tree.DiffOpRightAdd, tree.DiffOpConvergentAdd, tree.DiffOpRightModify, tree.DiffOpConvergentModify:
-			_, _, err := merged.Set(threeWayDiff.Key, threeWayDiff.Right)
+			_, _, err := merged.Set(ctx, threeWayDiff.Key, threeWayDiff.Right)
 			if err != nil {
 				return types.JSONDocument{}, true, err
 			}
 		case tree.DiffOpRightDelete, tree.DiffOpConvergentDelete:
-			_, _, err := merged.Remove(threeWayDiff.Key)
+			_, _, err := merged.Remove(ctx, threeWayDiff.Key)
 			if err != nil {
 				return types.JSONDocument{}, true, err
 			}

@@ -264,7 +264,7 @@ var ShowCreateTableScriptTests = []queries.ScriptTest{
 						"  `c1` int,\n" +
 						"  `c3` int,\n" +
 						"  PRIMARY KEY (`pk`),\n" +
-						"  KEY `c1` (`c1`),\n" +
+						"  KEY `fk1` (`c1`),\n" +
 						"  CONSTRAINT `fk1` FOREIGN KEY (`c1`) REFERENCES `parent` (`pv1`)\n" +
 						") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin",
 					},
@@ -279,8 +279,8 @@ var ShowCreateTableScriptTests = []queries.ScriptTest{
 						"  `c3` int,\n" +
 						"  `c2` varchar(20),\n" +
 						"  PRIMARY KEY (`pk`),\n" +
-						"  KEY `c1` (`c1`),\n" +
-						"  KEY `c2` (`c2`),\n" +
+						"  KEY `fk1` (`c1`),\n" +
+						"  KEY `fk2` (`c2`),\n" +
 						"  CONSTRAINT `fk2` FOREIGN KEY (`c2`) REFERENCES `parent` (`pv2`)\n" +
 						") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin",
 					},
@@ -342,30 +342,30 @@ var DescribeTableAsOfScriptTest = queries.ScriptTest{
 		{
 			Query: "describe a as of @Commit1;",
 			Expected: []sql.Row{
-				{"pk", "int", "NO", "PRI", "NULL", ""},
-				{"c1", "int", "YES", "", "NULL", ""},
+				{"pk", "int", "NO", "PRI", nil, ""},
+				{"c1", "int", "YES", "", nil, ""},
 			},
 		},
 		{
 			Query: "describe a as of @Commit2;",
 			Expected: []sql.Row{
-				{"pk", "int", "NO", "PRI", "NULL", ""},
-				{"c1", "int", "YES", "", "NULL", ""},
-				{"c2", "varchar(20)", "YES", "", "NULL", ""},
+				{"pk", "int", "NO", "PRI", nil, ""},
+				{"c1", "int", "YES", "", nil, ""},
+				{"c2", "varchar(20)", "YES", "", nil, ""},
 			},
 		},
 		{
 			Query: "describe a as of @Commit3;",
 			Expected: []sql.Row{
-				{"pk", "int", "NO", "PRI", "NULL", ""},
-				{"c2", "varchar(20)", "YES", "", "NULL", ""},
+				{"pk", "int", "NO", "PRI", nil, ""},
+				{"c2", "varchar(20)", "YES", "", nil, ""},
 			},
 		},
 		{
 			Query: "describe a as of HEAD;",
 			Expected: []sql.Row{
-				{"pk", "int", "NO", "PRI", "NULL", ""},
-				{"c2", "varchar(20)", "YES", "", "NULL", ""},
+				{"pk", "int", "NO", "PRI", nil, ""},
+				{"c2", "varchar(20)", "YES", "", nil, ""},
 			},
 		},
 	},
@@ -732,6 +732,144 @@ var DoltScripts = []queries.ScriptTest{
 			{
 				Query:          "SELECT dolt_hashof_table('noexist');",
 				ExpectedErrStr: "table not found: noexist",
+			},
+		},
+	},
+	{
+		Name: "dolt_hashof_db tests",
+		SetUpScript: []string{
+			"CREATE TABLE t1 (pk int primary key);",
+			"CREATE TABLE t2 (pk int primary key);",
+			"CREATE TABLE t3 (pk int primary key);",
+			"call dolt_commit('-Am','table creation commit');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query: "SHOW TABLES;",
+				Expected: []sql.Row{
+					{"t1"},
+					{"t2"},
+					{"t3"},
+				},
+			},
+			{
+				Query:    "SET @hashofdb = dolt_hashof_db();",
+				Expected: []sql.Row{{}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('HEAD');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('STAGED');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('WORKING');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('main');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "CALL dolt_checkout('-b','new');",
+				Expected: []sql.Row{{0, "Switched to branch 'new'"}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('new');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "INSERT INTO t1 VALUES (1);",
+				Expected: []sql.Row{{types.OkResult{RowsAffected: 1}}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db();",
+				Expected: []sql.Row{{false}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('HEAD');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('STAGED');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('WORKING');",
+				Expected: []sql.Row{{false}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('main');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('new');",
+				Expected: []sql.Row{{true}},
+			},
+
+			{
+				Query:    "SET @hashofdb = dolt_hashof_db();",
+				Expected: []sql.Row{{}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('STAGED');",
+				Expected: []sql.Row{{false}},
+			},
+			{
+				Query:    "CALL dolt_add('t1');",
+				Expected: []sql.Row{{int64(0)}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('STAGED');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('HEAD');",
+				Expected: []sql.Row{{false}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('new');",
+				Expected: []sql.Row{{false}},
+			},
+			{
+				Query:            "CALL dolt_commit('-m', 'added some rows to branch `new`');",
+				SkipResultsCheck: true, // returned hash is not deterministic
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('HEAD');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('new');",
+				Expected: []sql.Row{{true}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db('main');",
+				Expected: []sql.Row{{false}},
+			},
+
+			{
+				Query:    "INSERT INTO t2 VALUES (1);",
+				Expected: []sql.Row{{types.OkResult{RowsAffected: 1}}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db();",
+				Expected: []sql.Row{{false}},
+			},
+
+			{
+				Query:    "SET @hashofdb = dolt_hashof_db();",
+				Expected: []sql.Row{{}},
+			},
+			{
+				Query:    "create procedure proc1() SELECT * FROM t3;",
+				Expected: []sql.Row{{types.OkResult{}}},
+			},
+			{
+				Query:    "SELECT @hashofdb = dolt_hashof_db();",
+				Expected: []sql.Row{{false}},
 			},
 		},
 	},
@@ -2049,34 +2187,49 @@ var HistorySystemTableScriptTests = []queries.ScriptTest{
 		Name: "primary key table: non-pk column type changes",
 		SetUpScript: []string{
 			"create table t (pk int primary key, c1 int, c2 varchar(20));",
-			"call dolt_add('.')",
+			"CALL DOLT_COMMIT('-Am', 'creating table t');",
+			"set @Commit1 = dolt_hashof('HEAD');",
+
 			"insert into t values (1, 2, '3'), (4, 5, '6');",
-			"set @Commit1 = '';",
-			"CALL DOLT_COMMIT_HASH_OUT(@Commit1, '-am', 'creating table t');",
+			"CALL DOLT_COMMIT('-Am', 'inserting two rows');",
+			"set @Commit2 = dolt_hashof('HEAD');",
+
+			"CALL DOLT_COMMIT('--allow-empty', '-m', 'empty commit');",
+			"set @Commit3 = dolt_hashof('HEAD');",
+
 			"alter table t modify column c2 int;",
-			"set @Commit2 = '';",
-			"CALL DOLT_COMMIT_HASH_OUT(@Commit2, '-am', 'changed type of c2');",
+			"CALL DOLT_COMMIT('-am', 'changed type of c2');",
+			"set @Commit4 = dolt_hashof('HEAD');",
 		},
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "select count(*) from dolt_history_t;",
-				Expected: []sql.Row{{4}},
+				Expected: []sql.Row{{6}},
 			},
 			// Can't represent the old schema in the current one, so it gets nil valued
 			{
-				Query:    "select pk, c2 from dolt_history_t where commit_hash=@Commit1 order by pk;",
+				Query:    "select pk, c2 from dolt_history_t where commit_hash=@Commit2 order by pk;",
 				Expected: []sql.Row{{1, nil}, {4, nil}},
 			},
 			{
-				Query:    "select pk, c2 from dolt_history_t where commit_hash=@Commit2 order by pk;",
+				Query:    "select pk, c2 from dolt_history_t where commit_hash=@Commit4 order by pk;",
 				Expected: []sql.Row{{1, 3}, {4, 6}},
 			},
 			{
-				// When filtering on a column from the original table, we use the primary index here, but because
-				// column tags have changed in previous versions of the table, the index tags don't match up completely.
+				// When filtering on a column from the original table, we use the primary index here, but if column
+				// tags have changed in previous versions of the table, the index tags won't match up completely.
 				// https://github.com/dolthub/dolt/issues/6891
-				Query:    "select pk, c1, c2 from dolt_history_t where pk=4;",
-				Expected: []sql.Row{{4, 5, 6}},
+				// NOTE: {4,5,nil} shows up as a row from the first commit, when c2 was a varchar type. The schema
+				//       for dolt_history_t uses the current table schema, and we can't extract an int from the older
+				//       version's tuple, so it shows up as a NULL and a SQL warning in the session. In the future,
+				//       we could consider using a different tuple descriptor based on the version of the row and
+				//       pull the data out and try to convert it to the new type.
+				Query:                 "select pk, c1, c2 from dolt_history_t where pk=4;",
+				Expected:              []sql.Row{{4, 5, 6}, {4, 5, nil}, {4, 5, nil}},
+				ExpectedWarning:       1246,
+				ExpectedWarningsCount: 1,
+				ExpectedWarningMessageSubstring: "Unable to convert field c2 in historical rows because " +
+					"its type (int) doesn't match current schema's type (varchar(20))",
 			},
 		},
 	},
@@ -3406,7 +3559,7 @@ var DoltBranchScripts = []queries.ScriptTest{
 	},
 }
 
-var DoltReset = []queries.ScriptTest{
+var DoltResetTestScripts = []queries.ScriptTest{
 	{
 		Name: "CALL DOLT_RESET('--hard') should reset the merge state after uncommitted merge",
 		SetUpScript: []string{
@@ -3458,6 +3611,75 @@ var DoltReset = []queries.ScriptTest{
 			{
 				Query:          "CALL DOLT_MERGE('--abort')",
 				ExpectedErrStr: "fatal: There is no merge to abort",
+			},
+		},
+	},
+	{
+		Name: "dolt_reset('--hard') commits the active SQL transaction",
+		SetUpScript: []string{
+			"create table t (pk int primary key);",
+			"insert into t values (1), (2);",
+			"call dolt_commit('-Am', 'creating table t');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "start transaction;",
+				Expected: []sql.Row{},
+			},
+			{
+				Query:    "call dolt_reset('--hard', 'HEAD~');",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				// dolt_status should be empty after a hard reset
+				Query:    "select * from dolt_status",
+				Expected: []sql.Row{},
+			},
+		},
+	},
+	{
+		Name: "dolt_reset('--soft') commits the active SQL transaction",
+		SetUpScript: []string{
+			"create table t (pk int primary key);",
+			"insert into t values (1), (2);",
+			"call dolt_commit('-Am', 'creating table t');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "start transaction;",
+				Expected: []sql.Row{},
+			},
+			{
+				Query:    "call dolt_reset('--soft', 'HEAD~');",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				// dolt_status should only show the unstaged table t being added
+				Query:    "select * from dolt_status",
+				Expected: []sql.Row{{"t", false, "new table"}},
+			},
+		},
+	},
+	{
+		Name: "dolt_reset() commits the active SQL transaction",
+		SetUpScript: []string{
+			"create table t (pk int primary key);",
+			"insert into t values (1), (2);",
+			"call dolt_commit('-Am', 'creating table t');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "start transaction;",
+				Expected: []sql.Row{},
+			},
+			{
+				Query:    "call dolt_reset('HEAD~');",
+				Expected: []sql.Row{{0}},
+			},
+			{
+				// dolt_status should only show the unstaged table t being added
+				Query:    "select * from dolt_status",
+				Expected: []sql.Row{{"t", false, "new table"}},
 			},
 		},
 	},
@@ -4394,6 +4616,40 @@ var DoltTagTestScripts = []queries.ScriptTest{
 			{
 				Query:    "SELECT * FROM test",
 				Expected: []sql.Row{{1}, {2}, {3}, {8}, {9}},
+			},
+		},
+	},
+	{
+		Name: "dolt-tag: case insensitive",
+		SetUpScript: []string{
+			"CREATE TABLE test(pk int primary key);",
+			"CALL DOLT_COMMIT('-Am','created table test');",
+			"CALL DOLT_TAG('ABC');",
+			"INSERT INTO test VALUES (0),(1),(2);",
+			"CALL DOLT_COMMIT('-am','inserted rows into test');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query: "SELECT tag_name FROM dolt_tags",
+				Expected: []sql.Row{
+					{"ABC"},
+				},
+			},
+			{
+				Query: "select * from test;",
+				Expected: []sql.Row{
+					{0},
+					{1},
+					{2},
+				},
+			},
+			{
+				Query:    "use mydb/abc;",
+				Expected: []sql.Row{},
+			},
+			{
+				Query:    "select * from test;",
+				Expected: []sql.Row{},
 			},
 		},
 	},
@@ -5447,7 +5703,7 @@ var DoltCherryPickTests = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:          "CALL Dolt_Cherry_Pick(@commit1);",
-				ExpectedErrStr: "error: cannot merge two tables with different primary keys",
+				ExpectedErrStr: "error: cannot merge because table t has different primary keys",
 			},
 		},
 	},
@@ -6079,7 +6335,7 @@ var DoltCommitTests = []queries.ScriptTest{
 				},
 			},
 			{
-				Query:    "SELECT to_id, from_id, diff_type FROM dolt_diff_test;",
+				Query:    "SELECT to_id, from_id, diff_type FROM dolt_diff_tEST;",
 				Expected: []sql.Row{{2, nil, "added"}},
 			},
 			{
@@ -6358,7 +6614,7 @@ var DoltIndexPrefixScripts = []queries.ScriptTest{
 		Assertions: []queries.ScriptTestAssertion{
 			{
 				Query:    "show create table t",
-				Expected: []sql.Row{{"t", "CREATE TABLE `t` (\n  `i` int NOT NULL,\n  `v1` varchar(10),\n  `v2` varchar(10),\n  PRIMARY KEY (`i`),\n  UNIQUE KEY `v1v2` (`v1`(3),`v2`(5))\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"}},
+				Expected: []sql.Row{{"t", "CREATE TABLE `t` (\n  `i` int NOT NULL,\n  `v1` varchar(10),\n  `v2` varchar(10),\n  PRIMARY KEY (`i`),\n  UNIQUE KEY `v1` (`v1`(3),`v2`(5))\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"}},
 			},
 			{
 				Query:    "insert into t values (0, 'a', 'a'), (1, 'ab','ab'), (2, 'abc', 'abc'), (3, 'abcde', 'abcde')",
@@ -6498,7 +6754,7 @@ var DoltIndexPrefixScripts = []queries.ScriptTest{
 			},
 			{
 				Query:    "show create table t",
-				Expected: []sql.Row{{"t", "CREATE TABLE `t` (\n  `i` varchar(100),\n  `j` int,\n  KEY `ij` (`i`(10),`j`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"}},
+				Expected: []sql.Row{{"t", "CREATE TABLE `t` (\n  `i` varchar(100),\n  `j` int,\n  KEY `i` (`i`(10),`j`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"}},
 			},
 		},
 	},
@@ -6895,6 +7151,99 @@ var DoltSystemVariables = []queries.ScriptTest{
 					{"dolt_remotes"},
 					{"dolt_status"},
 					{"test"},
+				},
+			},
+		},
+	},
+}
+
+// DoltTempTableScripts tests temporary tables.
+// Temporary tables are not supported in GMS, eventually should move those tests there.
+var DoltTempTableScripts = []queries.ScriptTest{
+	{
+		Name: "temporary table supports auto increment",
+		SetUpScript: []string{
+			"create temporary table t (i int primary key auto_increment)",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query: "show create table t;",
+				Expected: []sql.Row{
+					{"t", "CREATE TABLE `t` (\n" +
+						"  `i` int NOT NULL AUTO_INCREMENT,\n" +
+						"  PRIMARY KEY (`i`)\n" +
+						") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"},
+				},
+			},
+			{
+				Query: "insert into t values (), (), ()",
+				Expected: []sql.Row{
+					{types.OkResult{RowsAffected: 3, InsertID: 1}},
+				},
+			},
+			{
+				Query: "show create table t;",
+				Expected: []sql.Row{
+					{"t", "CREATE TABLE `t` (\n" +
+						"  `i` int NOT NULL AUTO_INCREMENT,\n" +
+						"  PRIMARY KEY (`i`)\n" +
+						") ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"},
+				},
+			},
+			{
+				Query: "select * from t",
+				Expected: []sql.Row{
+					{1},
+					{2},
+					{3},
+				},
+			},
+			{
+				Query: "insert into t values (100), (1000)",
+				Expected: []sql.Row{
+					{types.OkResult{RowsAffected: 2, InsertID: 0x64}},
+				},
+			},
+			{
+				Query: "show create table t;",
+				Expected: []sql.Row{
+					{"t", "CREATE TABLE `t` (\n" +
+						"  `i` int NOT NULL AUTO_INCREMENT,\n" +
+						"  PRIMARY KEY (`i`)\n" +
+						") ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin"},
+				},
+			},
+			{
+				Query: "insert into t values (), (), ()",
+				Expected: []sql.Row{
+					{types.OkResult{RowsAffected: 3, InsertID: 0x3e9}},
+				},
+			},
+			{
+				Query: "select * from t",
+				Expected: []sql.Row{
+					{1},
+					{2},
+					{3},
+					{100},
+					{1000},
+					{1001},
+					{1002},
+					{1003},
+				},
+			},
+		},
+	},
+	{
+		Name: "temporary table tag collision",
+		SetUpScript: []string{
+			"CREATE TABLE note(a int, b int, userid int);",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query: "CREATE TEMPORARY TABLE tmp_tbl(a int, b int, c int, d int, e int, f int, g int);",
+				Expected: []sql.Row{
+					{types.NewOkResult(0)},
 				},
 			},
 		},

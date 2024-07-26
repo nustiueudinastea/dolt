@@ -78,6 +78,7 @@ type ValueStore struct {
 	decodedChunks       *sizecache.SizeCache
 	nbf                 *NomsBinFormat
 	versOnce            sync.Once
+	skipWriteCaching    bool
 
 	gcMu       sync.Mutex
 	gcCond     *sync.Cond
@@ -199,7 +200,7 @@ func (lvs *ValueStore) ReadValue(ctx context.Context, h hash.Hash) (Value, error
 		return nil, err
 	}
 	if chunk.IsGhost() {
-		return GhostValue{}, nil
+		return GhostValue{hash: chunk.Hash()}, nil
 	}
 
 	if chunk.IsEmpty() {
@@ -232,7 +233,7 @@ func (lvs *ValueStore) ReadManyValues(ctx context.Context, hashes hash.HashSlice
 	lvs.versOnce.Do(lvs.expectVersion)
 	decode := func(h hash.Hash, chunk *chunks.Chunk) (Value, error) {
 		if chunk.IsGhost() {
-			return GhostValue{}, nil
+			return GhostValue{hash: chunk.Hash()}, nil
 		}
 
 		v, ferr := DecodeValue(*chunk, lvs)
@@ -341,6 +342,10 @@ func (lvs *ValueStore) WriteValue(ctx context.Context, v Value) (Ref, error) {
 	err = lvs.cs.Put(ctx, c, lvs.getAddrs)
 	if err != nil {
 		return Ref{}, err
+	}
+
+	if !lvs.skipWriteCaching {
+		lvs.decodedChunks.Add(c.Hash(), uint64(c.Size()), v)
 	}
 
 	return r, nil
@@ -720,10 +725,6 @@ func (lvs *ValueStore) gcProcessRefs(ctx context.Context,
 			toVisit = make([]hash.HashSet, len(batches)+1)
 			toVisitCount = 0
 			for i, batch := range batches {
-				if err := keepHashes(batch); err != nil {
-					return err
-				}
-
 				vals, err := lvs.ReadManyValues(ctx, batch)
 				if err != nil {
 					return err
@@ -732,6 +733,27 @@ func (lvs *ValueStore) gcProcessRefs(ctx context.Context,
 					if v == nil {
 						return fmt.Errorf("gc failed, dangling reference requested %v", batch[i])
 					}
+				}
+
+				// GC skips ghost values, but other ref walkers don't. Filter them out here.
+				realVals := make(ValueSlice, 0, len(vals))
+				nonGhostBatch := make([]hash.Hash, 0, len(vals))
+				for _, v := range vals {
+					h, err := v.Hash(lvs.Format())
+					if err != nil {
+						return err
+					}
+					if _, ok := v.(GhostValue); ok {
+						visited.Insert(h) // Can't visit a ghost. That would be spooky.
+					} else {
+						realVals = append(realVals, v)
+						nonGhostBatch = append(nonGhostBatch, h)
+					}
+				}
+				vals = realVals
+
+				if err := keepHashes(nonGhostBatch); err != nil {
+					return err
 				}
 
 				hashes, err := walker.GetRefSet(visited, vals)

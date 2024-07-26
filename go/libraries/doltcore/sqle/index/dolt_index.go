@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 
 	"github.com/dolthub/go-mysql-server/sql"
@@ -1129,7 +1130,7 @@ func (di *doltIndex) prollySpatialRanges(ranges []sql.Range) ([]prolly.Range, er
 			prevMinCell = minCell
 			prevMaxCell = maxCell
 			field := prolly.RangeField{
-				Exact: false,
+				TargetIsUnique: false,
 				Lo: prolly.Bound{
 					Binding:   true,
 					Inclusive: true,
@@ -1230,17 +1231,17 @@ func (di *doltIndex) prollyRangesFromSqlRanges(ctx context.Context, ns tree.Node
 		order := di.keyBld.Desc.Comparator()
 		for i, field := range fields {
 			// lookups on non-unique indexes can't be point lookups
-			if !di.unique {
-				fields[i].Exact = false
-				continue
-			}
-			if !field.Hi.Binding || !field.Lo.Binding {
-				fields[i].Exact = false
-				continue
-			}
 			typ := di.keyBld.Desc.Types[i]
 			cmp := order.CompareValues(i, field.Hi.Value, field.Lo.Value, typ)
-			fields[i].Exact = cmp == 0
+			fields[i].BoundsAreEqual = cmp == 0
+
+			if !di.unique {
+				fields[i].TargetIsUnique = false
+			}
+			if !field.Hi.Binding || !field.Lo.Binding {
+				// infinity bound
+				fields[i].BoundsAreEqual = false
+			}
 		}
 		pranges[k] = prolly.Range{
 			Fields: fields,
@@ -1404,14 +1405,14 @@ func HashesToCommits(
 	var hashes []hash.Hash
 	var commits []*doltdb.Commit
 	var metas []*datas.CommitMeta
+	var addedHead bool
 	var err error
 	var ok bool
 	for _, hs := range hashStrs {
 		var h hash.Hash
 		var cm *doltdb.Commit
 		var meta *datas.CommitMeta
-		switch hs {
-		case doltdb.Working:
+		if !addedHead && (strings.EqualFold(hs, doltdb.Working) || strings.EqualFold(hs, doltdb.Staged)) {
 			if head == nil {
 				continue
 			}
@@ -1419,6 +1420,7 @@ func HashesToCommits(
 			if err != nil {
 				continue
 			}
+			addedHead = true
 
 			if convertWorkingToCommit {
 				cm, err = doltdb.HashToCommit(ctx, ddb.ValueReadWriter(), ddb.NodeStore(), h)
@@ -1432,7 +1434,7 @@ func HashesToCommits(
 					}
 				}
 			}
-		default:
+		} else {
 			h, ok = hash.MaybeParse(hs)
 			if !ok {
 				continue

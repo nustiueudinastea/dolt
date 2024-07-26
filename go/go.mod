@@ -13,9 +13,9 @@ require (
 	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi v0.0.0-20201005193433-3ee972b1d078
 	github.com/dolthub/fslock v0.0.3
-	github.com/dolthub/ishell v0.0.0-20221214210346-d7db0b066488
+	github.com/dolthub/ishell v0.0.0-20240701202509-2b217167d718
 	github.com/dolthub/sqllogictest/go v0.0.0-20201107003712-816f3ae12d81
-	github.com/dolthub/vitess v0.0.0-20240329223145-3e53a7bee1da
+	github.com/dolthub/vitess v0.0.0-20240711213744-4232e1c4edae
 	github.com/dustin/go-humanize v1.0.1
 	github.com/fatih/color v1.13.0
 	github.com/flynn-archive/go-shlex v0.0.0-20150515145356-3f9db97f8568
@@ -38,14 +38,13 @@ require (
 	github.com/stretchr/testify v1.8.4
 	github.com/tealeg/xlsx v1.0.5
 	go.uber.org/zap v1.24.0
-	golang.org/x/crypto v0.17.0
-	golang.org/x/net v0.17.0
-	golang.org/x/sync v0.6.0
-	golang.org/x/sys v0.15.0
+	golang.org/x/crypto v0.23.0
+	golang.org/x/net v0.25.0
+	golang.org/x/sync v0.7.0
+	golang.org/x/sys v0.20.0
 	google.golang.org/api v0.126.0
 	google.golang.org/grpc v1.57.1
 	google.golang.org/protobuf v1.31.0
-	gopkg.in/square/go-jose.v2 v2.5.1
 	gopkg.in/src-d/go-errors.v1 v1.0.0
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -55,11 +54,14 @@ require (
 	github.com/aliyun/aliyun-oss-go-sdk v2.2.5+incompatible
 	github.com/cenkalti/backoff/v4 v4.1.3
 	github.com/cespare/xxhash v1.1.0
+	github.com/cespare/xxhash/v2 v2.2.0
 	github.com/creasty/defaults v1.6.0
 	github.com/dolthub/flatbuffers/v23 v23.3.3-dh.2
-	github.com/dolthub/go-mysql-server v0.18.1-0.20240402212936-10d3bfe2a2d5
+	github.com/dolthub/go-mysql-server v0.18.2-0.20240726192758-72470d302577
+	github.com/dolthub/gozstd v0.0.0-20240423170813-23a2903bca63
 	github.com/dolthub/swiss v0.1.0
 	github.com/goccy/go-json v0.10.2
+	github.com/google/btree v1.1.2
 	github.com/google/go-github/v57 v57.0.0
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/hashicorp/golang-lru/v2 v2.0.2
@@ -67,6 +69,7 @@ require (
 	github.com/kch42/buzhash v0.0.0-20160816060738-9bdec3dec7c6
 	github.com/kylelemons/godebug v1.1.0
 	github.com/lib/pq v1.10.0
+	github.com/mohae/uvarint v0.0.0-20160208145430-c3f9e62bf2b0
 	github.com/oracle/oci-go-sdk/v65 v65.55.0
 	github.com/prometheus/client_golang v1.13.0
 	github.com/rs/zerolog v1.28.0
@@ -85,9 +88,10 @@ require (
 	go.opentelemetry.io/otel/sdk v1.7.0
 	go.opentelemetry.io/otel/trace v1.7.0
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
-	golang.org/x/text v0.14.0
+	golang.org/x/text v0.16.0
 	gonum.org/v1/plot v0.11.0
 	gopkg.in/errgo.v2 v2.1.0
+	gopkg.in/go-jose/go-jose.v2 v2.6.3
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -103,7 +107,6 @@ require (
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
 	github.com/apache/thrift v0.13.1-0.20201008052519-daf620915714 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dolthub/go-icu-regex v0.0.0-20230524105445-af7e7991c97e // indirect
 	github.com/dolthub/jsonpath v0.0.2-0.20240227200619-19675ab05c71 // indirect
@@ -150,12 +153,12 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/image v0.10.0 // indirect
-	golang.org/x/mod v0.12.0 // indirect
+	golang.org/x/image v0.18.0 // indirect
+	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/oauth2 v0.8.0 // indirect
-	golang.org/x/term v0.15.0 // indirect
+	golang.org/x/term v0.20.0 // indirect
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
-	golang.org/x/tools v0.13.0 // indirect
+	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230807174057-1744710a1577 // indirect
@@ -166,4 +169,4 @@ require (
 
 replace github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi => ./gen/proto/dolt/services/eventsapi
 
-go 1.22
+go 1.22.2

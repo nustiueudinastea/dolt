@@ -1,4 +1,4 @@
-// Copyright 2022 Dolthub, Inc.
+// Copyright 2022-2024 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package enginetest
 import (
 	"github.com/dolthub/go-mysql-server/enginetest/queries"
 	"github.com/dolthub/go-mysql-server/sql"
+	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtables"
@@ -3474,7 +3475,7 @@ var PatchTableFunctionScriptTests = []queries.ScriptTest{
 			{
 				Query: "SELECT statement_order, table_name, diff_type, statement FROM dolt_patch('HEAD~', 'WORKING')",
 				Expected: []sql.Row{
-					{1, "child", "schema", "CREATE TABLE `child` (\n  `id` int NOT NULL,\n  `v1` int,\n  PRIMARY KEY (`id`),\n  KEY `v1` (`v1`),\n  CONSTRAINT `fk_named` FOREIGN KEY (`v1`) REFERENCES `parent` (`v1`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;"},
+					{1, "child", "schema", "CREATE TABLE `child` (\n  `id` int NOT NULL,\n  `v1` int,\n  PRIMARY KEY (`id`),\n  KEY `fk_named` (`v1`),\n  CONSTRAINT `fk_named` FOREIGN KEY (`v1`) REFERENCES `parent` (`v1`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;"},
 					{2, "parent", "schema", "CREATE TABLE `parent` (\n  `id` int NOT NULL,\n  `id_ext` int NOT NULL,\n  `v1` int,\n  `v2` text COMMENT 'tag:1',\n  PRIMARY KEY (`id`,`id_ext`),\n  KEY `v1` (`v1`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;"},
 					{3, "parent", "data", "INSERT INTO `parent` (`id`,`id_ext`,`v1`,`v2`) VALUES (0,1,2,NULL);"},
 				},
@@ -3482,7 +3483,7 @@ var PatchTableFunctionScriptTests = []queries.ScriptTest{
 			{
 				Query: "SELECT statement_order, to_commit_hash, table_name, diff_type, statement FROM dolt_patch('HEAD', 'STAGED')",
 				Expected: []sql.Row{
-					{1, "STAGED", "child", "schema", "ALTER TABLE `child` ADD INDEX `v1`(`v1`);"},
+					{1, "STAGED", "child", "schema", "ALTER TABLE `child` ADD INDEX `fk_named`(`v1`);"},
 					{2, "STAGED", "child", "schema", "ALTER TABLE `child` ADD CONSTRAINT `fk_named` FOREIGN KEY (`v1`) REFERENCES `parent` (`v1`);"},
 					{3, "STAGED", "parent", "schema", "ALTER TABLE `parent` DROP PRIMARY KEY;"},
 					{4, "STAGED", "parent", "schema", "ALTER TABLE `parent` ADD PRIMARY KEY (id,id_ext);"},
@@ -3548,6 +3549,8 @@ var PatchTableFunctionScriptTests = []queries.ScriptTest{
 			"insert into t values (1, null, 1, 1), (2, 2, null, 2), (3, 3, 3, 3)",
 			"CALL dolt_commit('-Am', 'new table t')",
 			"CALL dolt_checkout('-b', 'other')",
+			"alter table t modify column a varchar(100) comment 'foo';",
+			"alter table t rename column c to z;",
 			"alter table t drop column b",
 			"alter table t add column d int",
 			"delete from t where pk = 3",
@@ -3559,11 +3562,18 @@ var PatchTableFunctionScriptTests = []queries.ScriptTest{
 			{
 				Query: "SELECT statement FROM dolt_patch('main', 'other', 't') ORDER BY statement_order",
 				Expected: []sql.Row{
+					{"ALTER TABLE `t` MODIFY COLUMN `a` varchar(100) COMMENT 'foo';"},
 					{"ALTER TABLE `t` DROP `b`;"},
+					{"ALTER TABLE `t` RENAME COLUMN `c` TO `z`;"},
 					{"ALTER TABLE `t` ADD `d` int;"},
-					{"UPDATE `t` SET `a`=9 WHERE `pk`=1;"},
+					// TODO: The two updates to z below aren't necessary, since the column
+					//       was renamed and those are the old values, but it shows as a diff
+					//       because of the column name change, so we output UPDATE statements
+					//       for them. This isn't a correctness issue, but it is inefficient.
+					{"UPDATE `t` SET `a`='9',`z`=1 WHERE `pk`=1;"},
+					{"UPDATE `t` SET `z`=2 WHERE `pk`=2;"},
 					{"DELETE FROM `t` WHERE `pk`=3;"},
-					{"INSERT INTO `t` (`pk`,`a`,`c`,`d`) VALUES (7,7,7,7);"},
+					{"INSERT INTO `t` (`pk`,`a`,`z`,`d`) VALUES (7,'7',7,7);"},
 				},
 			},
 		},
@@ -3610,6 +3620,20 @@ var UnscopedDiffSystemTableScriptTests = []queries.ScriptTest{
 			{
 				Query:    "SELECT commit_hash, committer FROM DOLT_DIFF WHERE commit_hash <> @Commit1 AND committer = 'root' AND commit_hash NOT IN ('WORKING','STAGED');",
 				Expected: []sql.Row{},
+			},
+			{
+				Query: "SELECT commit_hash, table_name FROM DOLT_DIFF WHERE commit_hash = 'WORKING'",
+				Expected: []sql.Row{
+					{"WORKING", "newRenamedEmptyTable"},
+					{"WORKING", "regularTable"},
+				},
+			},
+			{
+				Query: "SELECT commit_hash, table_name FROM DOLT_DIFF WHERE commit_hash = 'STAGED'",
+				Expected: []sql.Row{
+					{"STAGED", "addedTable"},
+					{"STAGED", "droppedTable"},
+				},
 			},
 			{
 				Query: "SELECT commit_hash, table_name FROM DOLT_DIFF WHERE commit_hash <> @Commit1 AND commit_hash NOT IN ('STAGED') ORDER BY table_name;",
@@ -4853,6 +4877,44 @@ var CommitDiffSystemTableScriptTests = []queries.ScriptTest{
 			},
 		},
 	},
+	{
+		Name: "working and staged commits",
+		SetUpScript: []string{
+			"create table t (pk int primary key, c1 int, c2 int);",
+			"call dolt_commit('-Am', 'created table');",
+			"set @Commit0 = HASHOF('HEAD');",
+			"insert into t values (1, 2, 3);",
+			"call dolt_add('.');",
+			"insert into t values (4, 5, 6);",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query: "SELECT to_pk, to_c1, to_c2, from_pk, from_c1, from_c2, diff_type FROM DOLT_COMMIT_DIFF_t WHERE TO_COMMIT='WORKING' and FROM_COMMIT=@Commit0;",
+				Expected: []sql.Row{
+					{1, 2, 3, nil, nil, nil, "added"},
+					{4, 5, 6, nil, nil, nil, "added"},
+				},
+			},
+			{
+				Query: "SELECT to_pk, to_c1, to_c2, from_pk, from_c1, from_c2, diff_type FROM DOLT_COMMIT_DIFF_t WHERE TO_COMMIT='STAGED' and FROM_COMMIT=@Commit0;",
+				Expected: []sql.Row{
+					{1, 2, 3, nil, nil, nil, "added"},
+				},
+			},
+			{
+				Query: "SELECT to_pk, to_c1, to_c2, from_pk, from_c1, from_c2, diff_type FROM DOLT_COMMIT_DIFF_t WHERE TO_COMMIT='WORKING' and FROM_COMMIT='STAGED';",
+				Expected: []sql.Row{
+					{4, 5, 6, nil, nil, nil, "added"},
+				},
+			},
+			{
+				Query: "SELECT to_pk, to_c1, to_c2, from_pk, from_c1, from_c2, diff_type FROM DOLT_COMMIT_DIFF_t WHERE TO_COMMIT='STAGED' and FROM_COMMIT='WORKING';",
+				Expected: []sql.Row{
+					{nil, nil, nil, 4, 5, 6, "removed"},
+				},
+			},
+		},
+	},
 
 	{
 		// When a column is dropped and recreated with a different type, we expect only the new column
@@ -5463,6 +5525,340 @@ var SchemaDiffTableFunctionScriptTests = []queries.ScriptTest{
 			{
 				Query:    "execute patch using @Commit0, @Commit1, @t1_name",
 				Expected: []sql.Row{{1}},
+			},
+		},
+	},
+}
+
+var DoltDatabaseCollationScriptTests = []queries.ScriptTest{
+	{
+		Name:        "can't use __DATABASE__ prefix in table names",
+		SetUpScript: []string{},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:          "create table __DATABASE__t(i int);",
+				ExpectedErrStr: "Invalid table name __DATABASE__t. Table names beginning with `__DATABASE__` are reserved for internal use",
+			},
+		},
+	},
+	{
+		Name:        "db collation change with dolt_add('.')",
+		SetUpScript: []string{},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "select * from dolt_status",
+				Expected: []sql.Row{},
+			},
+			{
+				Query:    "select commit_hash, table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{},
+			},
+
+			{
+				Query: "alter database mydb collate utf8mb4_spanish_ci",
+				Expected: []sql.Row{
+					{gmstypes.NewOkResult(1)},
+				},
+			},
+			{
+				Query: "select * from dolt_status",
+				Expected: []sql.Row{
+					{"__DATABASE__mydb", false, "modified"},
+				},
+			},
+			{
+				Query: "select commit_hash, table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{
+					{"WORKING", "__DATABASE__mydb", false, true},
+				},
+			},
+
+			{
+				Query: "call dolt_add('.')",
+				Expected: []sql.Row{
+					{0},
+				},
+			},
+			{
+				Query: "select * from dolt_status",
+				Expected: []sql.Row{
+					{"__DATABASE__mydb", true, "modified"},
+				},
+			},
+			{
+				Query: "select commit_hash, table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{
+					{"STAGED", "__DATABASE__mydb", false, true},
+				},
+			},
+			{
+				Query: "select message from dolt_log",
+				Expected: []sql.Row{
+					{"checkpoint enginetest database mydb"},
+					{"Initialize data repository"},
+				},
+			},
+
+			{
+				Query:            "call dolt_commit('-m', 'db collation changed')",
+				SkipResultsCheck: true,
+			},
+			{
+				Query:    "select * from dolt_status",
+				Expected: []sql.Row{},
+			},
+			{
+				Query: "select table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{
+					{"__DATABASE__mydb", false, true},
+				},
+			},
+			{
+				Query: "select message from dolt_log",
+				Expected: []sql.Row{
+					{"db collation changed"},
+					{"checkpoint enginetest database mydb"},
+					{"Initialize data repository"},
+				},
+			},
+		},
+	},
+	{
+		Name:        "db collation change with dolt_add('__DATABASE__mydb')",
+		SetUpScript: []string{},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "select * from dolt_status",
+				Expected: []sql.Row{},
+			},
+			{
+				Query:    "select commit_hash, table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{},
+			},
+
+			{
+				Query: "alter database mydb collate utf8mb4_spanish_ci",
+				Expected: []sql.Row{
+					{gmstypes.NewOkResult(1)},
+				},
+			},
+			{
+				Query: "select * from dolt_status",
+				Expected: []sql.Row{
+					{"__DATABASE__mydb", false, "modified"},
+				},
+			},
+			{
+				Query: "select commit_hash, table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{
+					{"WORKING", "__DATABASE__mydb", false, true},
+				},
+			},
+
+			{
+				Query: "call dolt_add('__DATABASE__mydb')",
+				Expected: []sql.Row{
+					{0},
+				},
+			},
+			{
+				Query: "select * from dolt_status",
+				Expected: []sql.Row{
+					{"__DATABASE__mydb", true, "modified"},
+				},
+			},
+			{
+				Query: "select commit_hash, table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{
+					{"STAGED", "__DATABASE__mydb", false, true},
+				},
+			},
+			{
+				Query: "select message from dolt_log",
+				Expected: []sql.Row{
+					{"checkpoint enginetest database mydb"},
+					{"Initialize data repository"},
+				},
+			},
+
+			{
+				Query:            "call dolt_commit('-m', 'db collation changed')",
+				SkipResultsCheck: true,
+			},
+			{
+				Query:    "select * from dolt_status",
+				Expected: []sql.Row{},
+			},
+			{
+				Query: "select table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{
+					{"__DATABASE__mydb", false, true},
+				},
+			},
+			{
+				Query: "select message from dolt_log",
+				Expected: []sql.Row{
+					{"db collation changed"},
+					{"checkpoint enginetest database mydb"},
+					{"Initialize data repository"},
+				},
+			},
+		},
+	},
+	{
+		Name:        "db collation change with dolt_commit('-Am', '')",
+		SetUpScript: []string{},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "select * from dolt_status",
+				Expected: []sql.Row{},
+			},
+			{
+				Query:    "select commit_hash, table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{},
+			},
+
+			{
+				Query: "alter database mydb collate utf8mb4_spanish_ci",
+				Expected: []sql.Row{
+					{gmstypes.NewOkResult(1)},
+				},
+			},
+			{
+				Query: "select * from dolt_status",
+				Expected: []sql.Row{
+					{"__DATABASE__mydb", false, "modified"},
+				},
+			},
+			{
+				Query: "select commit_hash, table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{
+					{"WORKING", "__DATABASE__mydb", false, true},
+				},
+			},
+			{
+				Query: "select message from dolt_log",
+				Expected: []sql.Row{
+					{"checkpoint enginetest database mydb"},
+					{"Initialize data repository"},
+				},
+			},
+
+			{
+				Query:            "call dolt_commit('-Am', 'db collation changed')",
+				SkipResultsCheck: true,
+			},
+			{
+				Query:    "select * from dolt_status",
+				Expected: []sql.Row{},
+			},
+			{
+				Query: "select table_name, data_change, schema_change from dolt_diff",
+				Expected: []sql.Row{
+					{"__DATABASE__mydb", false, true},
+				},
+			},
+			{
+				Query: "select message from dolt_log",
+				Expected: []sql.Row{
+					{"db collation changed"},
+					{"checkpoint enginetest database mydb"},
+					{"Initialize data repository"},
+				},
+			},
+		},
+	},
+	{
+		Name: "db collation hard reset",
+		SetUpScript: []string{
+			"alter database mydb collate utf8mb4_spanish_ci",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query: "select * from dolt_status;",
+				Expected: []sql.Row{
+					{"__DATABASE__mydb", false, "modified"},
+				},
+			},
+			{
+				Query: "call dolt_reset('--hard');",
+				Expected: []sql.Row{
+					{0},
+				},
+			},
+			{
+				Query:    "select * from dolt_status;",
+				Expected: []sql.Row{},
+			},
+		},
+	},
+	{
+		Name: "db collation with branch",
+		SetUpScript: []string{
+			"call dolt_checkout('-b', 'other');",
+			"alter database mydb collate utf8mb4_spanish_ci;",
+			"call dolt_commit('-Am', 'db collation');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query: "show create database mydb;",
+				Expected: []sql.Row{
+					{"mydb", "CREATE DATABASE `mydb` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_spanish_ci */"},
+				},
+			},
+			{
+				Query:            "call dolt_checkout('main');",
+				SkipResultsCheck: true,
+			},
+			{
+				Query: "show create database mydb;",
+				Expected: []sql.Row{
+					{"mydb", "CREATE DATABASE `mydb` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin */"},
+				},
+			},
+		},
+	},
+	{
+		Name: "db collation with ff merge",
+		SetUpScript: []string{
+			"call dolt_checkout('-b', 'other');",
+			"alter database mydb collate utf8mb4_spanish_ci;",
+			"call dolt_commit('-Am', 'db collation');",
+			"call dolt_checkout('main');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query: "show create database mydb;",
+				Expected: []sql.Row{
+					{"mydb", "CREATE DATABASE `mydb` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin */"},
+				},
+			},
+			{
+				Query:            "call dolt_merge('other');",
+				SkipResultsCheck: true,
+			},
+			{
+				Query: "show create database mydb;",
+				Expected: []sql.Row{
+					{"mydb", "CREATE DATABASE `mydb` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_spanish_ci */"},
+				},
+			},
+		},
+	},
+	{
+		Name: "db collation merge conflict",
+		SetUpScript: []string{
+			"call dolt_branch('other');",
+			"alter database mydb collate utf8mb4_spanish_ci;",
+			"call dolt_commit('-Am', 'main collation');",
+			"call dolt_checkout('other');",
+			"alter database mydb collate utf8mb4_danish_ci;",
+			"call dolt_commit('-Am', 'main collation');",
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:          "call dolt_merge('main');",
+				ExpectedErrStr: "database collation conflict, please resolve manually. ours: utf8mb4_danish_ci, theirs: utf8mb4_spanish_ci",
 			},
 		},
 	},

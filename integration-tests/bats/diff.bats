@@ -22,6 +22,56 @@ teardown() {
     teardown_common
 }
 
+@test "diff: db collation diff" {
+    dolt sql -q "create database colldb"
+    cd colldb
+
+    dolt sql -q "alter database colldb collate utf8mb4_spanish_ci"
+
+    run dolt diff
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ 'CREATE DATABASE `colldb`' ]] || false
+    [[ "$output" =~ "40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_spanish_ci" ]] || false
+
+    run dolt diff --data
+    [ "$status" -eq 0 ]
+    [[ ! "$output" =~ 'CREATE DATABASE `colldb`' ]] || false
+    [[ ! "$output" =~ "40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_spanish_ci" ]] || false
+
+    run dolt diff --schema
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ 'CREATE DATABASE `colldb`' ]] || false
+    [[ "$output" =~ "40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_spanish_ci" ]] || false
+
+    run dolt diff --summary
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 0 ]
+
+    run dolt diff -r json
+    EXPECTED=$(cat <<'EOF'
+{"tables":[{"name":"__DATABASE__colldb","schema_diff":["ALTER DATABASE `colldb` COLLATE='utf8mb4_spanish_ci';"],"data_diff":[]}]}
+EOF
+)
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "$EXPECTED" ]] || false
+
+    run dolt diff -r sql
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "ALTER DATABASE \`colldb\` COLLATE='utf8mb4_spanish_ci';" ]] || false
+}
+
+@test "diff: db collation diff regression test" {
+    dolt sql -q "create database COLLDB"
+    cd COLLDB
+
+    dolt sql -q "alter database COLLDB collate utf8mb4_spanish_ci"
+    # regression test for dolt diff failing when database name starts or ends with any of the characters in __DATABASE__
+
+    run dolt diff -r sql
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "ALTER DATABASE \`COLLDB\` COLLATE='utf8mb4_spanish_ci';" ]] || false
+}
+
 @test "diff: row, line, in-place, context diff modes" {
     # We're not using the test table, so we might as well delete it
     dolt sql <<SQL
@@ -681,7 +731,7 @@ SQL
 
     run dolt diff
     [ "$status" -eq 0 ]
-    [[ "$output" =~ "+  CONSTRAINT \`qvvgfpe7\` FOREIGN KEY (\`j\`) REFERENCES \`parent\` (\`i\`)" ]] || false
+    [[ "$output" =~ "+  CONSTRAINT \`child_ibfk_1\` FOREIGN KEY (\`j\`) REFERENCES \`parent\` (\`i\`)" ]] || false
 }
 
 @test "diff: new foreign key added without foreign key check, and does not resolve" {
@@ -695,7 +745,7 @@ SQL
 
     run dolt diff
     [ "$status" -eq 0 ]
-    [[ ! "$output" =~ "+  CONSTRAINT \`npsbmr30\` FOREIGN KEY (\`j\`) REFERENCES \`parent\` (\`i\`)" ]] || false
+    [[ ! "$output" =~ "+  CONSTRAINT \`child_ibfk_1\` FOREIGN KEY (\`j\`) REFERENCES \`parent\` (\`i\`)" ]] || false
 }
 
 @test "diff: existing foreign key that was resolved is deleted" {
@@ -833,7 +883,7 @@ SQL
     run dolt diff test
     [ "$status" -eq 0 ]
     [[ "$output" =~ '-  CONSTRAINT `fk1` FOREIGN KEY (`c1`) REFERENCES `parent` (`c1`)' ]] || false
-    [[ "$output" =~ '+  KEY `c2` (`c2`),' ]] || false
+    [[ "$output" =~ '+  KEY `fk2` (`c2`),' ]] || false
     [[ "$output" =~ '+  CONSTRAINT `fk2` FOREIGN KEY (`c2`) REFERENCES `parent` (`c2`)' ]] || false
 
     dolt diff parent
@@ -1708,4 +1758,56 @@ SQL
     [[ "$output" =~ "DROP TRIGGER \`trigger1\`;" ]] || false
     [[ "$output" =~ "CREATE TRIGGER trigger1 BEFORE INSERT ON mytable FOR EACH ROW SET new.v1 = -2*new.v1;" ]] || false
     [[ "$output" =~ "CREATE VIEW view1 AS SELECT v1 FROM mytable;" ]] || false
+}
+
+@test "diff: table-only option" {
+    dolt sql <<SQL
+create table t1 (i int);
+create table t2 (i int);
+create table t3 (i int);
+SQL
+
+    dolt add .
+    dolt commit -m "commit 1"
+
+    dolt sql <<SQL
+drop table t1;
+alter table t2 add column j int;
+insert into t3 values (1);
+create table t4 (i int);
+SQL
+
+    run dolt diff --summary
+    [ $status -eq 0 ]
+    [ "${lines[0]}" = "+------------+-----------+-------------+---------------+" ]
+    [ "${lines[1]}" = "| Table name | Diff type | Data change | Schema change |" ]
+    [ "${lines[2]}" = "+------------+-----------+-------------+---------------+" ]
+    [ "${lines[3]}" = "| t1         | dropped   | false       | true          |" ]
+    [ "${lines[4]}" = "| t2         | modified  | false       | true          |" ]
+    [ "${lines[5]}" = "| t3         | modified  | true        | false         |" ]
+    [ "${lines[6]}" = "| t4         | added     | false       | true          |" ]
+    [ "${lines[7]}" = "+------------+-----------+-------------+---------------+" ]
+
+    run dolt diff --name-only
+    [ $status -eq 0 ]
+    [ "${lines[0]}" = "t1" ]
+    [ "${lines[1]}" = "t2" ]
+    [ "${lines[2]}" = "t3" ]
+    [ "${lines[3]}" = "t4" ]
+
+    run dolt diff --name-only --schema
+    [ $status -eq 1 ]
+    [[ $output =~ "invalid Arguments" ]] || false
+
+    run dolt diff --name-only --data
+    [ $status -eq 1 ]
+    [[ $output =~ "invalid Arguments" ]] || false
+
+    run dolt diff --name-only --stat
+    [ $status -eq 1 ]
+    [[ $output =~ "invalid Arguments" ]] || false
+
+    run dolt diff --name-only --summary
+    [ $status -eq 1 ]
+    [[ $output =~ "invalid Arguments" ]] || false
 }

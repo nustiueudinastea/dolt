@@ -35,8 +35,10 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
+	drowexec "github.com/dolthub/dolt/go/libraries/doltcore/sqle/rowexec"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/statsnoms"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/statspro"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/writer"
 	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 	"github.com/dolthub/dolt/go/store/types"
 )
@@ -60,15 +62,62 @@ type DoltHarness struct {
 	setupTestProcedures bool
 }
 
-var _ enginetest.Harness = (*DoltHarness)(nil)
-var _ enginetest.SkippingHarness = (*DoltHarness)(nil)
-var _ enginetest.ClientHarness = (*DoltHarness)(nil)
-var _ enginetest.IndexHarness = (*DoltHarness)(nil)
-var _ enginetest.VersionedDBHarness = (*DoltHarness)(nil)
-var _ enginetest.ForeignKeyHarness = (*DoltHarness)(nil)
-var _ enginetest.KeylessTableHarness = (*DoltHarness)(nil)
-var _ enginetest.ReadOnlyDatabaseHarness = (*DoltHarness)(nil)
-var _ enginetest.ValidatingHarness = (*DoltHarness)(nil)
+func (d *DoltHarness) UseLocalFileSystem() {
+	d.useLocalFilesystem = true
+}
+
+func (d *DoltHarness) Session() *dsess.DoltSession {
+	return d.session
+}
+
+func (d *DoltHarness) WithConfigureStats(configureStats bool) DoltEnginetestHarness {
+	nd := *d
+	nd.configureStats = configureStats
+	return &nd
+}
+
+func (d *DoltHarness) NewHarness(t *testing.T) DoltEnginetestHarness {
+	return newDoltHarness(t)
+}
+
+type DoltEnginetestHarness interface {
+	enginetest.Harness
+	enginetest.SkippingHarness
+	enginetest.ClientHarness
+	enginetest.IndexHarness
+	enginetest.VersionedDBHarness
+	enginetest.ForeignKeyHarness
+	enginetest.KeylessTableHarness
+	enginetest.ReadOnlyDatabaseHarness
+	enginetest.ValidatingHarness
+
+	// NewHarness returns a new uninitialized harness of the same type
+	NewHarness(t *testing.T) DoltEnginetestHarness
+
+	// WithSkippedQueries returns a copy of the harness with the given queries skipped
+	WithSkippedQueries(skipped []string) DoltEnginetestHarness
+
+	// WithParallelism returns a copy of the harness with parallelism set to the given number of threads
+	WithParallelism(parallelism int) DoltEnginetestHarness
+
+	// WithConfigureStats returns a copy of the harness with the given configureStats value
+	WithConfigureStats(configureStats bool) DoltEnginetestHarness
+
+	// SkipSetupCommit configures to harness to skip the commit after setup scripts are run
+	SkipSetupCommit()
+
+	// UseLocalFileSystem configures the harness to use the local filesystem for all storage, instead of in-memory versions
+	UseLocalFileSystem()
+
+	// Close closes the harness, freeing up any resources it may have allocated
+	Close()
+
+	Engine() *gms.Engine
+
+	Session() *dsess.DoltSession
+}
+
+var _ DoltEnginetestHarness = &DoltHarness{}
 
 // newDoltHarness creates a new harness for testing Dolt, using an in-memory filesystem and an in-memory blob store.
 func newDoltHarness(t *testing.T) *DoltHarness {
@@ -79,6 +128,10 @@ func newDoltHarness(t *testing.T) *DoltHarness {
 	}
 
 	return dh
+}
+
+func newDoltEnginetestHarness(t *testing.T) DoltEnginetestHarness {
+	return newDoltHarness(t)
 }
 
 // newDoltHarnessForLocalFilesystem creates a new harness for testing Dolt, using
@@ -192,14 +245,14 @@ func (d *DoltHarness) NewEngine(t *testing.T) (enginetest.QueryEngine, error) {
 		d.statsPro = statsProv
 
 		var err error
-		d.session, err = dsess.NewDoltSession(enginetest.NewBaseSession(), d.provider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro)
+		d.session, err = dsess.NewDoltSession(enginetest.NewBaseSession(), d.provider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro, writer.NewWriteSession)
 		require.NoError(t, err)
 
 		e, err := enginetest.NewEngine(t, d, d.provider, d.setupData, d.statsPro)
 		if err != nil {
 			return nil, err
 		}
-		e.Analyzer.ExecBuilder = rowexec.DefaultBuilder
+		e.Analyzer.ExecBuilder = rowexec.NewOverrideBuilder(drowexec.Builder{})
 		d.engine = e
 
 		ctx := enginetest.NewContext(d)
@@ -231,7 +284,10 @@ func (d *DoltHarness) NewEngine(t *testing.T) (enginetest.QueryEngine, error) {
 				dsessDbs[i], _ = dbCache.GetCachedRevisionDb(fmt.Sprintf("%s/main", dbName), dbName)
 			}
 
-			ctxFact := func(context.Context) (*sql.Context, error) { return d.NewContext(), nil }
+			ctxFact := func(context.Context) (*sql.Context, error) {
+				sess := d.newSessionWithClient(sql.Client{Address: "localhost", User: "root"})
+				return sql.NewContext(context.Background(), sql.WithSession(sess)), nil
+			}
 			if err = statsProv.Configure(ctx, ctxFact, bThreads, dsessDbs); err != nil {
 				return nil, err
 			}
@@ -251,7 +307,7 @@ func (d *DoltHarness) NewEngine(t *testing.T) (enginetest.QueryEngine, error) {
 	// Get a fresh session if we are reusing the engine
 	if !initializeEngine {
 		var err error
-		d.session, err = dsess.NewDoltSession(enginetest.NewBaseSession(), d.provider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro)
+		d.session, err = dsess.NewDoltSession(enginetest.NewBaseSession(), d.provider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro, writer.NewWriteSession)
 		require.NoError(t, err)
 	}
 
@@ -275,17 +331,21 @@ func filterStatsOnlyQueries(scripts []setup.SetupScript) []setup.SetupScript {
 
 // WithParallelism returns a copy of the harness with parallelism set to the given number of threads. A value of 0 or
 // less means to use the system parallelism settings.
-func (d *DoltHarness) WithParallelism(parallelism int) *DoltHarness {
+func (d *DoltHarness) WithParallelism(parallelism int) DoltEnginetestHarness {
 	nd := *d
 	nd.parallelism = parallelism
 	return &nd
 }
 
 // WithSkippedQueries returns a copy of the harness with the given queries skipped
-func (d *DoltHarness) WithSkippedQueries(queries []string) *DoltHarness {
+func (d *DoltHarness) WithSkippedQueries(queries []string) DoltEnginetestHarness {
 	nd := *d
 	nd.skippedQueries = append(d.skippedQueries, queries...)
 	return &nd
+}
+
+func (d *DoltHarness) Engine() *gms.Engine {
+	return d.engine
 }
 
 // SkipQueryTest returns whether to skip a query
@@ -333,7 +393,7 @@ func (d *DoltHarness) newSessionWithClient(client sql.Client) *dsess.DoltSession
 	localConfig := d.multiRepoEnv.Config()
 	pro := d.session.Provider()
 
-	dSession, err := dsess.NewDoltSession(sql.NewBaseSessionWithClientServer("address", client, 1), pro.(dsess.DoltDatabaseProvider), localConfig, d.branchControl, d.statsPro)
+	dSession, err := dsess.NewDoltSession(sql.NewBaseSessionWithClientServer("address", client, 1), pro.(dsess.DoltDatabaseProvider), localConfig, d.branchControl, d.statsPro, writer.NewWriteSession)
 	dSession.SetCurrentDatabase("mydb")
 	require.NoError(d.t, err)
 	return dSession
@@ -365,7 +425,7 @@ func (d *DoltHarness) NewDatabases(names ...string) []sql.Database {
 	d.statsPro = statspro.NewProvider(doltProvider, statsnoms.NewNomsStatsFactory(d.multiRepoEnv.RemoteDialProvider()))
 
 	var err error
-	d.session, err = dsess.NewDoltSession(enginetest.NewBaseSession(), doltProvider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro)
+	d.session, err = dsess.NewDoltSession(enginetest.NewBaseSession(), doltProvider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro, writer.NewWriteSession)
 	require.NoError(d.t, err)
 
 	// TODO: the engine tests should do this for us
@@ -423,7 +483,7 @@ func (d *DoltHarness) NewReadOnlyEngine(provider sql.DatabaseProvider) (enginete
 	}
 
 	// reset the session as well since we have swapped out the database provider, which invalidates caching assumptions
-	d.session, err = dsess.NewDoltSession(enginetest.NewBaseSession(), readOnlyProvider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro)
+	d.session, err = dsess.NewDoltSession(enginetest.NewBaseSession(), readOnlyProvider, d.multiRepoEnv.Config(), d.branchControl, d.statsPro, writer.NewWriteSession)
 	require.NoError(d.t, err)
 
 	return enginetest.NewEngineWithProvider(nil, d, readOnlyProvider), nil
