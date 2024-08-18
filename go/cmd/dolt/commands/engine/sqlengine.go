@@ -35,15 +35,14 @@ import (
 	"github.com/dolthub/dolt/go/cmd/dolt/cli"
 	"github.com/dolthub/dolt/go/libraries/doltcore/branch_control"
 	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
 	dsqle "github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 	dblr "github.com/dolthub/dolt/go/libraries/doltcore/sqle/binlogreplication"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/cluster"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/kvexec"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/mysql_file_handler"
-	drowexec "github.com/dolthub/dolt/go/libraries/doltcore/sqle/rowexec"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/statsnoms"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/statspro"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/writer"
@@ -154,8 +153,6 @@ func NewSqlEngine(
 	if err := configureBinlogPrimaryController(engine); err != nil {
 		return nil, err
 	}
-	pro.AddInitDatabaseHook(dblr.NewBinlogInitDatabaseHook(ctx, doltdb.DatabaseUpdateListeners))
-	pro.AddDropDatabaseHook(dblr.NewBinlogDropDatabaseHook(ctx, doltdb.DatabaseUpdateListeners))
 
 	config.ClusterController.SetIsStandbyCallback(func(isStandby bool) {
 		pro.SetIsStandby(isStandby)
@@ -195,7 +192,7 @@ func NewSqlEngine(
 	statsPro := statspro.NewProvider(pro, statsnoms.NewNomsStatsFactory(mrEnv.RemoteDialProvider()))
 	engine.Analyzer.Catalog.StatsProvider = statsPro
 
-	engine.Analyzer.ExecBuilder = rowexec.NewOverrideBuilder(drowexec.Builder{})
+	engine.Analyzer.ExecBuilder = rowexec.NewOverrideBuilder(kvexec.Builder{})
 	sessFactory := doltSessionFactory(pro, statsPro, mrEnv.Config(), bcController, config.Autocommit)
 	sqlEngine.provider = pro
 	sqlEngine.contextFactory = sqlContextFactory()
@@ -309,13 +306,13 @@ func (se *SqlEngine) NewDoltSession(_ context.Context, mysqlSess *sql.BaseSessio
 }
 
 // Query execute a SQL statement and return values for printing.
-func (se *SqlEngine) Query(ctx *sql.Context, query string) (sql.Schema, sql.RowIter, error) {
+func (se *SqlEngine) Query(ctx *sql.Context, query string) (sql.Schema, sql.RowIter, *sql.QueryFlags, error) {
 	return se.engine.Query(ctx, query)
 }
 
 // Analyze analyzes a node.
-func (se *SqlEngine) Analyze(ctx *sql.Context, n sql.Node) (sql.Node, error) {
-	return se.engine.Analyzer.Analyze(ctx, n, nil)
+func (se *SqlEngine) Analyze(ctx *sql.Context, n sql.Node, qFlags *sql.QueryFlags) (sql.Node, error) {
+	return se.engine.Analyzer.Analyze(ctx, n, nil, qFlags)
 }
 
 func (se *SqlEngine) GetUnderlyingEngine() *gms.Engine {
@@ -337,6 +334,7 @@ func configureBinlogReplicaController(config *SqlEngineConfig, engine *gms.Engin
 		return err
 	}
 	dblr.DoltBinlogReplicaController.SetExecutionContext(executionCtx)
+	dblr.DoltBinlogReplicaController.SetEngine(engine)
 	engine.Analyzer.Catalog.BinlogReplicaController = config.BinlogReplicaController
 
 	return nil
@@ -351,38 +349,6 @@ func configureBinlogReplicaController(config *SqlEngineConfig, engine *gms.Engin
 func configureBinlogPrimaryController(engine *gms.Engine) error {
 	primaryController := dblr.NewDoltBinlogPrimaryController()
 	engine.Analyzer.Catalog.BinlogPrimaryController = primaryController
-
-	_, logBinValue, ok := sql.SystemVariables.GetGlobal("log_bin")
-	if !ok {
-		return fmt.Errorf("unable to load @@log_bin system variable")
-	}
-	logBin, ok := logBinValue.(int8)
-	if !ok {
-		return fmt.Errorf("unexpected type for @@log_bin system variable: %T", logBinValue)
-	}
-	if logBin == 1 {
-		logrus.Debug("Enabling binary logging")
-		binlogProducer, err := dblr.NewBinlogProducer(primaryController.StreamerManager())
-		if err != nil {
-			return err
-		}
-		doltdb.RegisterDatabaseUpdateListener(binlogProducer)
-		primaryController.BinlogProducer = binlogProducer
-	}
-
-	_, logBinBranchValue, ok := sql.SystemVariables.GetGlobal("log_bin_branch")
-	if !ok {
-		return fmt.Errorf("unable to load @@log_bin_branch system variable")
-	}
-	logBinBranch, ok := logBinBranchValue.(string)
-	if !ok {
-		return fmt.Errorf("unexpected type for @@log_bin_branch system variable: %T", logBinBranchValue)
-	}
-	if logBinBranch != "" {
-		logrus.Debugf("Setting binary logging branch to %s", logBinBranch)
-		dblr.BinlogBranch = logBinBranch
-	}
-
 	return nil
 }
 

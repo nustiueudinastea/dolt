@@ -185,6 +185,14 @@ func checkAndPrintVersionOutOfDateWarning(curVersion string, dEnv *env.DoltEnv) 
 		}
 	}
 
+	// If we still don't have a valid latestRelease, even after trying to query it, then skip the out of date
+	// check and print a warning message. This can happen for example, if we get a 403 from GitHub when
+	// querying for the latest release tag.
+	if latestRelease == "" {
+		cli.Printf(color.YellowString("Warning: unable to query latest released Dolt version"))
+		return nil
+	}
+
 	// if there were new releases in the last week, the latestRelease stored might be behind the current version built
 	isOutOfDate, verr := isOutOfDate(curVersion, latestRelease)
 	if verr != nil {
@@ -203,17 +211,15 @@ func checkAndPrintVersionOutOfDateWarning(curVersion string, dEnv *env.DoltEnv) 
 func getLatestDoltReleaseAndRecord(path string, dEnv *env.DoltEnv) (string, errhand.VerboseError) {
 	client := github.NewClient(nil)
 	release, resp, err := client.Repositories.GetLatestRelease(context.Background(), "dolthub", "dolt")
-	if err != nil || resp.StatusCode != 200 {
-		return "", errhand.BuildDError("error: failed to verify latest release").AddCause(err).Build()
-	}
-	releaseName := strings.TrimPrefix(*release.TagName, "v")
+	if err == nil && resp.StatusCode == 200 {
+		releaseName := strings.TrimPrefix(*release.TagName, "v")
 
-	err = dEnv.FS.WriteFile(path, []byte(releaseName), os.ModePerm)
-	if err != nil {
-		return "", errhand.BuildDError("error: failed to update version check file").AddCause(err).Build()
+		err = dEnv.FS.WriteFile(path, []byte(releaseName), os.ModePerm)
+		if err == nil {
+			return releaseName, nil
+		}
 	}
-
-	return releaseName, nil
+	return "", nil
 }
 
 // isOutOfDate compares the current version of Dolt to the given latest release version and returns true if the current

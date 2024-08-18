@@ -124,6 +124,7 @@ var doltSubCommands = []cli.Command{
 	commands.QueryDiff{},
 	commands.ReflogCmd{},
 	commands.RebaseCmd{},
+	commands.ArchiveCmd{},
 }
 
 var commandsWithoutCliCtx = []cli.Command{
@@ -149,6 +150,7 @@ var commandsWithoutCliCtx = []cli.Command{
 	docscmds.Commands,
 	&commands.Assist{},
 	commands.ProfileCmd{},
+	commands.ArchiveCmd{},
 }
 
 var commandsWithoutGlobalArgSupport = []cli.Command{
@@ -508,6 +510,11 @@ func runMain() int {
 		return 1
 	}
 
+	if dEnv.CfgLoadErr != nil {
+		cli.PrintErrln(color.RedString("Failed to load the global config. %v", dEnv.CfgLoadErr))
+		return 1
+	}
+
 	strMetricsDisabled := dEnv.Config.GetStringOrDefault(config.MetricsDisabled, "false")
 	var metricsEmitter events.Emitter
 	metricsEmitter = events.NewFileEmitter(homeDir, dbfactory.DoltDir)
@@ -518,10 +525,6 @@ func runMain() int {
 
 	events.SetGlobalCollector(events.NewCollector(doltversion.Version, metricsEmitter))
 
-	if dEnv.CfgLoadErr != nil {
-		cli.PrintErrln(color.RedString("Failed to load the global config. %v", dEnv.CfgLoadErr))
-		return 1
-	}
 	globalConfig, ok := dEnv.Config.GetConfig(env.GlobalConfig)
 	if !ok {
 		cli.PrintErrln(color.RedString("Failed to get global config"))

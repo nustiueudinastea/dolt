@@ -75,12 +75,19 @@ teardown() {
     [[ "$output" =~ "ancestor" ]] || false
 }
 
-@test "cherry-pick: no changes" {
+@test "cherry-pick: empty commit handling" {
     dolt commit --allow-empty -am "empty commit"
     dolt checkout main
+
+    # If an empty commit is cherry-picked, Git will stop the cherry-pick and allow you to manually commit it
+    # with the --allow-empty flag. We don't support that yet, so instead, empty commits generate an error.
     run dolt cherry-pick branch1
+    [ "$status" -eq "1" ]
+    [[ "$output" =~ "The previous cherry-pick commit is empty. Use --allow-empty to cherry-pick empty commits." ]] || false
+
+    # If the --allow-empty flag is specified, then empty commits can be automatically cherry-picked.
+    run dolt cherry-pick --allow-empty branch1
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "No changes were made" ]] || false
 }
 
 @test "cherry-pick: invalid hash" {
@@ -242,7 +249,7 @@ teardown() {
     # Assert that only 'test' is staged for commit ('other' has a constraint violation)
     run dolt sql -q "SELECT * from dolt_status;"
     [ $status -eq 0 ]
-    [[ $output =~ "| other         | false  | modified " ]] || false
+    [[ $output =~ "| other         | false  | constraint violation " ]] || false
     [[ $output =~ "| test          | true   | modified " ]] || false
     [[ $output =~ "| generated_foo | false  | new table " ]] || false
 

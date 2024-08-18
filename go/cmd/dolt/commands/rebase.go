@@ -23,8 +23,6 @@ import (
 	"strings"
 
 	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/gocraft/dbr/v2"
-	"github.com/gocraft/dbr/v2/dialect"
 
 	"github.com/dolthub/dolt/go/cmd/dolt/cli"
 	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
@@ -102,7 +100,7 @@ func (cmd RebaseCmd) Exec(ctx context.Context, commandStr string, args []string,
 		return HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), usage)
 	}
 
-	query, err := constructInterpolatedDoltRebaseQuery(apr)
+	query, err := interpolateStoredProcedureCall("DOLT_REBASE", args)
 	if err != nil {
 		return HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), usage)
 	}
@@ -129,7 +127,7 @@ func (cmd RebaseCmd) Exec(ctx context.Context, commandStr string, args []string,
 		rebasePlan, err := getRebasePlan(cliCtx, sqlCtx, queryist, apr.Arg(0), branchName)
 		if err != nil {
 			// attempt to abort the rebase
-			_, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
+			_, _, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
 			return HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), usage)
 		}
 
@@ -152,25 +150,25 @@ func (cmd RebaseCmd) Exec(ctx context.Context, commandStr string, args []string,
 			err = insertRebasePlanIntoDoltRebaseTable(rebasePlan, sqlCtx, queryist)
 			if err != nil {
 				// attempt to abort the rebase
-				_, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
+				_, _, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
 				return HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), usage)
 			}
 
 			rows, err := GetRowsForSql(queryist, sqlCtx, "CALL DOLT_REBASE('--continue');")
 			if err != nil {
 				// attempt to abort the rebase
-				_, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
+				_, _, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
 				return HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), usage)
 			}
 			status, err := getInt64ColAsInt64(rows[0][0])
 			if err != nil {
 				// attempt to abort the rebase
-				_, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
+				_, _, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
 				return HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), usage)
 			}
 			if status == 1 {
 				// attempt to abort the rebase
-				_, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
+				_, _, _, _ = queryist.Query(sqlCtx, "CALL DOLT_REBASE('--abort');")
 				return HandleVErrAndExitCode(errhand.VerboseErrorFromError(errors.New("error: "+rows[0][1].(string))), usage)
 			}
 
@@ -179,30 +177,6 @@ func (cmd RebaseCmd) Exec(ctx context.Context, commandStr string, args []string,
 	}
 
 	return HandleVErrAndExitCode(nil, usage)
-}
-
-// constructInterpolatedDoltRebaseQuery generates the sql query necessary to call the DOLT_REBASE() function.
-// Also interpolates this query to prevent sql injection.
-func constructInterpolatedDoltRebaseQuery(apr *argparser.ArgParseResults) (string, error) {
-	var params []interface{}
-	var args []string
-
-	if apr.NArg() == 1 {
-		params = append(params, apr.Arg(0))
-		args = append(args, "?")
-	}
-	if apr.Contains(cli.InteractiveFlag) {
-		args = append(args, "'--interactive'")
-	}
-	if apr.Contains(cli.ContinueFlag) {
-		args = append(args, "'--continue'")
-	}
-	if apr.Contains(cli.AbortParam) {
-		args = append(args, "'--abort'")
-	}
-
-	query := fmt.Sprintf("CALL DOLT_REBASE(%s);", strings.Join(args, ", "))
-	return dbr.InterpolateForDialect(query, params, dialect.MySQL)
 }
 
 // getRebasePlan opens an editor for users to edit the rebase plan and returns the parsed rebase plan from the editor.

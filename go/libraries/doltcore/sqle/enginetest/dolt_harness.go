@@ -35,7 +35,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
-	drowexec "github.com/dolthub/dolt/go/libraries/doltcore/sqle/rowexec"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/kvexec"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/statsnoms"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/statspro"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/writer"
@@ -252,7 +252,7 @@ func (d *DoltHarness) NewEngine(t *testing.T) (enginetest.QueryEngine, error) {
 		if err != nil {
 			return nil, err
 		}
-		e.Analyzer.ExecBuilder = rowexec.NewOverrideBuilder(drowexec.Builder{})
+		e.Analyzer.ExecBuilder = rowexec.NewOverrideBuilder(kvexec.Builder{})
 		d.engine = e
 
 		ctx := enginetest.NewContext(d)
@@ -586,7 +586,7 @@ func (d *DoltHarness) SnapshotTable(db sql.VersionedDatabase, tableName string, 
 
 	ctx := enginetest.NewContext(d)
 
-	_, iter, err := e.Query(ctx,
+	_, iter, _, err := e.Query(ctx,
 		"CALL DOLT_COMMIT('-Am', 'test commit');")
 	require.NoError(d.t, err)
 	_, err = sql.RowIterToRows(ctx, iter)
@@ -596,7 +596,7 @@ func (d *DoltHarness) SnapshotTable(db sql.VersionedDatabase, tableName string, 
 	ctx = enginetest.NewContext(d)
 	query := "CALL dolt_branch('" + asOfString + "')"
 
-	_, iter, err = e.Query(ctx,
+	_, iter, _, err = e.Query(ctx,
 		query)
 	require.NoError(d.t, err)
 	_, err = sql.RowIterToRows(ctx, iter)
