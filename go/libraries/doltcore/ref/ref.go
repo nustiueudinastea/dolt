@@ -57,6 +57,9 @@ const (
 
 	// StatsRefType is a reference to a statistics table
 	StatsRefType RefType = "statistics"
+
+	// TupleRefType is a reference to a statistics table
+	TupleRefType RefType = "tuples"
 )
 
 // HeadRefTypes are the ref types that point to a HEAD and contain a Commit struct. These are the types that are
@@ -122,7 +125,7 @@ func EqualsCaseInsensitive(dr, other DoltRef) bool {
 		return false
 	}
 
-	return dr.GetType() == other.GetType() && strings.ToLower(dr.GetPath()) == strings.ToLower(other.GetPath())
+	return dr.GetType() == other.GetType() && strings.EqualFold(dr.GetPath(), other.GetPath())
 }
 
 // EqualsStr compares a DoltRef to a reference string to see if they are referring to the same thing
@@ -202,7 +205,11 @@ func Parse(str string) (DoltRef, error) {
 	}
 
 	if prefix := PrefixForType(StatsRefType); strings.HasPrefix(str, prefix) {
-		return NewStatsRef(str[len(prefix):]), nil
+		return NewStatsRef(), nil
+	}
+
+	if prefix := PrefixForType(TupleRefType); strings.HasPrefix(str, prefix) {
+		return NewTupleRef(str[len(prefix):]), nil
 	}
 
 	return nil, ErrUnknownRefType

@@ -48,10 +48,10 @@ func TestCmpChunkTableWriter(t *testing.T) {
 	}
 
 	reqs := toGetRecords(hashes)
-	found := make([]CompressedChunk, 0)
+	found := make([]ToChunker, 0)
 
 	eg, egCtx := errgroup.WithContext(ctx)
-	_, err = tr.getManyCompressed(egCtx, eg, reqs, func(ctx context.Context, c CompressedChunk) { found = append(found, c) }, &Stats{})
+	_, _, err = tr.getManyCompressed(egCtx, eg, reqs, func(ctx context.Context, c ToChunker) { found = append(found, c) }, nil, &Stats{})
 	require.NoError(t, err)
 	require.NoError(t, eg.Wait())
 
@@ -59,23 +59,23 @@ func TestCmpChunkTableWriter(t *testing.T) {
 	tw, err := NewCmpChunkTableWriter("")
 	require.NoError(t, err)
 	for _, cmpChnk := range found {
-		err = tw.AddCmpChunk(cmpChnk)
+		_, err = tw.AddChunk(cmpChnk)
 		require.NoError(t, err)
 	}
 
-	id, err := tw.Finish()
+	_, id, err := tw.Finish()
 	require.NoError(t, err)
 
 	t.Run("ErrDuplicateChunkWritten", func(t *testing.T) {
 		tw, err := NewCmpChunkTableWriter("")
 		require.NoError(t, err)
 		for _, cmpChnk := range found {
-			err = tw.AddCmpChunk(cmpChnk)
+			_, err = tw.AddChunk(cmpChnk)
 			require.NoError(t, err)
-			err = tw.AddCmpChunk(cmpChnk)
+			_, err = tw.AddChunk(cmpChnk)
 			require.NoError(t, err)
 		}
-		_, err = tw.Finish()
+		_, _, err = tw.Finish()
 		require.Error(t, err, ErrDuplicateChunkWritten)
 	})
 
@@ -93,6 +93,13 @@ func TestCmpChunkTableWriter(t *testing.T) {
 	defer outputTR.close()
 
 	compareContentsOfTables(t, ctx, hashes, tr, outputTR)
+}
+
+func TestCmpChunkTableWriterGhostChunk(t *testing.T) {
+	tw, err := NewCmpChunkTableWriter("")
+	require.NoError(t, err)
+	_, err = tw.AddChunk(NewGhostCompressedChunk(hash.Parse("6af71afc2ea0hmp4olev0vp9q1q5gvb1")))
+	require.Error(t, err)
 }
 
 func TestContainsDuplicates(t *testing.T) {
@@ -140,7 +147,7 @@ func readAllChunks(ctx context.Context, hashes hash.HashSet, reader tableReader)
 	reqs := toGetRecords(hashes)
 	found := make([]*chunks.Chunk, 0)
 	eg, ctx := errgroup.WithContext(ctx)
-	_, err := reader.getMany(ctx, eg, reqs, func(ctx context.Context, c *chunks.Chunk) { found = append(found, c) }, &Stats{})
+	_, _, err := reader.getMany(ctx, eg, reqs, func(ctx context.Context, c *chunks.Chunk) { found = append(found, c) }, nil, &Stats{})
 	if err != nil {
 		return nil, err
 	}

@@ -335,15 +335,78 @@ func (ms *MemoryStoreView) Commit(ctx context.Context, current, last hash.Hash) 
 	return success, nil
 }
 
-func (ms *MemoryStoreView) BeginGC(keeper func(hash.Hash) bool) error {
+func (ms *MemoryStoreView) BeginGC(keeper func(hash.Hash) bool, _ GCMode) error {
 	return ms.transitionToGC(keeper)
 }
 
-func (ms *MemoryStoreView) EndGC() {
+func (ms *MemoryStoreView) EndGC(_ GCMode) {
 	ms.transitionToNoGC()
 }
 
-func (ms *MemoryStoreView) MarkAndSweepChunks(ctx context.Context, hashes <-chan []hash.Hash, dest ChunkStore) error {
+type msvGcFinalizer struct {
+	ms      *MemoryStoreView
+	keepers map[hash.Hash]Chunk
+}
+
+func (mgcf msvGcFinalizer) AddChunksToStore(ctx context.Context) (HasManyFunc, error) {
+	panic("unsupported")
+}
+
+func (mgcf msvGcFinalizer) SwapChunksInStore(ctx context.Context) error {
+	mgcf.ms.mu.Lock()
+	defer mgcf.ms.mu.Unlock()
+	mgcf.ms.storage = &MemoryStorage{rootHash: mgcf.ms.rootHash, data: mgcf.keepers}
+	mgcf.ms.pending = map[hash.Hash]Chunk{}
+	return nil
+}
+
+type msvMarkAndSweeper struct {
+	ms *MemoryStoreView
+
+	getAddrs GetAddrsCurry
+	filter   HasManyFunc
+
+	keepers map[hash.Hash]Chunk
+}
+
+func (i *msvMarkAndSweeper) SaveHashes(ctx context.Context, hashes []hash.Hash) error {
+	newAddrs := hash.NewHashSet(hashes...)
+	for {
+		for h := range i.keepers {
+			delete(newAddrs, h)
+		}
+		filtered, err := i.filter(ctx, newAddrs)
+		if err != nil {
+			return err
+		}
+		if len(filtered) == 0 {
+			break
+		}
+		newAddrs = make(hash.HashSet)
+		for h := range filtered {
+			c, err := i.ms.Get(ctx, h)
+			if err != nil {
+				return err
+			}
+			i.keepers[h] = c
+			err = i.getAddrs(c)(ctx, newAddrs, NoopPendingRefExists)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (i *msvMarkAndSweeper) Finalize(context.Context) (GCFinalizer, error) {
+	return msvGcFinalizer{i.ms, i.keepers}, nil
+}
+
+func (i *msvMarkAndSweeper) Close(context.Context) error {
+	return nil
+}
+
+func (ms *MemoryStoreView) MarkAndSweepChunks(ctx context.Context, getAddrs GetAddrsCurry, filter HasManyFunc, dest ChunkStore, mode GCMode) (MarkAndSweeper, error) {
 	if dest != ms {
 		panic("unsupported")
 	}
@@ -354,32 +417,20 @@ func (ms *MemoryStoreView) MarkAndSweepChunks(ctx context.Context, hashes <-chan
 	}
 	ms.mu.Unlock()
 
-	keepers := make(map[hash.Hash]Chunk, ms.storage.Len())
+	return &msvMarkAndSweeper{
+		ms:       ms,
+		getAddrs: getAddrs,
+		filter:   filter,
+		keepers:  make(map[hash.Hash]Chunk),
+	}, nil
+}
 
-LOOP:
-	for {
-		select {
-		case hs, ok := <-hashes:
-			if !ok {
-				break LOOP
-			}
-			for _, h := range hs {
-				c, err := ms.Get(ctx, h)
-				if err != nil {
-					return err
-				}
-				keepers[h] = c
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+func (ms *MemoryStoreView) Count() (uint32, error) {
+	return uint32(len(ms.pending)), nil
+}
 
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	ms.storage = &MemoryStorage{rootHash: ms.rootHash, data: keepers}
-	ms.pending = map[hash.Hash]Chunk{}
-	return nil
+func (ms *MemoryStoreView) IterateAllChunks(_ context.Context, _ func(Chunk)) error {
+	panic("runtime error: GetChunkHashes should never be called on the MemoryStoreView")
 }
 
 func (ms *MemoryStoreView) Stats() interface{} {

@@ -19,6 +19,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,15 +56,17 @@ const (
 // This type is NOT used concurrently – there is currently only one single applier process running to process binlog
 // events, so the state in this type is NOT protected with a mutex.
 type binlogReplicaApplier struct {
-	format                *mysql.BinlogFormat
-	tableMapsById         map[uint64]*mysql.TableMap
-	stopReplicationChan   chan struct{}
-	currentGtid           mysql.GTID
-	replicationSourceUuid string
-	currentPosition       *mysql.Position // successfully executed GTIDs
-	filters               *filterConfiguration
-	running               atomic.Bool
-	engine                *gms.Engine
+	format                    *mysql.BinlogFormat
+	tableMapsById             map[uint64]*mysql.TableMap
+	stopReplicationChan       chan struct{}
+	currentGtid               mysql.GTID
+	replicationSourceUuid     string
+	currentPosition           *mysql.Position // successfully executed GTIDs
+	filters                   *filterConfiguration
+	running                   atomic.Bool
+	handlerWg                 sync.WaitGroup
+	engine                    *gms.Engine
+	dbsWithUncommittedChanges map[string]struct{}
 }
 
 func newBinlogReplicaApplier(filters *filterConfiguration) *binlogReplicaApplier {
@@ -87,10 +90,14 @@ const rowFlag_rowsAreComplete = 0x0008
 
 // Go spawns a new goroutine to run the applier's binlog event handler.
 func (a *binlogReplicaApplier) Go(ctx *sql.Context) {
+	if !a.running.CompareAndSwap(false, true) {
+		panic("attempt to start binlogReplicaApplier while it is already running")
+	}
+	a.handlerWg.Add(1)
 	go func() {
-		a.running.Store(true)
+		defer a.handlerWg.Done()
+		defer a.running.Store(false)
 		err := a.replicaBinlogEventHandler(ctx)
-		a.running.Store(false)
 		if err != nil {
 			ctx.GetLogger().Errorf("unexpected error of type %T: '%v'", err, err.Error())
 			DoltBinlogReplicaController.setSqlError(mysql.ERUnknownError, err.Error())
@@ -101,6 +108,27 @@ func (a *binlogReplicaApplier) Go(ctx *sql.Context) {
 // IsRunning returns true if this binlog applier is running and has not been stopped, otherwise returns false.
 func (a *binlogReplicaApplier) IsRunning() bool {
 	return a.running.Load()
+}
+
+// Stop will shutdown the replication thread if it is running. This is not safe to call concurrently |Go|.
+// This is used by the controller when implementing STOP REPLICA, but it is also used on shutdown when the
+// replication thread should be shutdown cleanly in the event that it is still running.
+func (a *binlogReplicaApplier) Stop() {
+	if a.IsRunning() {
+		// We jump through some hoops here. It is not the case that the replication thread
+		// is guaranteed to read from |stopReplicationChan|. Instead, it can exit on its
+		// own with an error, for example, after exceeding connection retry attempts.
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			a.handlerWg.Wait()
+		}()
+		select {
+		case a.stopReplicationChan <- struct{}{}:
+		case <-done:
+		}
+		a.handlerWg.Wait()
+	}
 }
 
 // connectAndStartReplicationEventStream connects to the configured MySQL replication source, including pausing
@@ -118,8 +146,9 @@ func (a *binlogReplicaApplier) connectAndStartReplicationEventStream(ctx *sql.Co
 	var conn *mysql.Conn
 	var err error
 	for connectionAttempts := uint64(0); ; connectionAttempts++ {
+		sql.SessionCommandBegin(ctx.Session)
 		replicaSourceInfo, err := loadReplicationConfiguration(ctx, a.engine.Analyzer.Catalog.MySQLDb)
-
+		sql.SessionCommandEnd(ctx.Session)
 		if replicaSourceInfo == nil {
 			err = ErrServerNotConfiguredAsReplica
 			DoltBinlogReplicaController.setIoError(ERFatalReplicaError, err.Error())
@@ -262,25 +291,21 @@ func (a *binlogReplicaApplier) startReplicationEventStream(ctx *sql.Context, con
 func (a *binlogReplicaApplier) replicaBinlogEventHandler(ctx *sql.Context) error {
 	engine := a.engine
 
-	var conn *mysql.Conn
 	var eventProducer *binlogEventProducer
 
 	// Process binlog events
 	for {
-		if conn == nil {
+		if eventProducer == nil {
 			ctx.GetLogger().Debug("no binlog connection to source, attempting to establish one")
-			if eventProducer != nil {
-				eventProducer.Stop()
-			}
 
-			var err error
-			if conn, err = a.connectAndStartReplicationEventStream(ctx); err == ErrReplicationStopped {
+			if conn, err := a.connectAndStartReplicationEventStream(ctx); err == ErrReplicationStopped {
 				return nil
 			} else if err != nil {
 				return err
+			} else {
+				eventProducer = newBinlogEventProducer(conn)
+				eventProducer.Go(ctx)
 			}
-			eventProducer = newBinlogEventProducer(conn)
-			eventProducer.Go(ctx)
 		}
 
 		select {
@@ -304,8 +329,6 @@ func (a *binlogReplicaApplier) replicaBinlogEventHandler(ctx *sql.Context) error
 					})
 					eventProducer.Stop()
 					eventProducer = nil
-					conn.Close()
-					conn = nil
 				}
 			} else {
 				// otherwise, log the error if it's something we don't expect and continue
@@ -316,6 +339,7 @@ func (a *binlogReplicaApplier) replicaBinlogEventHandler(ctx *sql.Context) error
 		case <-a.stopReplicationChan:
 			ctx.GetLogger().Trace("received stop replication signal")
 			eventProducer.Stop()
+			eventProducer = nil
 			return nil
 		}
 	}
@@ -324,9 +348,10 @@ func (a *binlogReplicaApplier) replicaBinlogEventHandler(ctx *sql.Context) error
 // processBinlogEvent processes a single binlog event message and returns an error if there were any problems
 // processing it.
 func (a *binlogReplicaApplier) processBinlogEvent(ctx *sql.Context, engine *gms.Engine, event mysql.BinlogEvent) error {
+	sql.SessionCommandBegin(ctx.Session)
+	defer sql.SessionCommandEnd(ctx.Session)
 	var err error
 	createCommit := false
-	commitToAllDatabases := false
 
 	// We don't support checksum validation, so we MUST strip off any checksum bytes if present, otherwise it gets
 	// interpreted as part of the payload and corrupts the data. Future checksum sizes, are not guaranteed to be the
@@ -356,7 +381,6 @@ func (a *binlogReplicaApplier) processBinlogEvent(ctx *sql.Context, engine *gms.
 		// XA-capable storage engine. For more details, see: https://mariadb.com/kb/en/xid_event/
 		ctx.GetLogger().Trace("Received binlog event: XID")
 		createCommit = true
-		commitToAllDatabases = true
 
 	case event.IsQuery():
 		// A Query event represents a statement executed on the source server that should be executed on the
@@ -374,13 +398,6 @@ func (a *binlogReplicaApplier) processBinlogEvent(ctx *sql.Context, engine *gms.
 			"options":  fmt.Sprintf("0x%x", query.Options),
 			"sql_mode": fmt.Sprintf("0x%x", query.SqlMode),
 		}).Trace("Received binlog event: Query")
-
-		// When executing SQL statements sent from the primary, we can't be sure what database was modified unless we
-		// look closely at the statement. For example, we could be connected to db01, but executed
-		// "create table db02.t (...);" – i.e., looking at query.Database is NOT enough to always determine the correct
-		// database that was modified, so instead, we commit to all databases when we see a Query binlog event to
-		// avoid issues with correctness, at the cost of being slightly less efficient
-		commitToAllDatabases = true
 
 		if query.Options&mysql.QFlagOptionAutoIsNull > 0 {
 			ctx.GetLogger().Tracef("Setting sql_auto_is_null ON")
@@ -417,7 +434,7 @@ func (a *binlogReplicaApplier) processBinlogEvent(ctx *sql.Context, engine *gms.
 
 		ctx.SetCurrentDatabase(query.Database)
 		executeQueryWithEngine(ctx, engine, query.SQL)
-		createCommit = strings.ToLower(query.SQL) != "begin"
+		createCommit = !strings.EqualFold(query.SQL, "begin")
 
 	case event.IsRotate():
 		// When a binary log file exceeds the configured size limit, a ROTATE_EVENT is written at the end of the file,
@@ -511,7 +528,7 @@ func (a *binlogReplicaApplier) processBinlogEvent(ctx *sql.Context, engine *gms.
 			}
 			if flags != 0 {
 				msg := fmt.Sprintf("unsupported binlog protocol message: TableMap event with unsupported flags '%x'", flags)
-				ctx.GetLogger().Errorf(msg)
+				ctx.GetLogger().Error(msg)
 				DoltBinlogReplicaController.setSqlError(mysql.ERUnknownError, msg)
 			}
 			a.tableMapsById[tableId] = tableMap
@@ -541,13 +558,10 @@ func (a *binlogReplicaApplier) processBinlogEvent(ctx *sql.Context, engine *gms.
 	}
 
 	if createCommit {
-		var databasesToCommit []string
-		if commitToAllDatabases {
-			databasesToCommit = getAllUserDatabaseNames(ctx, engine)
-			for _, database := range databasesToCommit {
-				executeQueryWithEngine(ctx, engine, "use `"+database+"`;")
-				executeQueryWithEngine(ctx, engine, "commit;")
-			}
+		doltSession := dsess.DSessFromSess(ctx.Session)
+		databasesToCommit := doltSession.DirtyDatabases()
+		if err = doltSession.CommitTransaction(ctx, doltSession.GetTransaction()); err != nil {
+			return err
 		}
 
 		// Record the last GTID processed after the commit
@@ -562,15 +576,44 @@ func (a *binlogReplicaApplier) processBinlogEvent(ctx *sql.Context, engine *gms.
 		}
 
 		// For now, create a Dolt commit from every data update. Eventually, we'll want to make this configurable.
-		ctx.GetLogger().Trace("Creating Dolt commit(s)")
-		for _, database := range databasesToCommit {
+		// We commit to every database that we saw had a dirty session – these identify the databases where we have
+		// run DML commands through the engine. We also commit to every database that was modified through a RowEvent,
+		// which is all tracked through the applier's databasesWithUncommitedChanges property – these don't show up
+		// as dirty in our session, since we used TableWriter to update them.
+		a.addDatabasesWithUncommittedChanges(databasesToCommit...)
+		for _, database := range a.databasesWithUncommittedChanges() {
 			executeQueryWithEngine(ctx, engine, "use `"+database+"`;")
 			executeQueryWithEngine(ctx, engine,
 				fmt.Sprintf("call dolt_commit('-Am', 'Dolt binlog replica commit: GTID %s');", a.currentGtid))
 		}
+		a.dbsWithUncommittedChanges = nil
 	}
 
 	return nil
+}
+
+// addDatabasesWithUncommittedChanges marks the specifeid |dbNames| as databases with uncommitted changes so that
+// the replica applier knows which databases need to have Dolt commits created.
+func (a *binlogReplicaApplier) addDatabasesWithUncommittedChanges(dbNames ...string) {
+	if a.dbsWithUncommittedChanges == nil {
+		a.dbsWithUncommittedChanges = make(map[string]struct{})
+	}
+	for _, dbName := range dbNames {
+		a.dbsWithUncommittedChanges[dbName] = struct{}{}
+	}
+}
+
+// databasesWithUncommittedChanges returns a slice of database names indicating which databases have uncommitted
+// changes and need a Dolt commit created.
+func (a *binlogReplicaApplier) databasesWithUncommittedChanges() []string {
+	if a.dbsWithUncommittedChanges == nil {
+		return nil
+	}
+	dbNames := make([]string, 0, len(a.dbsWithUncommittedChanges))
+	for dbName, _ := range a.dbsWithUncommittedChanges {
+		dbNames = append(dbNames, dbName)
+	}
+	return dbNames
 }
 
 // processRowEvent processes a WriteRows, DeleteRows, or UpdateRows binlog event and returns an error if any problems
@@ -599,6 +642,7 @@ func (a *binlogReplicaApplier) processRowEvent(ctx *sql.Context, event mysql.Bin
 		return nil
 	}
 
+	a.addDatabasesWithUncommittedChanges(tableMap.Database)
 	rows, err := event.Rows(*a.format, tableMap)
 	if err != nil {
 		return err
@@ -620,7 +664,7 @@ func (a *binlogReplicaApplier) processRowEvent(ctx *sql.Context, event mysql.Bin
 	}
 	if flags != 0 {
 		msg := fmt.Sprintf("unsupported binlog protocol message: row event with unsupported flags '%x'", flags)
-		ctx.GetLogger().Errorf(msg)
+		ctx.GetLogger().Error(msg)
 		DoltBinlogReplicaController.setSqlError(mysql.ERUnknownError, msg)
 	}
 	schema, tableName, err := getTableSchema(ctx, engine, tableMap.Name, tableMap.Database)
@@ -764,7 +808,7 @@ func getTableWriter(ctx *sql.Context, engine *gms.Engine, tableName, databaseNam
 	ds := dsess.DSessFromSess(ctx.Session)
 	setter := ds.SetWorkingRoot
 
-	tableWriter, err := writeSession.GetTableWriter(ctx, doltdb.TableName{Name: tableName}, databaseName, setter)
+	tableWriter, err := writeSession.GetTableWriter(ctx, doltdb.TableName{Name: tableName}, databaseName, setter, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -882,8 +926,8 @@ func convertVitessJsonExpressionString(ctx *sql.Context, value sqltypes.Value) (
 		return nil, fmt.Errorf("unable to access running SQL server")
 	}
 
-	binder := planbuilder.New(ctx, server.Engine.Analyzer.Catalog, server.Engine.Parser)
-	node, _, _, qFlags, err := binder.Parse("SELECT "+strValue, false)
+	binder := planbuilder.New(ctx, server.Engine.Analyzer.Catalog, server.Engine.EventScheduler, server.Engine.Parser)
+	node, _, _, qFlags, err := binder.Parse("SELECT "+strValue, nil, false)
 	if err != nil {
 		return nil, err
 	}

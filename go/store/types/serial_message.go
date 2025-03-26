@@ -62,7 +62,7 @@ func (sm SerialMessage) HumanReadableString() string {
 }
 
 func printWithIndendationLevel(level int, builder *strings.Builder, format string, a ...any) {
-	fmt.Fprintf(builder, strings.Repeat("\t", level))
+	fmt.Fprint(builder, strings.Repeat("\t", level))
 	fmt.Fprintf(builder, format, a...)
 }
 
@@ -191,9 +191,12 @@ func (sm SerialMessage) HumanReadableStringAtIndentationLevel(level int) string 
 		printWithIndendationLevel(level, ret, "}")
 		return ret.String()
 	case serial.AddressMapFileID:
-		keys, values, _, cnt, err := message.UnpackFields(serial.Message(sm))
+		fileId, keys, values, _, cnt, err := message.UnpackFields(serial.Message(sm))
 		if err != nil {
 			return fmt.Sprintf("error in HumanReadString(): %s", err)
+		}
+		if fileId != serial.AddressMapFileID {
+			panic(fmt.Sprintf("unexpected file ID, expected %s, got %s", serial.AddressMapFileID, fileId))
 		}
 		var b strings.Builder
 		b.Write([]byte("AddressMap {\n"))
@@ -297,10 +300,10 @@ func (sm SerialMessage) HumanReadableStringAtIndentationLevel(level int) string 
 		level += 1
 		numSecondaryIndexes := msg.SecondaryIndexesLength()
 		for i := 0; i < numSecondaryIndexes; i++ {
-			var index *serial.Index
-			_, _ = msg.TrySecondaryIndexes(index, i)
+			var index serial.Index
+			_, _ = msg.TrySecondaryIndexes(&index, i)
 			printWithIndendationLevel(level, ret, "{\n")
-			printIndex(level+1, ret, index)
+			printIndex(level+1, ret, &index)
 			printWithIndendationLevel(level, ret, "}\n")
 		}
 		level -= 1
@@ -338,6 +341,17 @@ func (sm SerialMessage) HumanReadableStringAtIndentationLevel(level int) string 
 		level++
 
 		_ = OutputProllyNodeBytes(ret, serial.Message(sm))
+
+		// deleting everything from a vector index turns it into a regular index?
+		level -= 1
+		printWithIndendationLevel(level, ret, "}")
+		return ret.String()
+	case serial.VectorIndexNodeFileID:
+		ret := &strings.Builder{}
+		printWithIndendationLevel(level, ret, "Vector Index {\n")
+		level++
+
+		_ = OutputVectorIndexNodeBytes(ret, serial.Message(sm))
 
 		level -= 1
 		printWithIndendationLevel(level, ret, "}")
@@ -388,10 +402,14 @@ func printIndex(level int, ret *strings.Builder, index *serial.Index) {
 }
 
 func OutputBlobNodeBytes(w *strings.Builder, indentationLevel int, msg serial.Message) error {
-	_, values, treeLevel, count, err := message.UnpackFields(msg)
+	fileId, _, values, treeLevel, count, err := message.UnpackFields(msg)
 	if err != nil {
 		return err
 	}
+	if fileId != serial.BlobFileID {
+		return fmt.Errorf("unexpected file ID, expected %s, got %s", serial.BlobFileID, fileId)
+	}
+
 	isLeaf := treeLevel == 0
 
 	if isLeaf {
@@ -413,7 +431,10 @@ func OutputBlobNodeBytes(w *strings.Builder, indentationLevel int, msg serial.Me
 }
 
 func OutputProllyNodeBytes(w io.Writer, msg serial.Message) error {
-	keys, values, treeLevel, count, err := message.UnpackFields(msg)
+	fileId, keys, values, treeLevel, count, err := message.UnpackFields(msg)
+	if fileId != serial.ProllyTreeNodeFileID {
+		return fmt.Errorf("unexpected file ID, expected %s, got %s", serial.ProllyTreeNodeFileID, fileId)
+	}
 	if err != nil {
 		return err
 	}
@@ -466,6 +487,66 @@ func OutputProllyNodeBytes(w io.Writer, msg serial.Message) error {
 						continue
 					}
 				}
+				w.Write([]byte(hex.EncodeToString(field)))
+			}
+
+			w.Write([]byte(" }"))
+		} else {
+			ref := hash.New(values.GetItem(i, msg))
+
+			w.Write([]byte(" ref: #"))
+			w.Write([]byte(ref.String()))
+			w.Write([]byte(" }"))
+		}
+	}
+
+	w.Write([]byte("\n"))
+	return nil
+}
+
+func OutputVectorIndexNodeBytes(w io.Writer, msg serial.Message) error {
+	fileId, keys, values, treeLevel, count, err := message.UnpackFields(msg)
+	if fileId != serial.VectorIndexNodeFileID {
+		return fmt.Errorf("unexpected file ID, expected %s, got %s", serial.VectorIndexNodeFileID, fileId)
+	}
+	if err != nil {
+		return err
+	}
+	isLeaf := treeLevel == 0
+
+	for i := 0; i < int(count); i++ {
+		k := keys.GetItem(i, msg)
+		kt := val.Tuple(k)
+
+		w.Write([]byte("\n    { key: "))
+		// The first key of a vector index is always a vector, which right now is JSON and thus addressable.
+		// This may not always be true in the future.
+
+		for j := 0; j < kt.Count(); j++ {
+			if j == 0 {
+				ref := hash.New(kt.GetField(0))
+
+				w.Write([]byte(" #"))
+				w.Write([]byte(ref.String()))
+				continue
+			}
+			if j > 0 {
+				w.Write([]byte(", "))
+			}
+
+			w.Write([]byte(hex.EncodeToString(kt.GetField(j))))
+		}
+
+		if isLeaf {
+			v := values.GetItem(i, msg)
+			vt := val.Tuple(v)
+
+			w.Write([]byte(" value: "))
+			for j := 0; j < vt.Count(); j++ {
+				if j > 0 {
+					w.Write([]byte(", "))
+				}
+				field := vt.GetField(j)
 				w.Write([]byte(hex.EncodeToString(field)))
 			}
 
@@ -688,10 +769,10 @@ func (sm SerialMessage) WalkAddrs(nbf *NomsBinFormat, cb func(addr hash.Hash) er
 				return err
 			}
 		}
-	case serial.TableSchemaFileID, serial.ForeignKeyCollectionFileID:
+	case serial.TableSchemaFileID, serial.ForeignKeyCollectionFileID, serial.TupleFileID:
 		// no further references from these file types
 		return nil
-	case serial.ProllyTreeNodeFileID, serial.AddressMapFileID, serial.MergeArtifactsFileID, serial.BlobFileID, serial.CommitClosureFileID:
+	case serial.ProllyTreeNodeFileID, serial.AddressMapFileID, serial.MergeArtifactsFileID, serial.BlobFileID, serial.CommitClosureFileID, serial.VectorIndexNodeFileID:
 		return message.WalkAddresses(context.TODO(), serial.Message(sm), func(ctx context.Context, addr hash.Hash) error {
 			return cb(addr)
 		})

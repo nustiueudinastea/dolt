@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
 	"github.com/dolthub/dolt/go/libraries/utils/filesys"
@@ -36,18 +37,19 @@ type commandLineServerConfig struct {
 	timeout                 uint64
 	readOnly                bool
 	logLevel                servercfg.LogLevel
+	logFormat               servercfg.LogFormat
 	dataDir                 string
 	cfgDir                  string
 	autoCommit              bool
 	doltTransactionCommit   bool
 	maxConnections          uint64
-	queryParallelism        int
+	maxWaitConnections      uint32
+	maxWaitConnsTimeout     time.Duration
 	tlsKey                  string
 	tlsCert                 string
 	requireSecureTransport  bool
 	maxLoggedQueryLen       int
 	shouldEncodeLoggedQuery bool
-	persistenceBehavior     string
 	privilegeFilePath       string
 	branchControlFilePath   string
 	allowCleartextPasswords bool
@@ -70,10 +72,11 @@ func DefaultCommandLineServerConfig() *commandLineServerConfig {
 		timeout:                 servercfg.DefaultTimeout,
 		readOnly:                servercfg.DefaultReadOnly,
 		logLevel:                servercfg.DefaultLogLevel,
+		logFormat:               servercfg.DefaultLogFormat,
 		autoCommit:              servercfg.DefaultAutoCommit,
 		maxConnections:          servercfg.DefaultMaxConnections,
-		queryParallelism:        servercfg.DefaultQueryParallelism,
-		persistenceBehavior:     servercfg.DefaultPersistenceBahavior,
+		maxWaitConnections:      servercfg.DefaultMaxWaitConnections,
+		maxWaitConnsTimeout:     servercfg.DefaultMaxWaitConnectionsTimeout,
 		dataDir:                 servercfg.DefaultDataDir,
 		cfgDir:                  filepath.Join(servercfg.DefaultDataDir, servercfg.DefaultCfgDir),
 		privilegeFilePath:       filepath.Join(servercfg.DefaultDataDir, servercfg.DefaultCfgDir, servercfg.DefaultPrivilegeFilePath),
@@ -84,8 +87,10 @@ func DefaultCommandLineServerConfig() *commandLineServerConfig {
 	}
 }
 
-// NewCommandLineConfig returns server config based on the credentials and command line arguments given.
-func NewCommandLineConfig(creds *cli.UserPassword, apr *argparser.ArgParseResults) (servercfg.ServerConfig, error) {
+// NewCommandLineConfig returns server config based on the credentials and command line arguments given. The dataDirOverride
+// parameter is used to override the data dir specified in the command line arguments. This comes up when there are
+// situations where there are multiple ways to specify the data dir.
+func NewCommandLineConfig(creds *cli.UserPassword, apr *argparser.ArgParseResults, dataDirOverride string) (servercfg.ServerConfig, error) {
 	config := DefaultCommandLineServerConfig()
 
 	if sock, ok := apr.GetValue(socketFlag); ok {
@@ -107,9 +112,11 @@ func NewCommandLineConfig(creds *cli.UserPassword, apr *argparser.ArgParseResult
 	if creds == nil {
 		if user, ok := apr.GetValue(cli.UserFlag); ok {
 			config.withUser(user)
+			config.valuesSet[servercfg.UserKey] = struct{}{}
 		}
 		if password, ok := apr.GetValue(cli.PasswordFlag); ok {
 			config.withPassword(password)
+			config.valuesSet[servercfg.PasswordKey] = struct{}{}
 		}
 	} else {
 		config.withUser(creds.Username)
@@ -122,10 +129,6 @@ func NewCommandLineConfig(creds *cli.UserPassword, apr *argparser.ArgParseResult
 	if apr.Contains(remotesapiReadOnlyFlag) {
 		val := true
 		config.WithRemotesapiReadOnly(&val)
-	}
-
-	if persistenceBehavior, ok := apr.GetValue(persistenceBehaviorFlag); ok {
-		config.withPersistenceBehavior(persistenceBehavior)
 	}
 
 	if timeoutStr, ok := apr.GetValue(timeoutFlag); ok {
@@ -147,25 +150,51 @@ func NewCommandLineConfig(creds *cli.UserPassword, apr *argparser.ArgParseResult
 	if logLevel, ok := apr.GetValue(logLevelFlag); ok {
 		config.withLogLevel(servercfg.LogLevel(strings.ToLower(logLevel)))
 	}
+	if logFormat, ok := apr.GetValue(logFormatFlag); ok {
+		config.withLogFormat(servercfg.LogFormat(strings.ToLower(logFormat)))
+	}
 
 	if dataDir, ok := apr.GetValue(commands.MultiDBDirFlag); ok {
 		config.withDataDir(dataDir)
 	}
 
-	if dataDir, ok := apr.GetValue(commands.DataDirFlag); ok {
-		config.withDataDir(dataDir)
-	}
-
-	if queryParallelism, ok := apr.GetInt(queryParallelismFlag); ok {
-		config.withQueryParallelism(queryParallelism)
+	// We explicitly don't use the dataDir flag from the APR here. The data dir flag is pulled out early and converted
+	// to an absolute path. It is read in the GetDataDirPreStart function, which is called early in dolt.go to get the
+	// data dir for any dolt process. This complexity exists because the server's config.yaml config file can contain the
+	// dataDir, but we don't execute any server specific logic until after the database environment is initialized.
+	if dataDirOverride != "" {
+		config.withDataDir(dataDirOverride)
+	} else {
+		if dd, ok := apr.GetValue(commands.DataDirFlag); ok {
+			config.withDataDir(dd)
+		}
 	}
 
 	if maxConnections, ok := apr.GetInt(maxConnectionsFlag); ok {
 		config.withMaxConnections(uint64(maxConnections))
 	}
 
+	if maxWaitConnections, ok := apr.GetInt(maxWaitConnectionsFlag); ok {
+		config.withMaxWaitConnections(uint32(maxWaitConnections))
+	}
+
+	if maxWaitConnsTimeoutStr, ok := apr.GetValue(maxWaitConsTimeoutFlag); ok {
+		maxWaitConnsTimeout, err := time.ParseDuration(maxWaitConnsTimeoutStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid duration value for --max-wait-connections-timeout '%s'", maxWaitConnsTimeoutStr)
+		}
+		config.withMaxWaitConnectionsTimeout(maxWaitConnsTimeout)
+	}
+
 	config.autoCommit = !apr.Contains(noAutoCommitFlag)
+	if apr.Contains(noAutoCommitFlag) {
+		config.valuesSet[servercfg.AutoCommitKey] = struct{}{}
+	}
+
 	config.allowCleartextPasswords = apr.Contains(allowCleartextPasswordsFlag)
+	if apr.Contains(allowCleartextPasswordsFlag) {
+		config.valuesSet[servercfg.AllowCleartextPasswordsKey] = struct{}{}
+	}
 
 	if connStr, ok := apr.GetValue(goldenMysqlConn); ok {
 		cli.Println(connStr)
@@ -195,6 +224,11 @@ func (cfg *commandLineServerConfig) User() string {
 	return cfg.user
 }
 
+// UserIsSpecified returns true if the configuration explicitly specified a user.
+func (cfg *commandLineServerConfig) UserIsSpecified() bool {
+	return cfg.user != ""
+}
+
 // Password returns the password that connecting clients must use.
 func (cfg *commandLineServerConfig) Password() string {
 	return cfg.password
@@ -220,6 +254,11 @@ func (cfg *commandLineServerConfig) LogLevel() servercfg.LogLevel {
 	return cfg.logLevel
 }
 
+// LogFormat returns the format of logging that the server will use.
+func (cfg *commandLineServerConfig) LogFormat() servercfg.LogFormat {
+	return cfg.logFormat
+}
+
 // AutoCommit defines the value of the @@autocommit session variable used on every connection
 func (cfg *commandLineServerConfig) AutoCommit() bool {
 	return cfg.autoCommit
@@ -236,14 +275,14 @@ func (cfg *commandLineServerConfig) MaxConnections() uint64 {
 	return cfg.maxConnections
 }
 
-// QueryParallelism returns the parallelism that should be used by the go-mysql-server analyzer
-func (cfg *commandLineServerConfig) QueryParallelism() int {
-	return cfg.queryParallelism
+// MaxWaitConnections returns the maximum number of simultaneous connections that the server will allow to block waiting
+// for a connection before new connections result in immediate rejection.
+func (cfg *commandLineServerConfig) MaxWaitConnections() uint32 {
+	return cfg.maxWaitConnections
 }
 
-// PersistenceBehavior returns whether to autoload persisted server configuration
-func (cfg *commandLineServerConfig) PersistenceBehavior() string {
-	return cfg.persistenceBehavior
+func (cfg *commandLineServerConfig) MaxWaitConnectionsTimeout() time.Duration {
+	return cfg.maxWaitConnsTimeout
 }
 
 // TLSKey returns a path to the servers PEM-encoded private TLS key. "" if there is none.
@@ -353,12 +392,14 @@ func (cfg *commandLineServerConfig) Socket() string {
 // WithHost updates the host and returns the called `*commandLineServerConfig`, which is useful for chaining calls.
 func (cfg *commandLineServerConfig) WithHost(host string) *commandLineServerConfig {
 	cfg.host = host
+	cfg.valuesSet[servercfg.HostKey] = struct{}{}
 	return cfg
 }
 
 // WithPort updates the port and returns the called `*commandLineServerConfig`, which is useful for chaining calls.
 func (cfg *commandLineServerConfig) WithPort(port int) *commandLineServerConfig {
 	cfg.port = port
+	cfg.valuesSet[servercfg.PortKey] = struct{}{}
 	return cfg
 }
 
@@ -385,12 +426,21 @@ func (cfg *commandLineServerConfig) withTimeout(timeout uint64) *commandLineServ
 // withReadOnly updates the read only flag and returns the called `*commandLineServerConfig`, which is useful for chaining calls.
 func (cfg *commandLineServerConfig) withReadOnly(readonly bool) *commandLineServerConfig {
 	cfg.readOnly = readonly
+	cfg.valuesSet[servercfg.ReadOnlyKey] = struct{}{}
 	return cfg
 }
 
 // withLogLevel updates the log level and returns the called `*commandLineServerConfig`, which is useful for chaining calls.
 func (cfg *commandLineServerConfig) withLogLevel(loglevel servercfg.LogLevel) *commandLineServerConfig {
 	cfg.logLevel = loglevel
+	cfg.valuesSet[servercfg.LogLevelKey] = struct{}{}
+	return cfg
+}
+
+// withLogFormat updates the log format and returns the called `*commandLineServerConfig`, which is useful for chaining calls.
+func (cfg *commandLineServerConfig) withLogFormat(logformat servercfg.LogFormat) *commandLineServerConfig {
+	cfg.logFormat = logformat
+	cfg.valuesSet[servercfg.LogFormatKey] = struct{}{}
 	return cfg
 }
 
@@ -402,9 +452,15 @@ func (cfg *commandLineServerConfig) withMaxConnections(maxConnections uint64) *c
 	return cfg
 }
 
-// withQueryParallelism updates the query parallelism and returns the called `*commandLineServerConfig`, which is useful for chaining calls.
-func (cfg *commandLineServerConfig) withQueryParallelism(queryParallelism int) *commandLineServerConfig {
-	cfg.queryParallelism = queryParallelism
+func (cfg *commandLineServerConfig) withMaxWaitConnections(maxWaitConnections uint32) *commandLineServerConfig {
+	cfg.maxWaitConnections = maxWaitConnections
+	cfg.valuesSet[servercfg.MaxWaitConnectionsKey] = struct{}{}
+	return cfg
+}
+
+func (cfg *commandLineServerConfig) withMaxWaitConnectionsTimeout(maxWaitConnsTimeout time.Duration) *commandLineServerConfig {
+	cfg.maxWaitConnsTimeout = maxWaitConnsTimeout
+	cfg.valuesSet[servercfg.MaxWaitConnectionsTimeoutKey] = struct{}{}
 	return cfg
 }
 
@@ -417,12 +473,6 @@ func (cfg *commandLineServerConfig) withDataDir(dataDir string) *commandLineServ
 // withCfgDir updates the path to a directory to use to store the dolt configuration files.
 func (cfg *commandLineServerConfig) withCfgDir(cfgDir string) *commandLineServerConfig {
 	cfg.cfgDir = cfgDir
-	return cfg
-}
-
-// withPersistenceBehavior updates persistence behavior of system globals on server init
-func (cfg *commandLineServerConfig) withPersistenceBehavior(persistenceBehavior string) *commandLineServerConfig {
-	cfg.persistenceBehavior = persistenceBehavior
 	return cfg
 }
 
@@ -440,23 +490,27 @@ func (cfg *commandLineServerConfig) withBranchControlFilePath(branchControlFileP
 
 func (cfg *commandLineServerConfig) withAllowCleartextPasswords(allow bool) *commandLineServerConfig {
 	cfg.allowCleartextPasswords = allow
+	cfg.valuesSet[servercfg.AllowCleartextPasswordsKey] = struct{}{}
 	return cfg
 }
 
 // WithSocket updates the path to the unix socket file
 func (cfg *commandLineServerConfig) WithSocket(sockFilePath string) *commandLineServerConfig {
 	cfg.socket = sockFilePath
+	cfg.valuesSet[servercfg.SocketKey] = struct{}{}
 	return cfg
 }
 
 // WithRemotesapiPort sets the remotesapi port to use.
 func (cfg *commandLineServerConfig) WithRemotesapiPort(port *int) *commandLineServerConfig {
 	cfg.remotesapiPort = port
+	cfg.valuesSet[servercfg.RemotesapiPortKey] = struct{}{}
 	return cfg
 }
 
 func (cfg *commandLineServerConfig) WithRemotesapiReadOnly(readonly *bool) *commandLineServerConfig {
 	cfg.remotesapiReadOnly = readonly
+	cfg.valuesSet[servercfg.RemotesapiReadOnlyKey] = struct{}{}
 	return cfg
 }
 
@@ -491,6 +545,10 @@ func (cfg *commandLineServerConfig) ValueSet(value string) bool {
 	return ok
 }
 
+func (cfg *commandLineServerConfig) AutoGCBehavior() servercfg.AutoGCBehavior {
+	return stubAutoGCBehavior{}
+}
+
 // DoltServerConfigReader is the default implementation of ServerConfigReader suitable for parsing Dolt config files
 // and command line options.
 type DoltServerConfigReader struct{}
@@ -500,7 +558,7 @@ type ServerConfigReader interface {
 	// ReadConfigFile reads a config file and returns a ServerConfig for it
 	ReadConfigFile(cwdFS filesys.Filesys, file string) (servercfg.ServerConfig, error)
 	// ReadConfigArgs reads command line arguments and returns a ServerConfig for them
-	ReadConfigArgs(args *argparser.ArgParseResults) (servercfg.ServerConfig, error)
+	ReadConfigArgs(args *argparser.ArgParseResults, dataDirOverride string) (servercfg.ServerConfig, error)
 }
 
 var _ ServerConfigReader = DoltServerConfigReader{}
@@ -509,6 +567,13 @@ func (d DoltServerConfigReader) ReadConfigFile(cwdFS filesys.Filesys, file strin
 	return servercfg.YamlConfigFromFile(cwdFS, file)
 }
 
-func (d DoltServerConfigReader) ReadConfigArgs(args *argparser.ArgParseResults) (servercfg.ServerConfig, error) {
-	return NewCommandLineConfig(nil, args)
+func (d DoltServerConfigReader) ReadConfigArgs(args *argparser.ArgParseResults, dataDirOverride string) (servercfg.ServerConfig, error) {
+	return NewCommandLineConfig(nil, args, dataDirOverride)
+}
+
+type stubAutoGCBehavior struct {
+}
+
+func (stubAutoGCBehavior) Enable() bool {
+	return false
 }

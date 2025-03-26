@@ -21,7 +21,6 @@ import (
 	"sync/atomic"
 
 	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/analyzer"
 	"github.com/dolthub/go-mysql-server/sql/analyzer/analyzererrors"
 	"github.com/dolthub/go-mysql-server/sql/plan"
 	"github.com/dolthub/go-mysql-server/sql/planbuilder"
@@ -62,7 +61,7 @@ type SqlEngineTableWriter struct {
 }
 
 func NewSqlEngineTableWriter(ctx context.Context, dEnv *env.DoltEnv, createTableSchema, rowOperationSchema schema.Schema, options *MoverOptions, statsCB noms.StatsCB) (*SqlEngineTableWriter, error) {
-	// TODO: Assert that dEnv.DoltDB.AccessMode() != ReadOnly?
+	// TODO: Assert that dEnv.DoltDB(ctx).AccessMode() != ReadOnly?
 
 	mrEnv, err := env.MultiEnvForDirectory(ctx, dEnv.Config.WriteableConfig(), dEnv.FS, dEnv.Version, dEnv)
 	if err != nil {
@@ -188,8 +187,24 @@ func (s *SqlEngineTableWriter) WriteRows(ctx context.Context, inputChannel chan 
 		}
 	}()
 
-	line := 1
+	// If there were create table statements, they are automatically committed, so we need to start a new transaction
+	if s.importOption == CreateOp {
+		_, iter, _, err := s.se.Query(s.sqlCtx, "START TRANSACTION")
+		if err != nil {
+			return err
+		}
+		for {
+			_, err = iter.Next(s.sqlCtx)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
 
+	line := 1
 	for {
 		if s.statsCB != nil && atomic.LoadInt32(&s.statOps) >= tableWriterStatUpdateRate {
 			atomic.StoreInt32(&s.statOps, 0)
@@ -229,8 +244,20 @@ func (s *SqlEngineTableWriter) WriteRows(ctx context.Context, inputChannel chan 
 }
 
 func (s *SqlEngineTableWriter) Commit(ctx context.Context) error {
-	_, _, _, err := s.se.Query(s.sqlCtx, "COMMIT")
-	return err
+	_, iter, _, err := s.se.Query(s.sqlCtx, "COMMIT")
+	if err != nil {
+		return err
+	}
+	for {
+		_, err = iter.Next(s.sqlCtx)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *SqlEngineTableWriter) RowOperationSchema() sql.PrimaryKeySchema {
@@ -239,6 +266,42 @@ func (s *SqlEngineTableWriter) RowOperationSchema() sql.PrimaryKeySchema {
 
 func (s *SqlEngineTableWriter) TableSchema() sql.PrimaryKeySchema {
 	return s.tableSchema
+}
+
+func (s *SqlEngineTableWriter) DropCreatedTable() error {
+	// quitting import that created table, should drop table
+	if s.importOption == CreateOp {
+		var err error
+		var iter sql.RowIter
+		_, iter, _, err = s.se.Query(s.sqlCtx, fmt.Sprintf("DROP TABLE IF EXISTS `%s`", s.tableName))
+		if err != nil {
+			return err
+		}
+		for {
+			_, err = iter.Next(s.sqlCtx)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+		}
+
+		_, iter, _, err = s.se.Query(s.sqlCtx, "COMMIT")
+		if err != nil {
+			return err
+		}
+		for {
+			_, err = iter.Next(s.sqlCtx)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // forceDropTableIfNeeded drop the given table in case the -f parameter is passed.
@@ -282,7 +345,7 @@ func (s *SqlEngineTableWriter) createTable() error {
 		sqlCols = append(sqlCols, fmt.Sprintf("PRIMARY KEY (%s)", pks))
 	}
 
-	createTable := sql.GenerateCreateTableStatement(s.tableName, sqlCols, "", sql.CharacterSet_utf8mb4.String(), sql.Collation_Default.String(), "")
+	createTable := sql.GenerateCreateTableStatement(s.tableName, sqlCols, "", "", sql.CharacterSet_utf8mb4.String(), sql.Collation_Default.String(), "")
 	_, iter, _, err := s.se.Query(s.sqlCtx, createTable)
 	if err != nil {
 		return err
@@ -312,9 +375,9 @@ func (s *SqlEngineTableWriter) getInsertNode(inputChannel chan sql.Row, replace 
 	}
 
 	sqlEngine := s.se.GetUnderlyingEngine()
-	binder := planbuilder.New(s.sqlCtx, sqlEngine.Analyzer.Catalog, sqlEngine.Parser)
+	binder := planbuilder.New(s.sqlCtx, sqlEngine.Analyzer.Catalog, sqlEngine.EventScheduler, sqlEngine.Parser)
 	insert := fmt.Sprintf("insert into `%s` (%s) VALUES (%s)%s", s.tableName, colNames, values, duplicate)
-	parsed, _, _, qFlags, err := binder.Parse(insert, false)
+	parsed, _, _, qFlags, err := binder.Parse(insert, nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("error constructing import query '%s': %w", insert, err)
 	}
@@ -342,8 +405,6 @@ func (s *SqlEngineTableWriter) getInsertNode(inputChannel chan sql.Row, replace 
 	if err != nil {
 		return nil, err
 	}
-
-	analyzed = analyzer.StripPassthroughNodes(analyzed)
 
 	// Get the first insert (wrapped with the error handler)
 	transform.Inspect(analyzed, func(node sql.Node) bool {

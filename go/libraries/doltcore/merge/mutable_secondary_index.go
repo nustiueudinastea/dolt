@@ -23,6 +23,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
 	"github.com/dolthub/dolt/go/store/prolly"
+	"github.com/dolthub/dolt/go/store/prolly/tree"
 	"github.com/dolthub/dolt/go/store/val"
 )
 
@@ -34,9 +35,9 @@ func GetMutableSecondaryIdxs(ctx *sql.Context, ourSch, sch schema.Schema, tableN
 		if err != nil {
 			return nil, err
 		}
-		m := durable.ProllyMapFromIndex(idx)
-		if schema.IsKeyless(sch) {
-			m = prolly.ConvertToSecondaryKeylessIndex(m)
+		m, err := durable.ProllyMapFromIndex(idx)
+		if err != nil {
+			return nil, err
 		}
 		mods[i], err = NewMutableSecondaryIdx(ctx, m, ourSch, sch, tableName, index)
 		if err != nil {
@@ -49,7 +50,7 @@ func GetMutableSecondaryIdxs(ctx *sql.Context, ourSch, sch schema.Schema, tableN
 // GetMutableSecondaryIdxsWithPending returns a MutableSecondaryIdx for each secondary index in |indexes|. If an index
 // is listed in the given |sch|, but does not exist in the given |indexes|, then it is skipped. This is useful when
 // merging a schema that has a new index, but the index does not exist on the index set being modified.
-func GetMutableSecondaryIdxsWithPending(ctx *sql.Context, ourSch, sch schema.Schema, tableName string, indexes durable.IndexSet, pendingSize int) ([]MutableSecondaryIdx, error) {
+func GetMutableSecondaryIdxsWithPending(ctx *sql.Context, ns tree.NodeStore, ourSch, sch schema.Schema, tableName string, indexes durable.IndexSet, pendingSize int) ([]MutableSecondaryIdx, error) {
 	mods := make([]MutableSecondaryIdx, 0, sch.Indexes().Count())
 	for _, index := range sch.Indexes().AllIndexes() {
 
@@ -70,23 +71,28 @@ func GetMutableSecondaryIdxsWithPending(ctx *sql.Context, ourSch, sch schema.Sch
 		if err != nil {
 			return nil, err
 		}
-		m := durable.ProllyMapFromIndex(idx)
+		m, err := durable.ProllyMapFromIndex(idx)
+		if err != nil {
+			return nil, err
+		}
 
 		// If the schema has changed, don't reuse the index.
 		// TODO: This isn't technically required, but correctly handling updating secondary indexes when only some
 		// of the table's rows have been updated is difficult to get right.
-		// Dropping the index is potentially slower but guarenteed to be correct.
-		if !m.KeyDesc().Equals(index.Schema().GetKeyDescriptorWithNoConversion()) {
-			continue
-		}
-
-		if !m.ValDesc().Equals(index.Schema().GetValueDescriptor()) {
-			continue
-		}
-
+		// Dropping the index is potentially slower but guaranteed to be correct.
+		idxKeyDesc := m.KeyDesc()
 		if schema.IsKeyless(sch) {
-			m = prolly.ConvertToSecondaryKeylessIndex(m)
+			idxKeyDesc = idxKeyDesc.PrefixDesc(idxKeyDesc.Count() - 1)
 		}
+
+		if !idxKeyDesc.Equals(index.Schema().GetKeyDescriptorWithNoConversion(ns)) {
+			continue
+		}
+
+		if !m.ValDesc().Equals(index.Schema().GetValueDescriptor(ns)) {
+			continue
+		}
+
 		newMutableSecondaryIdx, err := NewMutableSecondaryIdx(ctx, m, ourSch, sch, tableName, index)
 		if err != nil {
 			return nil, err

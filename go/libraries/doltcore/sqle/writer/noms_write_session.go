@@ -50,10 +50,11 @@ var _ dsess.WriteSession = &nomsWriteSession{}
 func NewWriteSession(nbf *types.NomsBinFormat, ws *doltdb.WorkingSet, aiTracker globalstate.AutoIncrementTracker, opts editor.Options) dsess.WriteSession {
 	if types.IsFormat_DOLT(nbf) {
 		return &prollyWriteSession{
-			workingSet: ws,
-			tables:     make(map[doltdb.TableName]*prollyTableWriter),
-			aiTracker:  aiTracker,
-			mut:        &sync.RWMutex{},
+			workingSet:    ws,
+			tables:        make(map[doltdb.TableName]*prollyTableWriter),
+			aiTracker:     aiTracker,
+			mut:           &sync.RWMutex{},
+			targetStaging: opts.TargetStaging,
 		}
 	}
 
@@ -70,7 +71,12 @@ func (s *nomsWriteSession) GetWorkingSet() *doltdb.WorkingSet {
 	return s.workingSet
 }
 
-func (s *nomsWriteSession) GetTableWriter(ctx *sql.Context, table doltdb.TableName, db string, setter dsess.SessionRootSetter) (dsess.TableWriter, error) {
+func (s *nomsWriteSession) GetTableWriter(ctx *sql.Context, table doltdb.TableName, db string, setter dsess.SessionRootSetter, targetStaging bool) (dsess.TableWriter, error) {
+	if targetStaging {
+		// This would be fairly easy to implement, but we gotta stop luggin around the legacy storage format.
+		return nil, fmt.Errorf("Feature not supported in legacy storage format")
+	}
+
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
@@ -173,7 +179,10 @@ func (s *nomsWriteSession) flush(ctx *sql.Context) (*doltdb.WorkingSet, error) {
 			// Update the auto increment value for the table if a tracker was provided
 			// TODO: the table probably needs an autoincrement tracker no matter what
 			if schema.HasAutoIncrement(ed.Schema()) {
-				v := s.aiTracker.Current(name)
+				v, err := s.aiTracker.Current(name)
+				if err != nil {
+					return err
+				}
 				tbl, err = tbl.SetAutoIncrementValue(ctx, v)
 				if err != nil {
 					return err

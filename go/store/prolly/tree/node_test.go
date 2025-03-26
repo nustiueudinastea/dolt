@@ -68,7 +68,7 @@ func TestRoundTripNodeItems(t *testing.T) {
 
 func TestNodeSize(t *testing.T) {
 	sz := unsafe.Sizeof(Node{})
-	assert.Equal(t, 56, int(sz))
+	assert.Equal(t, 88, int(sz))
 }
 
 func BenchmarkNodeGet(b *testing.B) {
@@ -131,8 +131,9 @@ func TestNodeHashValueCompatibility(t *testing.T) {
 		[][]byte{h1[:], h2[:]},
 		[]uint64{},
 		0)
-	nd, err = NodeFromBytes(msg)
+	nd, fileId, err := NodeFromBytes(msg)
 	require.NoError(t, err)
+	assert.Equal(t, fileId, serial.AddressMapFileID)
 	th, err = ValueFromNode(nd).Hash(nbf)
 	require.NoError(t, err)
 	assert.Equal(t, nd.HashOf(), th)

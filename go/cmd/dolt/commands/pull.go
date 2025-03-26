@@ -174,7 +174,7 @@ func (cmd PullCmd) Exec(ctx context.Context, commandStr string, args []string, d
 					pager := outputpager.Start()
 					defer pager.Stop()
 
-					PrintCommitInfo(pager, 0, false, "auto", commit)
+					PrintCommitInfo(pager, 0, false, false, "auto", commit)
 				})
 			}
 		} else {
@@ -253,6 +253,9 @@ func constructInterpolatedDoltPullQuery(apr *argparser.ArgParseResults) (string,
 	}
 	if apr.Contains(cli.NoEditFlag) {
 		args = append(args, "'--no-edit'")
+	}
+	if apr.Contains(cli.PruneFlag) {
+		args = append(args, "'--prune'")
 	}
 	if user, hasUser := apr.GetValue(cli.UserFlag); hasUser {
 		args = append(args, "'--user'")

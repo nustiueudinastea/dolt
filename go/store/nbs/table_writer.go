@@ -91,7 +91,7 @@ func newTableWriter(buff []byte, snapper snappyEncoder) *tableWriter {
 
 func (tw *tableWriter) addChunk(h hash.Hash, data []byte) bool {
 	if len(data) == 0 {
-		panic("NBS blocks cannont be zero length")
+		panic("NBS blocks cannot be zero length")
 	}
 
 	// Compress data straight into tw.buff
@@ -124,7 +124,7 @@ func (tw *tableWriter) addChunk(h hash.Hash, data []byte) bool {
 	return true
 }
 
-func (tw *tableWriter) finish() (uncompressedLength uint64, blockAddr hash.Hash, err error) {
+func (tw *tableWriter) finish() (tableFileLength uint64, blockAddr hash.Hash, err error) {
 	err = tw.writeIndex()
 
 	if err != nil {
@@ -132,7 +132,7 @@ func (tw *tableWriter) finish() (uncompressedLength uint64, blockAddr hash.Hash,
 	}
 
 	tw.writeFooter()
-	uncompressedLength = tw.pos
+	tableFileLength = tw.pos
 
 	var h []byte
 	h = tw.blockHash.Sum(h) // Appends hash to h

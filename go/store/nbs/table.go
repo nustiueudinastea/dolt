@@ -95,7 +95,7 @@ import (
      -Total Uncompressed Chunk Data is the sum of the uncompressed byte lengths of all contained chunk byte slices.
      -Magic Number is the first 8 bytes of the SHA256 hash of "https://github.com/attic-labs/nbs".
 
-    NOTE: Unsigned integer quanities, hashes and hash suffix are all encoded big-endian
+    NOTE: Unsigned integer quantities, hashes and hash suffix are all encoded big-endian
 
 
   Looking up Chunks in an NBS Table
@@ -187,24 +187,45 @@ type extractRecord struct {
 	err  error
 }
 
+// Returned by read methods that take a |keeperF|, this lets a
+// caller know whether the operation was successful or if it needs to
+// be retried. It may need to be retried if a GC is in progress but
+// the dependencies indicated by the operation cannot be added to the
+// GC process. In that case, the caller needs to wait until the GC is
+// over and run the entire operation again.
+type gcBehavior bool
+
+const (
+	// Operation was successful, go forward with the result.
+	gcBehavior_Continue gcBehavior = false
+	// Operation needs to block until the GC is over and then retry.
+	gcBehavior_Block = true
+)
+
+// keeperF is a function that takes a hash.Hash and returns true if the hash is used by the GC system to indicate
+// that the chunk requested may not be present in the future, and therefore |gcBehavior_Block| should be returned. This
+// is used to allow read/write ops to the store by non-GC processes while GC is underway. The |keeperF| may be nil,
+// in which case GC is not underway. If it's non-nil, and return false, it's ok to proceed with the operation (|gcBehavior_Continue|)
+type keeperF func(hash.Hash) bool
+
 type chunkReader interface {
 	// has returns true if a chunk with addr |h| is present.
-	has(h hash.Hash) (bool, error)
+	has(h hash.Hash, keeper keeperF) (bool, gcBehavior, error)
 
 	// hasMany sets hasRecord.has to true for each present hasRecord query, it returns
 	// true if any hasRecord query was not found in this chunkReader.
-	hasMany(addrs []hasRecord) (bool, error)
+	hasMany(addrs []hasRecord, keeper keeperF) (bool, gcBehavior, error)
 
 	// get returns the chunk data for a chunk with addr |h| if present, and nil otherwise.
-	get(ctx context.Context, h hash.Hash, stats *Stats) ([]byte, error)
+	get(ctx context.Context, h hash.Hash, keeper keeperF, stats *Stats) ([]byte, gcBehavior, error)
 
 	// getMany sets getRecord.found to true, and calls |found| for each present getRecord query.
 	// It returns true if any getRecord query was not found in this chunkReader.
-	getMany(ctx context.Context, eg *errgroup.Group, reqs []getRecord, found func(context.Context, *chunks.Chunk), stats *Stats) (bool, error)
+	getMany(ctx context.Context, eg *errgroup.Group, reqs []getRecord, found func(context.Context, *chunks.Chunk), keeper keeperF, stats *Stats) (bool, gcBehavior, error)
 
 	// getManyCompressed sets getRecord.found to true, and calls |found| for each present getRecord query.
 	// It returns true if any getRecord query was not found in this chunkReader.
-	getManyCompressed(ctx context.Context, eg *errgroup.Group, reqs []getRecord, found func(context.Context, CompressedChunk), stats *Stats) (bool, error)
+	getManyCompressed(ctx context.Context, eg *errgroup.Group, reqs []getRecord, found func(context.Context, ToChunker), keeper keeperF, stats *Stats) (bool, gcBehavior, error)
 
 	// count returns the chunk count for this chunkReader.
 	count() (uint32, error)
@@ -222,11 +243,14 @@ type chunkSource interface {
 	// hash returns the hash address of this chunkSource.
 	hash() hash.Hash
 
+	// suffix returns the file suffix of this chunkSource. File name can be produces with `cs.hash().String() + cs.suffix()`
+	suffix() string
+
 	// opens a Reader to the first byte of the chunkData segment of this table.
 	reader(context.Context) (io.ReadCloser, uint64, error)
 
 	// getRecordRanges sets getRecord.found to true, and returns a Range for each present getRecord query.
-	getRecordRanges(ctx context.Context, requests []getRecord) (map[hash.Hash]Range, error)
+	getRecordRanges(ctx context.Context, requests []getRecord, keeper keeperF) (map[hash.Hash]Range, gcBehavior, error)
 
 	// index returns the tableIndex of this chunkSource.
 	index() (tableIndex, error)
@@ -240,6 +264,15 @@ type chunkSource interface {
 
 	// currentSize returns the current total physical size of the chunkSource.
 	currentSize() uint64
+
+	// scanAllChunks will call the provided function for each chunk in the chunkSource. This is currently used
+	// to perform integrity checks, and the chunk passed in will have the address from the index, and the content
+	// loaded. This iterator doesn't have a way to stop the iteration other than the context being canceled.
+	//
+	// If there is a failure reading the chunk, the error will be returned - note that this can happen in the middle of
+	// the scan, and will likely mean that the scan didn't complete. Note that errors returned by this method are not
+	// related to the callback - if the callback discovers an error, it must manage that out of band.
+	iterateAllChunks(context.Context, func(chunk chunks.Chunk), *Stats) error
 }
 
 type chunkSources []chunkSource
@@ -252,4 +285,10 @@ func copyChunkSourceSet(s chunkSourceSet) (cp chunkSourceSet) {
 		cp[k] = v
 	}
 	return
+}
+
+func (css chunkSourceSet) close() {
+	for _, cs := range css {
+		cs.close()
+	}
 }

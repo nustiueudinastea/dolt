@@ -1720,7 +1720,7 @@ SQL
     dolt commit -m "committed"
 }
 
-@test "foreign-keys: deleting and readding" {
+@test "foreign-keys: deleting and reading" {
     dolt sql <<SQL
 CREATE TABLE parent2 (
   pk BIGINT PRIMARY KEY
@@ -2203,7 +2203,6 @@ SQL
 }
 
 @test "foreign-keys: partial updates work against foreign key constraints" {
-    skip "Partial updates are unsupported"
     dolt sql <<SQL
 DROP TABLE IF EXISTS parent;
 DROP TABLE IF EXISTS child;

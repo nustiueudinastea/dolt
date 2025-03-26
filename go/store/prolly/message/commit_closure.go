@@ -40,8 +40,8 @@ func getCommitClosureKeys(msg serial.Message) (ItemAccess, error) {
 		return ret, err
 	}
 	ret.bufStart = lookupVectorOffset(commitClosureKeyItemBytesVOffset, m.Table())
-	ret.bufLen = uint16(m.KeyItemsLength())
-	ret.itemWidth = uint16(commitClosureKeyLength)
+	ret.bufLen = uint32(m.KeyItemsLength())
+	ret.itemWidth = uint32(commitClosureKeyLength)
 	return ret, nil
 }
 
@@ -58,7 +58,7 @@ func getCommitClosureValues(msg serial.Message) (ItemAccess, error) {
 		ret.itemWidth = 0
 	} else {
 		ret.bufStart = lookupVectorOffset(commitClosureAddressArrayVOffset, m.Table())
-		ret.bufLen = uint16(m.AddressArrayLength())
+		ret.bufLen = uint32(m.AddressArrayLength())
 		ret.itemWidth = hash.ByteLen
 	}
 	return ret, nil

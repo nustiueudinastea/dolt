@@ -35,10 +35,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dolthub/dolt/go/cmd/dolt/doltcmd"
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtables"
 	"github.com/dolthub/dolt/go/store/datas"
 	"github.com/dolthub/dolt/go/store/types"
 )
@@ -232,41 +234,8 @@ func RunVersionedQueriesTest(t *testing.T, h DoltEnginetestHarness) {
 }
 
 func RunQueryTestPlans(t *testing.T, harness DoltEnginetestHarness) {
-	// Dolt supports partial keys, so the index matched is different for some plans
-	// TODO: Fix these differences by implementing partial key matching in the memory tables, or the engine itself
-	skipped := []string{
-		"SELECT pk,pk1,pk2 FROM one_pk LEFT JOIN two_pk ON pk=pk1",
-		"SELECT pk,pk1,pk2 FROM one_pk JOIN two_pk ON pk=pk1",
-		"SELECT one_pk.c5,pk1,pk2 FROM one_pk JOIN two_pk ON pk=pk1 ORDER BY 1,2,3",
-		"SELECT opk.c5,pk1,pk2 FROM one_pk opk JOIN two_pk tpk ON opk.pk=tpk.pk1 ORDER BY 1,2,3",
-		"SELECT opk.c5,pk1,pk2 FROM one_pk opk JOIN two_pk tpk ON pk=pk1 ORDER BY 1,2,3",
-		"SELECT pk,pk1,pk2 FROM one_pk LEFT JOIN two_pk ON pk=pk1 ORDER BY 1,2,3",
-		"SELECT pk,pk1,pk2 FROM one_pk t1, two_pk t2 WHERE pk=1 AND pk2=1 AND pk1=1 ORDER BY 1,2",
-	}
-	// Parallelism introduces Exchange nodes into the query plans, so disable.
-	// TODO: exchange nodes should really only be part of the explain plan under certain debug settings
-	harness = harness.NewHarness(t).WithSkippedQueries(skipped).WithConfigureStats(true)
-	if !types.IsFormat_DOLT(types.Format_Default) {
-		// only new format supports reverse IndexTableAccess
-		reverseIndexSkip := []string{
-			"SELECT * FROM one_pk ORDER BY pk",
-			"SELECT * FROM two_pk ORDER BY pk1, pk2",
-			"SELECT * FROM two_pk ORDER BY pk1",
-			"SELECT pk1 AS one, pk2 AS two FROM two_pk ORDER BY pk1, pk2",
-			"SELECT pk1 AS one, pk2 AS two FROM two_pk ORDER BY one, two",
-			"SELECT i FROM (SELECT i FROM mytable ORDER BY i DESC LIMIT 1) sq WHERE i = 3",
-			"SELECT i FROM (SELECT i FROM (SELECT i FROM mytable ORDER BY DES LIMIT 1) sql1)sql2 WHERE i = 3",
-			"SELECT s,i FROM mytable order by i DESC",
-			"SELECT s,i FROM mytable as a order by i DESC",
-			"SELECT pk1, pk2 FROM two_pk order by pk1 asc, pk2 asc",
-			"SELECT pk1, pk2 FROM two_pk order by pk1 desc, pk2 desc",
-			"SELECT i FROM (SELECT i FROM (SELECT i FROM mytable ORDER BY i DESC  LIMIT 1) sq1) sq2 WHERE i = 3",
-		}
-		harness = harness.WithSkippedQueries(reverseIndexSkip)
-	}
-
+	harness = harness.NewHarness(t)
 	defer harness.Close()
-	sql.SystemVariables.SetGlobal(dsess.DoltStatsBootstrapEnabled, 0)
 	enginetest.TestQueryPlans(t, harness, queries.PlanTests)
 }
 
@@ -639,22 +608,22 @@ func RunMultiDbTransactionsTest(t *testing.T, h DoltEnginetestHarness) {
 
 func RunMultiDbTransactionsPreparedTest(t *testing.T, h DoltEnginetestHarness) {
 	for _, script := range MultiDbTransactionTests {
-		//func() {
+		// func() {
 		h := h.NewHarness(t)
 		defer h.Close()
 		enginetest.TestScriptPrepared(t, h, script)
-		//}()
+		// }()
 	}
 }
 
 func RunDoltScriptsTest(t *testing.T, harness DoltEnginetestHarness) {
 	for _, script := range DoltScripts {
-		//go func() {
+		// go func() {
 		harness := harness.NewHarness(t)
 
 		enginetest.TestScript(t, harness, script)
 		harness.Close()
-		//}()
+		// }()
 	}
 }
 
@@ -683,6 +652,7 @@ func RunDoltRevisionDbScriptsTest(t *testing.T, h DoltEnginetestHarness) {
 	require.NoError(t, err)
 	defer e.Close()
 	ctx := h.NewContext()
+	ctx.SetCurrentDatabase("mydb")
 
 	setupScripts := []setup.SetupScript{
 		{"create table t01 (pk int primary key, c1 int)"},
@@ -824,6 +794,17 @@ func RunShowCreateTableTests(t *testing.T, h DoltEnginetestHarness) {
 	}
 }
 
+func RunCreateDatabaseTest(t *testing.T, h *DoltHarness) {
+	enginetest.TestCreateDatabase(t, h)
+	h.Close()
+
+	for _, script := range DoltCreateDatabaseScripts {
+		h := h.NewHarness(t)
+		enginetest.TestScript(t, h, script)
+		h.Close()
+	}
+}
+
 func RunShowCreateTablePreparedTests(t *testing.T, h DoltEnginetestHarness) {
 	for _, script := range ShowCreateTableScriptTests {
 		func() {
@@ -947,7 +928,7 @@ func RunDoltConflictsTableNameTableTests(t *testing.T, h DoltEnginetestHarness) 
 	}
 }
 
-func RunKelyessDoltMergeCVsAndConflictsTests(t *testing.T, h DoltEnginetestHarness) {
+func RunKeylessDoltMergeCVsAndConflictsTests(t *testing.T, h DoltEnginetestHarness) {
 	if !types.IsFormat_DOLT(types.Format_Default) {
 		t.Skip()
 	}
@@ -1149,21 +1130,6 @@ func mustNewEngine(t *testing.T, h enginetest.Harness) enginetest.QueryEngine {
 		require.NoError(t, err)
 	}
 	return e
-}
-
-func RunStatsFunctionsTest(t *testing.T, harness DoltEnginetestHarness) {
-	defer harness.Close()
-	for _, test := range StatProcTests {
-		t.Run(test.Name, func(t *testing.T) {
-			// reset engine so provider statistics are clean
-			harness = harness.NewHarness(t).WithConfigureStats(true)
-			harness.Setup(setup.MydbData)
-			harness.SkipSetupCommit()
-			e := mustNewEngine(t, harness)
-			defer e.Close()
-			enginetest.TestScriptWithEngine(t, e, harness, test)
-		})
-	}
 }
 
 func RunDiffTableFunctionTests(t *testing.T, harness DoltEnginetestHarness) {
@@ -1398,7 +1364,7 @@ func RunSystemTableIndexesTests(t *testing.T, harness DoltEnginetestHarness) {
 	}
 
 	for _, stt := range SystemTableIndexTests {
-		harness = harness.NewHarness(t).WithParallelism(2)
+		harness = harness.NewHarness(t).WithParallelism(1)
 		defer harness.Close()
 		harness.SkipSetupCommit()
 		e := mustNewEngine(t, harness)
@@ -1410,27 +1376,30 @@ func RunSystemTableIndexesTests(t *testing.T, harness DoltEnginetestHarness) {
 			enginetest.RunQueryWithContext(t, e, harness, ctx, q)
 		}
 
-		for i, c := range []string{"inner", "lookup", "hash", "merge"} {
-			e.EngineAnalyzer().Coster = biasedCosters[i]
-			for _, tt := range stt.queries {
-				if tt.query == "select count(*) from dolt_blame_xy" && c == "inner" {
-					// todo we either need join hints to work inside the blame view
-					// and force the window relation to be primary, or we need the
-					// blame view's timestamp columns to be specific enough to not
-					// overlap during testing.
-					t.Skip("the blame table is unstable as secondary table in join with exchange node")
-				}
-				t.Run(fmt.Sprintf("%s(%s): %s", stt.name, c, tt.query), func(t *testing.T) {
-					if tt.skip {
-						t.Skip()
+		costers := []string{"inner", "lookup", "hash", "merge"}
+		for i, c := range costers {
+			t.Run(c, func(t *testing.T) {
+				e.EngineAnalyzer().Coster = biasedCosters[i]
+				for _, tt := range stt.queries {
+					if tt.query == "select count(*) from dolt_blame_xy" && c == "inner" {
+						// todo we either need join hints to work inside the blame view
+						// and force the window relation to be primary, or we need the
+						// blame view's timestamp columns to be specific enough to not
+						// overlap during testing.
+						t.Skip("the blame table is unstable as secondary table in join with exchange node")
 					}
+					t.Run(fmt.Sprintf("%s(%s): %s", stt.name, c, tt.query), func(t *testing.T) {
+						if tt.skip {
+							t.Skip()
+						}
 
-					ctx = ctx.WithQuery(tt.query)
-					if tt.exp != nil {
-						enginetest.TestQueryWithContext(t, ctx, e, harness, tt.query, tt.exp, nil, nil, nil)
-					}
-				})
-			}
+						ctx = ctx.WithQuery(tt.query)
+						if tt.exp != nil {
+							enginetest.TestQueryWithContext(t, ctx, e, harness, tt.query, tt.exp, nil, nil, nil)
+						}
+					})
+				}
+			})
 		}
 	}
 }
@@ -1541,31 +1510,16 @@ func RunStatsHistogramTests(t *testing.T, h DoltEnginetestHarness) {
 	}
 }
 
-func RunStatsIOTests(t *testing.T, h DoltEnginetestHarness) {
-	for _, script := range append(DoltStatsIOTests, DoltHistogramTests...) {
+func RunStatsStorageTests(t *testing.T, h DoltEnginetestHarness) {
+	for _, script := range DoltHistogramTests {
 		func() {
 			h = h.NewHarness(t).WithConfigureStats(true)
-			defer h.Close()
 			e := mustNewEngine(t, h)
 			if enginetest.IsServerEngine(e) {
 				return
 			}
 			defer e.Close()
-			TestProviderReloadScriptWithEngine(t, e, h, script)
-		}()
-	}
-}
-
-func RunStatsIOTestsWithoutReload(t *testing.T, h DoltEnginetestHarness) {
-	for _, script := range append(DoltStatsIOTests, DoltHistogramTests...) {
-		func() {
-			h = h.NewHarness(t).WithConfigureStats(true)
 			defer h.Close()
-			e := mustNewEngine(t, h)
-			if enginetest.IsServerEngine(e) {
-				return
-			}
-			defer e.Close()
 			enginetest.TestScriptWithEngine(t, e, h, script)
 		}()
 	}
@@ -1968,5 +1922,17 @@ func RunDoltWorkspaceTests(t *testing.T, h DoltEnginetestHarness) {
 			defer h.Close()
 			enginetest.TestScript(t, h, script)
 		}()
+	}
+}
+
+func RunDoltHelpSystemTableTests(t *testing.T, harness DoltEnginetestHarness) {
+	dtables.DoltCommand = doltcmd.DoltCommand
+
+	for _, script := range DoltHelpScripts {
+		t.Run(script.Name, func(t *testing.T) {
+			harness = harness.NewHarness(t)
+			defer harness.Close()
+			enginetest.TestScript(t, harness, script)
+		})
 	}
 }

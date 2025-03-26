@@ -16,6 +16,7 @@ package sqle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -29,55 +30,57 @@ import (
 	"github.com/dolthub/dolt/go/store/types"
 )
 
-func getPushOnWriteHook(ctx context.Context, bThreads *sql.BackgroundThreads, dEnv *env.DoltEnv, logger io.Writer) (doltdb.CommitHook, error) {
+func getPushOnWriteHook(ctx context.Context, dEnv *env.DoltEnv, logger io.Writer) (doltdb.CommitHook, RunAsyncThreads, error) {
 	_, val, ok := sql.SystemVariables.GetGlobal(dsess.ReplicateToRemote)
 	if !ok {
-		return nil, sql.ErrUnknownSystemVariable.New(dsess.ReplicateToRemote)
+		return nil, nil, sql.ErrUnknownSystemVariable.New(dsess.ReplicateToRemote)
 	} else if val == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	remoteName, ok := val.(string)
 	if !ok {
-		return nil, sql.ErrInvalidSystemVariableValue.New(val)
+		return nil, nil, sql.ErrInvalidSystemVariableValue.New(val)
 	}
 
 	remotes, err := dEnv.GetRemotes()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	rem, ok := remotes.Get(remoteName)
 	if !ok {
-		return nil, fmt.Errorf("%w: '%s'", env.ErrRemoteNotFound, remoteName)
+		return nil, nil, fmt.Errorf("%w: '%s'", env.ErrRemoteNotFound, remoteName)
 	}
 
 	ddb, err := rem.GetRemoteDB(ctx, types.Format_Default, dEnv)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	tmpDir, err := dEnv.TempTableFilesDir()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, val, ok = sql.SystemVariables.GetGlobal(dsess.AsyncReplication); ok && val == dsess.SysVarTrue {
-		return doltdb.NewAsyncPushOnWriteHook(bThreads, ddb, tmpDir, logger)
+		hook, runThreads := NewAsyncPushOnWriteHook(ddb, tmpDir, logger)
+		return hook, runThreads, nil
 	}
 
-	return doltdb.NewPushOnWriteHook(ddb, tmpDir), nil
+	return NewPushOnWriteHook(ddb, tmpDir), nil, nil
 }
+
+type RunAsyncThreads func(*sql.BackgroundThreads, func(context.Context) (*sql.Context, error)) error
 
 // GetCommitHooks creates a list of hooks to execute on database commit. Hooks that cannot be created because of an
 // error in configuration will not prevent the server from starting, and will instead log errors.
-func GetCommitHooks(ctx context.Context, bThreads *sql.BackgroundThreads, dEnv *env.DoltEnv, logger io.Writer) ([]doltdb.CommitHook, error) {
+func GetCommitHooks(ctx context.Context, dEnv *env.DoltEnv, logger io.Writer) ([]doltdb.CommitHook, RunAsyncThreads, error) {
 	postCommitHooks := make([]doltdb.CommitHook, 0)
-
-	hook, err := getPushOnWriteHook(ctx, bThreads, dEnv, logger)
+	hook, runThreads, err := getPushOnWriteHook(ctx, dEnv, logger)
 	if err != nil {
 		path, _ := dEnv.FS.Abs(".")
 		logrus.Errorf("error loading replication for database at %s, replication disabled: %v", path, err)
-		postCommitHooks = append(postCommitHooks, doltdb.NewLogHook([]byte(err.Error()+"\n")))
+		postCommitHooks = append(postCommitHooks, NewLogHook([]byte(err.Error()+"\n")))
 	} else if hook != nil {
 		postCommitHooks = append(postCommitHooks, hook)
 	}
@@ -85,7 +88,7 @@ func GetCommitHooks(ctx context.Context, bThreads *sql.BackgroundThreads, dEnv *
 	for _, h := range postCommitHooks {
 		_ = h.SetLogger(ctx, logger)
 	}
-	return postCommitHooks, nil
+	return postCommitHooks, runThreads, nil
 }
 
 // newReplicaDatabase creates a new dsqle.ReadReplicaDatabase. If the doltdb.SkipReplicationErrorsKey global variable is set,
@@ -93,10 +96,10 @@ func GetCommitHooks(ctx context.Context, bThreads *sql.BackgroundThreads, dEnv *
 // that will log warnings when attempting to perform replica commands.
 func newReplicaDatabase(ctx context.Context, name string, remoteName string, dEnv *env.DoltEnv) (ReadReplicaDatabase, error) {
 	opts := editor.Options{
-		Deaf: dEnv.DbEaFactory(),
+		Deaf: dEnv.DbEaFactory(ctx),
 	}
 
-	db, err := NewDatabase(ctx, name, dEnv.DbData(), opts)
+	db, err := NewDatabase(ctx, name, dEnv.DbData(ctx), opts)
 	if err != nil {
 		return ReadReplicaDatabase{}, err
 	}
@@ -115,34 +118,56 @@ func newReplicaDatabase(ctx context.Context, name string, remoteName string, dEn
 	return rrd, nil
 }
 
-func ApplyReplicationConfig(ctx context.Context, bThreads *sql.BackgroundThreads, mrEnv *env.MultiRepoEnv, logger io.Writer, dbs ...dsess.SqlDatabase) ([]dsess.SqlDatabase, error) {
+// Converts |db| into a |ReadReplicaDatabase| if read replication is
+// configured through sql SystemVariables. This is called both at
+// startup, for the entire set of databases, and is called when
+// we create new databases through |registerNewDatabases|.
+func applyReadReplicationConfigToDatabase(ctx context.Context, dEnv *env.DoltEnv, db dsess.SqlDatabase) (dsess.SqlDatabase, error) {
+	if _, remote, ok := sql.SystemVariables.GetGlobal(dsess.ReadReplicaRemote); ok && remote != "" {
+		remoteName, ok := remote.(string)
+		if !ok {
+			return nil, sql.ErrInvalidSystemVariableValue.New(remote)
+		}
+		rdb, err := newReplicaDatabase(ctx, db.Name(), remoteName, dEnv)
+		if err == nil {
+			db = rdb
+		} else {
+			logrus.Errorf("invalid replication configuration, replication disabled: %v", err)
+		}
+	}
+	return db, nil
+}
+
+func ApplyReplicationConfig(ctx context.Context, mrEnv *env.MultiRepoEnv, logger io.Writer, dbs ...dsess.SqlDatabase) ([]dsess.SqlDatabase, RunAsyncThreads, error) {
 	outputDbs := make([]dsess.SqlDatabase, len(dbs))
+	asyncRunners := make([]RunAsyncThreads, len(dbs))
 	for i, db := range dbs {
 		dEnv := mrEnv.GetEnv(db.Name())
 		if dEnv == nil {
 			outputDbs[i] = db
 			continue
 		}
-		postCommitHooks, err := GetCommitHooks(ctx, bThreads, dEnv, logger)
+		postCommitHooks, runAsyncThreads, err := GetCommitHooks(ctx, dEnv, logger)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		dEnv.DoltDB.SetCommitHooks(ctx, postCommitHooks)
+		dEnv.DoltDB(ctx).PrependCommitHooks(ctx, postCommitHooks...)
 
-		if _, remote, ok := sql.SystemVariables.GetGlobal(dsess.ReadReplicaRemote); ok && remote != "" {
-			remoteName, ok := remote.(string)
-			if !ok {
-				return nil, sql.ErrInvalidSystemVariableValue.New(remote)
-			}
-			rdb, err := newReplicaDatabase(ctx, db.Name(), remoteName, dEnv)
-			if err == nil {
-				db = rdb
-			} else {
-				logrus.Errorf("invalid replication configuration, replication disabled: %v", err)
-			}
+		outputDbs[i], err = applyReadReplicationConfigToDatabase(ctx, dEnv, db)
+		if err != nil {
+			return nil, nil, err
 		}
 
-		outputDbs[i] = db
+		asyncRunners[i] = runAsyncThreads
 	}
-	return outputDbs, nil
+	runAsyncThreads := func(bThreads *sql.BackgroundThreads, ctxF func(context.Context) (*sql.Context, error)) error {
+		var err error
+		for _, f := range asyncRunners {
+			if f != nil {
+				err = errors.Join(err, f(bThreads, ctxF))
+			}
+		}
+		return err
+	}
+	return outputDbs, runAsyncThreads, nil
 }

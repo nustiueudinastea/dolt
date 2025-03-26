@@ -277,16 +277,19 @@ func stashlist_flatbuffer(am prolly.AddressMap) serial.Message {
 
 func parse_stashlist(bs []byte, ns tree.NodeStore) (prolly.AddressMap, error) {
 	if serial.GetFileID(bs) != serial.StashListFileID {
-		return prolly.AddressMap{}, fmt.Errorf("expected stash list file id, got: " + serial.GetFileID(bs))
+		return prolly.AddressMap{}, fmt.Errorf("expected stash list file id, got: %s", serial.GetFileID(bs))
 	}
 	sr, err := serial.TryGetRootAsStashList(bs, serial.MessagePrefixSz)
 	if err != nil {
 		return prolly.AddressMap{}, err
 	}
 	mapbytes := sr.AddressMapBytes()
-	node, err := tree.NodeFromBytes(mapbytes)
+	node, fileId, err := tree.NodeFromBytes(mapbytes)
 	if err != nil {
 		return prolly.AddressMap{}, err
+	}
+	if fileId != serial.AddressMapFileID {
+		return prolly.AddressMap{}, fmt.Errorf("unexpected file ID, expected %s, got %s", serial.AddressMapFileID, fileId)
 	}
 	return prolly.NewAddressMap(node, ns)
 }

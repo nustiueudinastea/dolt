@@ -295,7 +295,10 @@ func createRowIterForTable(ctx *sql.Context, t *doltdb.Table, sch schema.Schema)
 	if err != nil {
 		return nil, err
 	}
-	rows := durable.ProllyMapFromIndex(rowData)
+	rows, err := durable.ProllyMapFromIndex(rowData)
+	if err != nil {
+		return nil, err
+	}
 	rowCount, err := rows.Count()
 	if err != nil {
 		return nil, err
@@ -330,7 +333,7 @@ func purgeFulltextTableData(ctx *sql.Context, root doltdb.RootValue, tableNames 
 		if err != nil {
 			return nil, err
 		}
-		rows, err := durable.NewEmptyIndex(ctx, tbl.ValueReadWriter(), tbl.NodeStore(), sch)
+		rows, err := durable.NewEmptyPrimaryIndex(ctx, tbl.ValueReadWriter(), tbl.NodeStore(), sch)
 		if err != nil {
 			return nil, err
 		}

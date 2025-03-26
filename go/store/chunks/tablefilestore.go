@@ -31,6 +31,10 @@ type TableFile interface {
 	// LocationPrefix
 	LocationPrefix() string
 
+	// Used in conjuction with the FileID to create file paths to table files. Currently archive files are the only
+	// that take advantage of this, using .darc as the file suffix.
+	LocationSuffix() string
+
 	// NumChunks returns the number of chunks in a table file
 	NumChunks() int
 
@@ -64,13 +68,13 @@ type TableFileStore interface {
 	WriteTableFile(ctx context.Context, fileId string, numChunks int, contentHash []byte, getRd func() (io.ReadCloser, uint64, error)) error
 
 	// AddTableFilesToManifest adds table files to the manifest
-	AddTableFilesToManifest(ctx context.Context, fileIdToNumChunks map[string]int) error
+	AddTableFilesToManifest(ctx context.Context, fileIdToNumChunks map[string]int, getAddrs GetAddrsCurry) error
 
 	// PruneTableFiles deletes old table files that are no longer referenced in the manifest.
 	PruneTableFiles(ctx context.Context) error
 
-	// SetRootChunk changes the root chunk hash from the previous value to the new root.
-	SetRootChunk(ctx context.Context, root, previous hash.Hash) error
+	// Commit performs an optimistic lock/update of the root hash.
+	Commit(ctx context.Context, current, last hash.Hash) (bool, error)
 
 	// SupportedOperations returns a description of the support TableFile operations. Some stores only support reading table files, not writing.
 	SupportedOperations() TableFileStoreOps

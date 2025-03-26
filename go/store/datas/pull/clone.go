@@ -32,7 +32,7 @@ import (
 var ErrNoData = errors.New("no data")
 var ErrCloneUnsupported = errors.New("clone unsupported")
 
-func Clone(ctx context.Context, srcCS, sinkCS chunks.ChunkStore, eventCh chan<- TableFileEvent) error {
+func Clone(ctx context.Context, srcCS, sinkCS chunks.ChunkStore, getAddrs chunks.GetAddrsCurry, eventCh chan<- TableFileEvent) error {
 	srcTS, srcOK := srcCS.(chunks.TableFileStore)
 
 	if !srcOK {
@@ -55,7 +55,7 @@ func Clone(ctx context.Context, srcCS, sinkCS chunks.ChunkStore, eventCh chan<- 
 		return fmt.Errorf("%w: sink db is not a Table File Store", ErrCloneUnsupported)
 	}
 
-	return clone(ctx, srcTS, sinkTS, sinkCS, eventCh)
+	return clone(ctx, srcTS, sinkTS, sinkCS, getAddrs, eventCh)
 }
 
 type CloneTableFileEvent int
@@ -81,9 +81,11 @@ func mapTableFiles(tblFiles []chunks.TableFile) ([]string, map[string]chunks.Tab
 	fileIDtoNumChunks := make(map[string]int)
 
 	for i, tblFile := range tblFiles {
-		fileIDtoTblFile[tblFile.FileID()] = tblFile
-		fileIds[i] = tblFile.FileID()
-		fileIDtoNumChunks[tblFile.FileID()] = tblFile.NumChunks()
+		fileId := tblFile.FileID()
+
+		fileIDtoTblFile[fileId] = tblFile
+		fileIds[i] = fileId
+		fileIDtoNumChunks[fileId] = tblFile.NumChunks()
 	}
 
 	return fileIds, fileIDtoTblFile, fileIDtoNumChunks
@@ -91,7 +93,7 @@ func mapTableFiles(tblFiles []chunks.TableFile) ([]string, map[string]chunks.Tab
 
 const concurrentTableFileDownloads = 3
 
-func clone(ctx context.Context, srcTS, sinkTS chunks.TableFileStore, sinkCS chunks.ChunkStore, eventCh chan<- TableFileEvent) error {
+func clone(ctx context.Context, srcTS, sinkTS chunks.TableFileStore, sinkCS chunks.ChunkStore, getAddrs chunks.GetAddrsCurry, eventCh chan<- TableFileEvent) error {
 	root, sourceFiles, appendixFiles, err := srcTS.Sources(ctx)
 	if err != nil {
 		return err
@@ -136,7 +138,7 @@ func clone(ctx context.Context, srcTS, sinkTS chunks.TableFileStore, sinkCS chun
 				}
 
 				report(TableFileEvent{EventType: DownloadStart, TableFiles: []chunks.TableFile{tblFile}})
-				err = sinkTS.WriteTableFile(ctx, tblFile.FileID(), tblFile.NumChunks(), nil, func() (io.ReadCloser, uint64, error) {
+				err = sinkTS.WriteTableFile(ctx, tblFile.FileID()+tblFile.LocationSuffix(), tblFile.NumChunks(), nil, func() (io.ReadCloser, uint64, error) {
 					rd, contentLength, err := tblFile.Open(ctx)
 					if err != nil {
 						return nil, 0, err
@@ -210,7 +212,7 @@ func clone(ctx context.Context, srcTS, sinkTS chunks.TableFileStore, sinkCS chun
 		}
 	}
 
-	err = sinkTS.AddTableFilesToManifest(ctx, fileIDToNumChunks)
+	err = sinkTS.AddTableFilesToManifest(ctx, fileIDToNumChunks, getAddrs)
 	if err != nil {
 		return err
 	}
@@ -232,7 +234,14 @@ func clone(ctx context.Context, srcTS, sinkTS chunks.TableFileStore, sinkCS chun
 		return nil
 	}
 
-	return sinkTS.SetRootChunk(ctx, root, hash.Hash{})
+	success, err := sinkTS.Commit(ctx, root, hash.Hash{})
+	if !success && err == nil {
+		return errors.New("root update failure. optimistic lock failed")
+	}
+	if success && err != nil {
+		panic(fmt.Sprintf("runtime error: successful root update with error: %v", err))
+	}
+	return err
 }
 
 func filterAppendicesFromSourceFiles(appendixFiles []chunks.TableFile, sourceFiles []chunks.TableFile) []chunks.TableFile {

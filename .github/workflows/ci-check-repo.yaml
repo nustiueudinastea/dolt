@@ -81,11 +81,11 @@ jobs:
       - name: Build go deps tool
         working-directory: go/utils/3pdeps
         run: go build .
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: update-godeps-tool
           path: go/utils/3pdeps/3pdeps
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: format-code-script
           path: go/utils/repofmt/_format_repo.sh
@@ -110,11 +110,11 @@ jobs:
         working-directory: ./go
       - name: Install goimports
         run: go install golang.org/x/tools/cmd/goimports@latest
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: format-code-script
           path: go/utils/repofmt
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: update-godeps-tool
           path: go
@@ -153,6 +153,8 @@ jobs:
           pull: "--ff"
       - name: Check generated protobufs
         working-directory: ./proto
+        env:
+          USE_BAZEL_VERSION: 7.4.0
         run: |
           (cd third_party/protobuf && bazel build //:protoc)
           (cd third_party/protobuf-go && go build -o ._protoc-gen-go ./cmd/protoc-gen-go)

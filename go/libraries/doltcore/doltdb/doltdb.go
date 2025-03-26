@@ -15,6 +15,7 @@
 package doltdb
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -22,6 +23,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dolthub/go-mysql-server/sql"
@@ -86,12 +89,20 @@ type DoltDB struct {
 }
 
 // DoltDBFromCS creates a DoltDB from a noms chunks.ChunkStore
-func DoltDBFromCS(cs chunks.ChunkStore) *DoltDB {
+func DoltDBFromCS(cs chunks.ChunkStore, databaseName string) *DoltDB {
 	vrw := types.NewValueStore(cs)
 	ns := tree.NewNodeStore(cs)
 	db := datas.NewTypesDatabase(vrw, ns)
 
-	return &DoltDB{db: hooksDatabase{Database: db}, vrw: vrw, ns: ns}
+	ret := &DoltDB{db: hooksDatabase{Database: db}, vrw: vrw, ns: ns, databaseName: databaseName}
+	ret.db.db = ret
+	return ret
+}
+
+// GetDatabaseName returns the name of the database.
+// Note: This can return an empty string if the database name is not populated.
+func (ddb *DoltDB) GetDatabaseName() string {
+	return ddb.databaseName
 }
 
 // HackDatasDatabaseFromDoltDB unwraps a DoltDB to a datas.Database.
@@ -138,7 +149,10 @@ func LoadDoltDBWithParams(ctx context.Context, nbf *types.NomsBinFormat, urlStr 
 	if err != nil {
 		return nil, err
 	}
-	return &DoltDB{db: hooksDatabase{Database: db}, vrw: vrw, ns: ns, databaseName: name}, nil
+
+	ret := &DoltDB{db: hooksDatabase{Database: db}, vrw: vrw, ns: ns, databaseName: name}
+	ret.db.db = ret
+	return ret, nil
 }
 
 // NomsRoot returns the hash of the noms dataset map
@@ -584,6 +598,56 @@ func (ddb *DoltDB) ResolveTag(ctx context.Context, tagRef ref.TagRef) (*Tag, err
 	return NewTag(ctx, tagRef.GetPath(), ds, ddb.vrw, ddb.ns)
 }
 
+// TagResolver is used to late load tag metadata resolution. There are situations where we need to list all the tags, but
+// don't necessarily need to load their metadata. See GetTagResolvers
+type TagResolver struct {
+	ddb *DoltDB
+	ref ref.TagRef
+	h   hash.Hash
+}
+
+// Addr returns the hash of the object storing the Tag data. It is loaded and deserialize by the Resolve method.
+func (tr *TagResolver) Addr() hash.Hash {
+	return tr.h
+}
+
+// Resolve resolves the tag reference to a *Tag, complete with its metadata.
+func (tr *TagResolver) Resolve(ctx context.Context) (*Tag, error) {
+	return tr.ddb.ResolveTag(ctx, tr.ref)
+}
+
+// GetTagResolvers takes a slice of TagRefs and returns the corresponding Tag objects.
+func (ddb *DoltDB) GetTagResolvers(ctx context.Context, tagRefs []ref.DoltRef) ([]TagResolver, error) {
+	datasets, err := ddb.db.Datasets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tagMap := make(map[string]ref.TagRef)
+	for _, tagRef := range tagRefs {
+		if tr, ok := tagRef.(ref.TagRef); ok {
+			tagMap[tagRef.String()] = tr
+		} else {
+			panic(fmt.Sprintf("runtime error: expected TagRef, got %T", tagRef))
+		}
+	}
+
+	results := make([]TagResolver, 0, len(tagRefs))
+
+	err = datasets.IterAll(ctx, func(id string, addr hash.Hash) error {
+		if val, ok := tagMap[id]; ok {
+			tr := TagResolver{ddb: ddb, ref: val, h: addr}
+			results = append(results, tr)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
 // ResolveWorkingSet takes a WorkingSetRef and returns the corresponding WorkingSet object.
 func (ddb *DoltDB) ResolveWorkingSet(ctx context.Context, workingSetRef ref.WorkingSetRef) (*WorkingSet, error) {
 	ds, err := ddb.db.GetDataset(ctx, workingSetRef.String())
@@ -644,6 +708,45 @@ func (ddb *DoltDB) writeRootValue(ctx context.Context, rv RootValue) (RootValue,
 		return nil, types.Ref{}, err
 	}
 	return rv, ref, nil
+}
+
+// Persists all relevant root values of the WorkingSet to the database and returns all hashes reachable
+// from the working set. This is used in GC, for example, where all dependencies of the in-memory working
+// set value need to be accounted for.
+func (ddb *DoltDB) WorkingSetHashes(ctx context.Context, ws *WorkingSet) ([]hash.Hash, error) {
+	spec, err := ws.writeValues(ctx, ddb, nil)
+	if err != nil {
+		return nil, err
+	}
+	ret := make([]hash.Hash, 0)
+	ret = append(ret, spec.StagedRoot.TargetHash())
+	ret = append(ret, spec.WorkingRoot.TargetHash())
+	if spec.MergeState != nil {
+		fromCommit, err := spec.MergeState.FromCommit(ctx, ddb.vrw)
+		if err != nil {
+			return nil, err
+		}
+		h, err := fromCommit.NomsValue().Hash(ddb.db.Format())
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, h)
+		h, err = spec.MergeState.PreMergeWorkingAddr(ctx, ddb.vrw)
+		ret = append(ret, h)
+	}
+	if spec.RebaseState != nil {
+		ret = append(ret, spec.RebaseState.PreRebaseWorkingAddr())
+		commit, err := spec.RebaseState.OntoCommit(ctx, ddb.vrw)
+		if err != nil {
+			return nil, err
+		}
+		h, err := commit.NomsValue().Hash(ddb.db.Format())
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, h)
+	}
+	return ret, nil
 }
 
 // ReadRootValue reads the RootValue associated with the hash given and returns it. Returns an error if the value cannot
@@ -1056,6 +1159,7 @@ func (ddb *DoltDB) GetRefsWithHashes(ctx context.Context) ([]RefWithHash, error)
 }
 
 var tagsRefFilter = map[ref.RefType]struct{}{ref.TagRefType: {}}
+var tuplesRefFilter = map[ref.RefType]struct{}{ref.TupleRefType: {}}
 
 // GetTags returns a list of all tags in the database.
 func (ddb *DoltDB) GetTags(ctx context.Context) ([]ref.DoltRef, error) {
@@ -1101,6 +1205,35 @@ func (ddb *DoltDB) GetTagsWithHashes(ctx context.Context) ([]TagWithHash, error)
 		return nil
 	})
 	return refs, err
+}
+
+// SetTuple sets a key ref value
+func (ddb *DoltDB) SetTuple(ctx context.Context, key string, value []byte) error {
+	ds, err := ddb.db.GetDataset(ctx, ref.NewTupleRef(key).String())
+	if err != nil {
+		return err
+	}
+	_, err = ddb.db.SetTuple(ctx, ds, value)
+	return err
+}
+
+// GetTuple returns a key's value, whether the key was valid, and an optional error.
+func (ddb *DoltDB) GetTuple(ctx context.Context, key string) ([]byte, bool, error) {
+	ds, err := ddb.db.GetDataset(ctx, ref.NewTupleRef(key).String())
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !ds.HasHead() {
+		return nil, false, nil
+	}
+
+	tup, err := datas.LoadTuple(ctx, ddb.Format(), ddb.NodeStore(), ddb.ValueReadWriter(), ds)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return tup.Bytes(), true, nil
 }
 
 var workspacesRefFilter = map[ref.RefType]struct{}{ref.WorkspaceRefType: {}}
@@ -1184,7 +1317,7 @@ func (ddb *DoltDB) GetRefByNameInsensitive(ctx context.Context, refName string) 
 		return nil, err
 	}
 	for _, branchRef := range branchRefs {
-		if strings.ToLower(branchRef.GetPath()) == strings.ToLower(refName) {
+		if strings.EqualFold(branchRef.GetPath(), refName) {
 			return branchRef, nil
 		}
 	}
@@ -1194,7 +1327,7 @@ func (ddb *DoltDB) GetRefByNameInsensitive(ctx context.Context, refName string) 
 		return nil, err
 	}
 	for _, headRef := range headRefs {
-		if strings.ToLower(headRef.GetPath()) == strings.ToLower(refName) {
+		if strings.EqualFold(headRef.GetPath(), refName) {
 			return headRef, nil
 		}
 	}
@@ -1204,7 +1337,7 @@ func (ddb *DoltDB) GetRefByNameInsensitive(ctx context.Context, refName string) 
 		return nil, err
 	}
 	for _, tagRef := range tagRefs {
-		if strings.ToLower(tagRef.GetPath()) == strings.ToLower(refName) {
+		if strings.EqualFold(tagRef.GetPath(), refName) {
 			return tagRef, nil
 		}
 	}
@@ -1577,6 +1710,14 @@ func (ddb *DoltDB) DeleteWorkingSet(ctx context.Context, workingSetRef ref.Worki
 	return err
 }
 
+func (ddb *DoltDB) DeleteTuple(ctx context.Context, key string) error {
+	err := ddb.deleteRef(ctx, ref.NewTupleRef(key), nil, "")
+	if err == ErrBranchNotFound {
+		return ErrTupleNotFound
+	}
+	return err
+}
+
 func (ddb *DoltDB) DeleteTag(ctx context.Context, tag ref.DoltRef) error {
 	err := ddb.deleteRef(ctx, tag, nil, "")
 
@@ -1630,7 +1771,7 @@ func (ddb *DoltDB) Rebase(ctx context.Context) error {
 // until no possibly-stale ChunkStore state is retained in memory, or failing
 // certain in-progress operations which cannot be finalized in a timely manner,
 // etc.
-func (ddb *DoltDB) GC(ctx context.Context, safepointF func() error) error {
+func (ddb *DoltDB) GC(ctx context.Context, mode types.GCMode, safepointController types.GCSafepointController) error {
 	collector, ok := ddb.db.Database.(datas.GarbageCollector)
 	if !ok {
 		return fmt.Errorf("this database does not support garbage collection")
@@ -1674,7 +1815,7 @@ func (ddb *DoltDB) GC(ctx context.Context, safepointF func() error) error {
 		return err
 	}
 
-	return collector.GC(ctx, oldGen, newGen, safepointF)
+	return collector.GC(ctx, mode, oldGen, newGen, safepointController)
 }
 
 func (ddb *DoltDB) ShallowGC(ctx context.Context) error {
@@ -1755,8 +1896,17 @@ func pullHash(
 	}
 }
 
+func (ddb *DoltDB) getAddrs(c chunks.Chunk) chunks.GetAddrsCb {
+	return func(ctx context.Context, addrs hash.HashSet, _ chunks.PendingRefExists) error {
+		return types.AddrsFromNomsValue(c, ddb.Format(), addrs)
+	}
+}
+
 func (ddb *DoltDB) Clone(ctx context.Context, destDB *DoltDB, eventCh chan<- pull.TableFileEvent) error {
-	return pull.Clone(ctx, datas.ChunkStoreFromDatabase(ddb.db), datas.ChunkStoreFromDatabase(destDB.db), eventCh)
+	return pull.Clone(ctx, datas.ChunkStoreFromDatabase(ddb.db),
+		datas.ChunkStoreFromDatabase(destDB.db),
+		ddb.getAddrs,
+		eventCh)
 }
 
 // Returns |true| if the underlying ChunkStore for this DoltDB implements |chunks.TableFileStore|.
@@ -1767,29 +1917,87 @@ func (ddb *DoltDB) IsTableFileStore() bool {
 
 // ChunkJournal returns the ChunkJournal for this DoltDB, if one is in use.
 func (ddb *DoltDB) ChunkJournal() *nbs.ChunkJournal {
-	tableFileStore, ok := datas.ChunkStoreFromDatabase(ddb.db).(chunks.TableFileStore)
-	if !ok {
-		return nil
+	cs := datas.ChunkStoreFromDatabase(ddb.db)
+
+	if generationalNBS, ok := cs.(*nbs.GenerationalNBS); ok {
+		cs = generationalNBS.NewGen()
 	}
 
-	generationalNbs, ok := tableFileStore.(*nbs.GenerationalNBS)
-	if !ok {
+	if nbsStore, ok := cs.(*nbs.NomsBlockStore); ok {
+		return nbsStore.ChunkJournal()
+	} else {
 		return nil
 	}
+}
 
-	newGen := generationalNbs.NewGen()
-	nbs, ok := newGen.(*nbs.NomsBlockStore)
-	if !ok {
-		return nil
+// An approximate representation of how large the on-disk storage is for a DoltDB.
+type StoreSizes struct {
+	// For ChunkJournal stores, this will be size of the journal file. A size
+	// of zero does not mean the store is not journaled. The store could be
+	// journaled, and the journal could be empty.
+	JournalBytes uint64
+	// For Generational storages this will be the size of the new gen. It will
+	// include any JournalBytes. A size of zero does not mean the store is not
+	// generational, since it could be the case that the store is generational
+	// but everything in it is in the old gen. In practice, given how we build
+	// oldgen references today, this will never be the case--there is always
+	// a little bit of data that only goes in the newgen.
+	NewGenBytes uint64
+	// This is the approximate total on-disk storage overhead of the store.
+	// It includes Journal and NewGenBytes, if there are any.
+	TotalBytes uint64
+}
+
+func (ddb *DoltDB) StoreSizes(ctx context.Context) (StoreSizes, error) {
+	cs := datas.ChunkStoreFromDatabase(ddb.db)
+	if generationalNBS, ok := cs.(*nbs.GenerationalNBS); ok {
+		newgen := generationalNBS.NewGen()
+		newGenTFS, newGenTFSOk := newgen.(chunks.TableFileStore)
+		totalTFS, totalTFSOk := cs.(chunks.TableFileStore)
+		newGenNBS, newGenNBSOk := newgen.(*nbs.NomsBlockStore)
+		if !(newGenTFSOk && totalTFSOk && newGenNBSOk) {
+			return StoreSizes{}, fmt.Errorf("unexpected newgen or chunk store type for *nbs.GenerationalNBS instance; cannot take store sizes: cs: %T, newgen: %T", cs, newgen)
+		}
+		newgenSz, err := newGenTFS.Size(ctx)
+		if err != nil {
+			return StoreSizes{}, err
+		}
+		totalSz, err := totalTFS.Size(ctx)
+		if err != nil {
+			return StoreSizes{}, err
+		}
+		journal := newGenNBS.ChunkJournal()
+		if journal != nil {
+			return StoreSizes{
+				JournalBytes: uint64(journal.Size()),
+				NewGenBytes:  newgenSz,
+				TotalBytes:   totalSz,
+			}, nil
+		} else {
+			return StoreSizes{
+				NewGenBytes: newgenSz,
+				TotalBytes:  totalSz,
+			}, nil
+		}
+	} else {
+		totalTFS, totalTFSOk := cs.(chunks.TableFileStore)
+		if !totalTFSOk {
+			return StoreSizes{}, fmt.Errorf("unexpected chunk store type for non-*nbs.GenerationalNBS ddb.db instance; cannot take store sizes: cs: %T", cs)
+		}
+		totalSz, err := totalTFS.Size(ctx)
+		if err != nil {
+			return StoreSizes{}, err
+		}
+		return StoreSizes{
+			TotalBytes: totalSz,
+		}, nil
 	}
-
-	return nbs.ChunkJournal()
 }
 
 func (ddb *DoltDB) TableFileStoreHasJournal(ctx context.Context) (bool, error) {
 	tableFileStore, ok := datas.ChunkStoreFromDatabase(ddb.db).(chunks.TableFileStore)
 	if !ok {
-		return false, errors.New("unsupported operation, DoltDB.TableFileStoreHasManifest on non-TableFileStore")
+		return false, errors.New("unsupported operation, doltDB.TableFileStoreHasManifest on non-TableFileStore")
 	}
 	_, tableFiles, _, err := tableFileStore.Sources(ctx)
 	if err != nil {
@@ -1808,13 +2016,8 @@ func (ddb *DoltDB) DatasetsByRootHash(ctx context.Context, hashof hash.Hash) (da
 	return ddb.db.DatasetsByRootHash(ctx, hashof)
 }
 
-func (ddb *DoltDB) SetCommitHooks(ctx context.Context, postHooks []CommitHook) *DoltDB {
-	ddb.db = ddb.db.SetCommitHooks(ctx, postHooks)
-	return ddb
-}
-
-func (ddb *DoltDB) PrependCommitHook(ctx context.Context, hook CommitHook) *DoltDB {
-	ddb.db = ddb.db.SetCommitHooks(ctx, append([]CommitHook{hook}, ddb.db.PostCommitHooks()...))
+func (ddb *DoltDB) PrependCommitHooks(ctx context.Context, hooks ...CommitHook) *DoltDB {
+	ddb.db = ddb.db.SetCommitHooks(ctx, append(hooks, ddb.db.PostCommitHooks()...))
 	return ddb
 }
 
@@ -1907,8 +2110,8 @@ func (ddb *DoltDB) AddStash(ctx context.Context, head *Commit, stash RootValue, 
 	return err
 }
 
-func (ddb *DoltDB) SetStatisics(ctx context.Context, branch string, addr hash.Hash) error {
-	statsDs, err := ddb.db.GetDataset(ctx, ref.NewStatsRef(branch).String())
+func (ddb *DoltDB) SetStatistics(ctx context.Context, branch string, addr hash.Hash) error {
+	statsDs, err := ddb.db.GetDataset(ctx, ref.NewStatsRef().String())
 	if err != nil {
 		return err
 	}
@@ -1916,8 +2119,8 @@ func (ddb *DoltDB) SetStatisics(ctx context.Context, branch string, addr hash.Ha
 	return err
 }
 
-func (ddb *DoltDB) DropStatisics(ctx context.Context, branch string) error {
-	statsDs, err := ddb.db.GetDataset(ctx, ref.NewStatsRef(branch).String())
+func (ddb *DoltDB) DropStatisics(ctx context.Context) error {
+	statsDs, err := ddb.db.GetDataset(ctx, ref.NewStatsRef().String())
 
 	_, err = ddb.db.Delete(ctx, statsDs, "")
 	if err != nil {
@@ -1929,8 +2132,8 @@ func (ddb *DoltDB) DropStatisics(ctx context.Context, branch string) error {
 var ErrNoStatistics = errors.New("no statistics found")
 
 // GetStatistics returns the value of the singleton ref.StatsRef for this database
-func (ddb *DoltDB) GetStatistics(ctx context.Context, branch string) (prolly.Map, error) {
-	ds, err := ddb.db.GetDataset(ctx, ref.NewStatsRef(branch).String())
+func (ddb *DoltDB) GetStatistics(ctx context.Context) (prolly.Map, error) {
+	ds, err := ddb.db.GetDataset(ctx, ref.NewStatsRef().String())
 	if err != nil {
 		return prolly.Map{}, err
 	}
@@ -2044,4 +2247,124 @@ func (ddb *DoltDB) GetStashRootAndHeadCommitAtIdx(ctx context.Context, idx int) 
 // a shallow clone, but should not be called after the clone is complete.
 func (ddb *DoltDB) PersistGhostCommits(ctx context.Context, ghostCommits hash.HashSet) error {
 	return ddb.db.Database.PersistGhostCommitIDs(ctx, ghostCommits)
+}
+
+// Purge in-memory read caches associated with this DoltDB. This needs
+// to be done at a specific point during a GC operation to ensure that
+// everything the application layer sees still exists in the database
+// after the GC operation is completed.
+func (ddb *DoltDB) PurgeCaches() {
+	ddb.vrw.PurgeCaches()
+	ddb.ns.PurgeCaches()
+}
+
+type FSCKReport struct {
+	ChunkCount uint32
+	Problems   []error
+}
+
+// FSCK performs a full file system check on the database. This is currently exposed with the CLI as `dolt fsck`
+// The success of failure of the scan are returned in the report as a list of errors. The error returned by this function
+// indicates a deeper issue such as having database in an old format.
+func (ddb *DoltDB) FSCK(ctx context.Context, progress chan string) (*FSCKReport, error) {
+	cs := datas.ChunkStoreFromDatabase(ddb.db)
+
+	vs := types.NewValueStore(cs)
+
+	gs, ok := cs.(*nbs.GenerationalNBS)
+	if !ok {
+		return nil, errors.New("FSCK requires a local database")
+	}
+
+	chunkCount, err := gs.OldGen().Count()
+	if err != nil {
+		return nil, err
+	}
+	chunkCount2, err := gs.NewGen().Count()
+	if err != nil {
+		return nil, err
+	}
+	chunkCount += chunkCount2
+	proccessedCnt := int64(0)
+
+	var errs []error
+
+	decodeMsg := func(chk chunks.Chunk) string {
+		hrs := ""
+		val, err := types.DecodeValue(chk, vs)
+		if err == nil {
+			hrs = val.HumanReadableString()
+		} else {
+			hrs = fmt.Sprintf("Unable to decode value: %s", err.Error())
+		}
+		return hrs
+	}
+
+	// Append safely to the slice of errors with a mutex.
+	errsLock := &sync.Mutex{}
+	appendErr := func(err error) {
+		errsLock.Lock()
+		defer errsLock.Unlock()
+		errs = append(errs, err)
+	}
+
+	// Callback for validating chunks. This code could be called concurrently, though that is not currently the case.
+	validationCallback := func(chunk chunks.Chunk) {
+		chunkOk := true
+		pCnt := atomic.AddInt64(&proccessedCnt, 1)
+		h := chunk.Hash()
+		raw := chunk.Data()
+		calcChkSum := hash.Of(raw)
+
+		if h != calcChkSum {
+			fuzzyMatch := false
+			// Special case for the journal chunk source. We may have an address which has 4 null bytes at the end.
+			if h[hash.ByteLen-1] == 0 && h[hash.ByteLen-2] == 0 && h[hash.ByteLen-3] == 0 && h[hash.ByteLen-4] == 0 {
+				// Now we'll just verify that the first 16 bytes match.
+				ln := hash.ByteLen - 4
+				fuzzyMatch = bytes.Compare(h[:ln], calcChkSum[:ln]) == 0
+			}
+			if !fuzzyMatch {
+				hrs := decodeMsg(chunk)
+				appendErr(errors.New(fmt.Sprintf("Chunk: %s content hash mismatch: %s\n%s", h.String(), calcChkSum.String(), hrs)))
+				chunkOk = false
+			}
+		}
+
+		if chunkOk {
+			// Round trip validation. Ensure that the top level store returns the same data.
+			c, err := cs.Get(ctx, h)
+			if err != nil {
+				appendErr(errors.New(fmt.Sprintf("Chunk: %s load failed with error: %s", h.String(), err.Error())))
+				chunkOk = false
+			} else if bytes.Compare(raw, c.Data()) != 0 {
+				hrs := decodeMsg(chunk)
+				appendErr(errors.New(fmt.Sprintf("Chunk: %s read with incorrect ID: %s\n%s", h.String(), c.Hash().String(), hrs)))
+				chunkOk = false
+			}
+		}
+
+		percentage := (float64(pCnt) * 100) / float64(chunkCount)
+		result := fmt.Sprintf("(%4.1f%% done)", percentage)
+
+		progStr := "OK: " + h.String()
+		if !chunkOk {
+			progStr = "FAIL: " + h.String()
+		}
+		progStr = result + " " + progStr
+		progress <- progStr
+	}
+
+	err = gs.OldGen().IterateAllChunks(ctx, validationCallback)
+	if err != nil {
+		return nil, err
+	}
+	err = gs.NewGen().IterateAllChunks(ctx, validationCallback)
+	if err != nil {
+		return nil, err
+	}
+
+	FSCKReport := FSCKReport{Problems: errs, ChunkCount: chunkCount}
+
+	return &FSCKReport, nil
 }

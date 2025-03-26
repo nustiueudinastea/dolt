@@ -63,8 +63,8 @@ type rowV struct {
 	col1, col2 int
 }
 
-var vD = sch.GetValueDescriptor()
-var vB = val.NewTupleBuilder(vD)
+var vD val.TupleDesc
+var vB *val.TupleBuilder
 var syncPool = pool.NewBuffPool()
 
 func (v rowV) value() val.Tuple {
@@ -306,7 +306,7 @@ func TestMergeCommits(t *testing.T) {
 	}
 	opts := editor.TestEditorOptions(vrw)
 	// TODO: stats
-	merged, _, err := merger.MergeTable(sql.NewContext(context.Background()), tableName, opts, MergeOpts{IsCherryPick: false})
+	merged, _, err := merger.MergeTable(sql.NewContext(context.Background()), doltdb.TableName{Name: tableName}, opts, MergeOpts{IsCherryPick: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,14 +332,18 @@ func TestMergeCommits(t *testing.T) {
 	artifacts := durable.ProllyMapFromArtifactIndex(artIdx)
 	MustEqualArtifactMap(t, expectedArtifacts, artifacts)
 
-	MustEqualProlly(t, tableName, durable.ProllyMapFromIndex(expectedRows), durable.ProllyMapFromIndex(mergedRows))
+	idx1, _ := durable.ProllyMapFromIndex(expectedRows)
+	idx2, _ := durable.ProllyMapFromIndex(mergedRows)
+	MustEqualProlly(t, tableName, idx1, idx2)
 
 	for _, index := range sch.Indexes().AllIndexes() {
 		mergedIndexRows, err := merged.table.GetIndexRowData(ctx, index.Name())
 		require.NoError(t, err)
 		expectedIndexRows, err := expected.GetIndexRowData(ctx, index.Name())
 		require.NoError(t, err)
-		MustEqualProlly(t, index.Name(), durable.ProllyMapFromIndex(expectedIndexRows), durable.ProllyMapFromIndex(mergedIndexRows))
+		idx1, _ := durable.ProllyMapFromIndex(expectedIndexRows)
+		idx2, _ := durable.ProllyMapFromIndex(mergedIndexRows)
+		MustEqualProlly(t, index.Name(), idx1, idx2)
 	}
 
 	h, err := merged.table.HashOf()
@@ -361,7 +365,7 @@ func TestNomsMergeCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := editor.TestEditorOptions(vrw)
-	merged, stats, err := merger.MergeTable(sql.NewContext(context.Background()), tableName, opts, MergeOpts{IsCherryPick: false})
+	merged, stats, err := merger.MergeTable(sql.NewContext(context.Background()), doltdb.TableName{Name: tableName}, opts, MergeOpts{IsCherryPick: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,6 +426,13 @@ func setupMergeTest(t *testing.T) (*doltdb.DoltDB, types.ValueReadWriter, tree.N
 	ddb := mustMakeEmptyRepo(t)
 	vrw := ddb.ValueReadWriter()
 	ns := ddb.NodeStore()
+
+	vD = sch.GetValueDescriptor(ns)
+	vB = val.NewTupleBuilder(vD)
+
+	kD = sch.GetKeyDescriptor(ns)
+	kB = val.NewTupleBuilder(kD)
+
 	sortTests(testRows)
 
 	var initialKVs []val.Tuple
@@ -628,7 +639,7 @@ func rebuildAllProllyIndexes(ctx *sql.Context, tbl *doltdb.Table) (*doltdb.Table
 	if err != nil {
 		return nil, err
 	}
-	primary := durable.ProllyMapFromIndex(tableRowData)
+	primary, _ := durable.ProllyMapFromIndex(tableRowData)
 
 	for _, index := range sch.Indexes().AllIndexes() {
 		rebuiltIndexRowData, err := creation.BuildSecondaryProllyIndex(ctx, tbl.ValueReadWriter(), tbl.NodeStore(), sch, tableName, index, primary)
@@ -773,8 +784,8 @@ func buildLeftRightAncCommitsAndBranches(t *testing.T, ddb *doltdb.DoltDB, rootT
 	return mergeCommit, ancCm, root, mergeRoot, ancRoot
 }
 
-var kD = sch.GetKeyDescriptor()
-var kB = val.NewTupleBuilder(kD)
+var kD val.TupleDesc
+var kB *val.TupleBuilder
 
 func key(i int) val.Tuple {
 	kB.PutInt64(0, int64(i))

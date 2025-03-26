@@ -122,7 +122,7 @@ func exportSchemas(ctx context.Context, apr *argparser.ArgParseResults, root dol
 	var tablesToExport []string
 	var err error
 	if tblName != "" {
-		if doltdb.HasDoltPrefix(tblName) {
+		if doltdb.HasDoltPrefix(tblName) || doltdb.HasDoltCIPrefix(tblName) {
 			return errhand.BuildDError("%s not found", tblName).Build()
 		}
 		tablesToExport = []string{tblName}
@@ -138,7 +138,7 @@ func exportSchemas(ctx context.Context, apr *argparser.ArgParseResults, root dol
 		if err != nil {
 			return errhand.BuildDError("error: ").AddCause(err).Build()
 		}
-		opts := editor.Options{Deaf: dEnv.DbEaFactory(), Tempdir: tmpDir}
+		opts := editor.Options{Deaf: dEnv.DbEaFactory(ctx), Tempdir: tmpDir}
 		verr := exportTblSchema(ctx, tn, root, wr, opts)
 		if verr != nil {
 			return verr

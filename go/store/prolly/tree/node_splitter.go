@@ -25,6 +25,7 @@ import (
 	"crypto/sha512"
 	"encoding/binary"
 	"math"
+	"math/bits"
 
 	"github.com/kch42/buzhash"
 	"github.com/zeebo/xxh3"
@@ -236,7 +237,7 @@ const (
 // split on any of the records up to |size - thisSize|,
 // the probability that we should split on this record
 // is (CDF(end) - CDF(start)) / (1 - CDF(start)), or,
-// the precentage of the remaining portion of the CDF
+// the percentage of the remaining portion of the CDF
 // that this record actually covers. We split is |hash|,
 // treated as a uniform random number between [0,1),
 // is less than this percentage.
@@ -263,4 +264,11 @@ func xxHash32(b []byte, salt uint64) uint32 {
 func saltFromLevel(level uint8) (salt uint64) {
 	full := sha512.Sum512([]byte{level})
 	return binary.LittleEndian.Uint64(full[:8])
+}
+
+// DeterministicHashLevel takes a key and counts the number of leading zeros in the key's hash.
+// This is used for computing the level that a key appears in, in a ProximityMap
+func DeterministicHashLevel(leadingZerosPerLevel uint8, key Item) uint8 {
+	h := xxHash32(key, levelSalt[1])
+	return uint8(bits.LeadingZeros32(h)) / leadingZerosPerLevel
 }

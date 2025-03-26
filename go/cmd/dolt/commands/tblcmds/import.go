@@ -583,6 +583,7 @@ func move(ctx context.Context, rd table.SqlRowReader, wr *mvdata.SqlEngineTableW
 
 		// only log info for the --continue option
 		if !options.contOnErr {
+			_ = wr.DropCreatedTable()
 			return true
 		}
 
@@ -620,6 +621,7 @@ func move(ctx context.Context, rd table.SqlRowReader, wr *mvdata.SqlEngineTableW
 
 	err := g.Wait()
 	if err != nil && err != io.EOF {
+		_ = wr.DropCreatedTable()
 		// don't lose the rowErr if there is one
 		if rowErr != nil {
 			return badCount, fmt.Errorf("%w\n%s", err, rowErr.Error())
@@ -805,8 +807,7 @@ func newDataMoverErrToVerr(mvOpts *importOptions, err *mvdata.DataMoverCreationE
 
 	case mvdata.CreateMapperErr:
 		bdr := errhand.BuildDError("Error creating input to output mapper.")
-		details := fmt.Sprintf("When attempting to move data from %s to %s, could not create a mapper.", mvOpts.src.String(), mvOpts.destTableName)
-		bdr.AddDetails(details)
+		bdr.AddDetails("When attempting to move data from %s to %s, could not create a mapper.", mvOpts.src.String(), mvOpts.destTableName)
 		bdr.AddCause(err.Cause)
 
 		return bdr.AddCause(err.Cause).Build()

@@ -1,9 +1,10 @@
+load helper/windows-compat
 SERVER_REQS_INSTALLED="FALSE"
 SERVER_PID=""
 DEFAULT_DB=""
 
 # wait_for_connection(<PORT>, <TIMEOUT IN MS>) attempts to connect to the sql-server at the specified
-# port on localhost, using the $SQL_USER (or 'dolt' if unspecified) as the user name, and trying once
+# port on localhost, using $SQL_USER (or 'root' if unspecified) as the user name, and trying once
 # per second until the millisecond timeout is reached. If a connection is successfully established,
 # this function returns 0. If a connection was not able to be established within the timeout period,
 # this function returns 1.
@@ -16,7 +17,7 @@ wait_for_connection() {
       echo "Running in AWS Lambda; increasing timeout to: $timeout"
   fi
 
-  user=${SQL_USER:-dolt}
+  user=${SQL_USER:-root}
   end_time=$((SECONDS+($timeout/1000)))
 
   while [ $SECONDS -lt $end_time ]; do
@@ -38,9 +39,17 @@ start_sql_server() {
     PORT=$( definePORT )
     if [[ $logFile ]]
     then
-        dolt sql-server --host 0.0.0.0 --port=$PORT --user "${SQL_USER:-dolt}" --socket "dolt.$PORT.sock" > $logFile 2>&1 &
+        if [ "$IS_WINDOWS" == true ]; then
+          dolt sql-server --host 0.0.0.0 --port=$PORT > $logFile 2>&1 &
+        else
+          dolt sql-server --host 0.0.0.0 --port=$PORT --socket "dolt.$PORT.sock" > $logFile 2>&1 &
+        fi
     else
-        dolt sql-server --host 0.0.0.0 --port=$PORT --user "${SQL_USER:-dolt}" --socket "dolt.$PORT.sock" &
+        if [ "$IS_WINDOWS" == true ]; then
+          dolt sql-server --host 0.0.0.0 --port=$PORT &
+        else
+          dolt sql-server --host 0.0.0.0 --port=$PORT --socket "dolt.$PORT.sock" &
+        fi
     fi
     echo db:$DEFAULT_DB logFile:$logFile PORT:$PORT CWD:$PWD
     SERVER_PID=$!
@@ -51,9 +60,19 @@ start_sql_server() {
 # arguments to dolt-sql-server (excluding --port, which is defined in
 # this func)
 start_sql_server_with_args() {
-    DEFAULT_DB=""
     PORT=$( definePORT )
-    dolt sql-server "$@" --port=$PORT --socket "dolt.$PORT.sock" &
+    start_sql_server_with_args_no_port "$@" --port=$PORT
+}
+
+# behaves like start_sql_server_with_args, but doesn't define --port.
+# caller must set variable PORT to proper value before calling.
+start_sql_server_with_args_no_port() {
+    DEFAULT_DB=""
+    if [ "$IS_WINDOWS" == true ]; then
+      dolt sql-server "$@" &
+    else
+      dolt sql-server "$@" --socket "dolt.$PORT.sock" &
+    fi
     SERVER_PID=$!
     wait_for_connection $PORT 8500
 }
@@ -64,9 +83,6 @@ start_sql_server_with_config() {
     echo "
 log_level: debug
 
-user:
-  name: dolt
-
 listener:
   host: 0.0.0.0
   port: $PORT
@@ -76,7 +92,11 @@ behavior:
   autocommit: false
 " > .cliconfig.yaml
     cat "$2" >> .cliconfig.yaml
-    dolt sql-server --config .cliconfig.yaml --socket "dolt.$PORT.sock" &
+    if [ "$IS_WINDOWS" == true ]; then
+      dolt sql-server --config .cliconfig.yaml &
+    else
+      dolt sql-server --config .cliconfig.yaml --socket "dolt.$PORT.sock" &
+    fi
     SERVER_PID=$!
     wait_for_connection $PORT 8500
 }
@@ -98,7 +118,11 @@ listener:
 behavior:
   autocommit: false
 " > .cliconfig.yaml
-    dolt sql-server --config .cliconfig.yaml --socket "dolt.$PORT.sock" &
+    if [ "$IS_WINDOWS" == true ]; then
+      dolt sql-server --config .cliconfig.yaml &
+    else
+      dolt sql-server --config .cliconfig.yaml --socket "dolt.$PORT.sock" &
+    fi
     SERVER_PID=$!
     wait_for_connection $PORT 8500
 }
@@ -106,7 +130,11 @@ behavior:
 start_multi_db_server() {
     DEFAULT_DB="$1"
     PORT=$( definePORT )
-    dolt sql-server --host 0.0.0.0 --port=$PORT --user dolt --data-dir ./ --socket "dolt.$PORT.sock" &
+    if [ "$IS_WINDOWS" == true ]; then
+      dolt sql-server --host 0.0.0.0 --port=$PORT --data-dir ./ &
+    else
+      dolt sql-server --host 0.0.0.0 --port=$PORT --data-dir ./ --socket "dolt.$PORT.sock" &
+    fi
     SERVER_PID=$!
     wait_for_connection $PORT 8500
 }

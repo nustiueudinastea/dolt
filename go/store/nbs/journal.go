@@ -17,7 +17,6 @@ package nbs
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -196,7 +195,15 @@ func trueUpBackingManifest(ctx context.Context, root hash.Hash, backing *journal
 	if err != nil {
 		return manifestContents{}, err
 	} else if !ok {
-		return manifestContents{}, fmt.Errorf("manifest not found when opening chunk journal")
+		// If there is no backing manifest yet, we simply
+		// return without any manifest contents. We can open a
+		// newly created (cloned) journal file before the
+		// manifest corresponding to its existence has been
+		// created. |*ChunkJournal.ParseIfExists| forwards
+		// to the backing store in the case that the loaded
+		// manifest is currently empty, so eventually the
+		// manifest will be created.
+		return manifestContents{}, nil
 	}
 
 	// set our in-memory root to match the journal
@@ -206,7 +213,7 @@ func trueUpBackingManifest(ctx context.Context, root hash.Hash, backing *journal
 	}
 
 	prev := mc.lock
-	next := generateLockHash(mc.root, mc.specs, mc.appendix)
+	next := generateLockHash(mc.root, mc.specs, mc.appendix, nil)
 	mc.lock = next
 
 	mc, err = backing.Update(ctx, prev, mc, &Stats{}, nil)
@@ -239,17 +246,19 @@ func (j *ChunkJournal) IterateRoots(f func(root string, timestamp *time.Time) er
 }
 
 // Persist implements tablePersister.
-func (j *ChunkJournal) Persist(ctx context.Context, mt *memTable, haver chunkReader, stats *Stats) (chunkSource, error) {
+func (j *ChunkJournal) Persist(ctx context.Context, mt *memTable, haver chunkReader, keeper keeperF, stats *Stats) (chunkSource, gcBehavior, error) {
 	if j.backing.readOnly() {
-		return nil, errReadOnlyManifest
+		return nil, gcBehavior_Continue, errReadOnlyManifest
 	} else if err := j.maybeInit(ctx); err != nil {
-		return nil, err
+		return nil, gcBehavior_Continue, err
 	}
 
 	if haver != nil {
 		sort.Sort(hasRecordByPrefix(mt.order)) // hasMany() requires addresses to be sorted.
-		if _, err := haver.hasMany(mt.order); err != nil {
-			return nil, err
+		if _, gcb, err := haver.hasMany(mt.order, keeper); err != nil {
+			return nil, gcBehavior_Continue, err
+		} else if gcb != gcBehavior_Continue {
+			return nil, gcb, nil
 		}
 		sort.Sort(hasRecordByOrder(mt.order)) // restore "insertion" order for write
 	}
@@ -261,10 +270,10 @@ func (j *ChunkJournal) Persist(ctx context.Context, mt *memTable, haver chunkRea
 		c := chunks.NewChunkWithHash(hash.Hash(*record.a), mt.chunks[*record.a])
 		err := j.wr.writeCompressedChunk(ctx, ChunkToCompressedChunk(c))
 		if err != nil {
-			return nil, err
+			return nil, gcBehavior_Continue, err
 		}
 	}
-	return journalChunkSource{journal: j.wr}, nil
+	return journalChunkSource{journal: j.wr}, gcBehavior_Continue, nil
 }
 
 // ConjoinAll implements tablePersister.
@@ -287,7 +296,7 @@ func (j *ChunkJournal) Open(ctx context.Context, name hash.Hash, chunkCount uint
 }
 
 // Exists implements tablePersister.
-func (j *ChunkJournal) Exists(ctx context.Context, name hash.Hash, chunkCount uint32, stats *Stats) (bool, error) {
+func (j *ChunkJournal) Exists(ctx context.Context, name string, chunkCount uint32, stats *Stats) (bool, error) {
 	return j.persister.Exists(ctx, name, chunkCount, stats)
 }
 
@@ -442,7 +451,7 @@ func (j *ChunkJournal) dropJournalWriter(ctx context.Context) error {
 
 // ParseIfExists implements manifest.
 func (j *ChunkJournal) ParseIfExists(ctx context.Context, stats *Stats, readHook func() error) (ok bool, mc manifestContents, err error) {
-	if j.wr == nil {
+	if j.wr == nil || j.contents.root.IsEmpty() {
 		// parse contents from |j.backing| if the journal is not initialized
 		return j.backing.ParseIfExists(ctx, stats, readHook)
 	}
@@ -487,6 +496,14 @@ func (j *ChunkJournal) AccessMode() chunks.ExclusiveAccessMode {
 		return chunks.ExclusiveAccessMode_ReadOnly
 	}
 	return chunks.ExclusiveAccessMode_Exclusive
+}
+
+func (j *ChunkJournal) Size() int64 {
+	if j.wr != nil {
+		return j.wr.size()
+	} else {
+		return 0
+	}
 }
 
 type journalConjoiner struct {

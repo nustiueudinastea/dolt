@@ -120,9 +120,9 @@ var gcSetupCommon = []testCommand{
 func testGarbageCollection(t *testing.T, test gcTest) {
 	ctx := context.Background()
 	dEnv := dtestutils.CreateTestEnv()
-	defer dEnv.DoltDB.Close()
+	defer dEnv.DoltDB(ctx).Close()
 
-	cliCtx, verr := commands.NewArgFreeCliContext(ctx, dEnv)
+	cliCtx, verr := commands.NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 	require.NoError(t, verr)
 
 	for _, c := range gcSetupCommon {
@@ -132,21 +132,22 @@ func testGarbageCollection(t *testing.T, test gcTest) {
 
 	var res interface{}
 	for _, stage := range test.stages {
-		res = stage.preStageFunc(ctx, t, dEnv.DoltDB, res)
+		res = stage.preStageFunc(ctx, t, dEnv.DoltDB(ctx), res)
 		for _, c := range stage.commands {
 			exitCode := c.cmd.Exec(ctx, c.cmd.Name(), c.args, dEnv, cliCtx)
 			require.Equal(t, 0, exitCode)
 		}
 	}
 
-	err := dEnv.DoltDB.GC(ctx, nil)
+	ddb := dEnv.DoltDB(ctx)
+	err := ddb.GC(ctx, types.GCModeDefault, purgingSafepointController{ddb})
 	require.NoError(t, err)
-	test.postGCFunc(ctx, t, dEnv.DoltDB, res)
+	test.postGCFunc(ctx, t, dEnv.DoltDB(ctx), res)
 
 	working, err := dEnv.WorkingRoot(ctx)
 	require.NoError(t, err)
 	// assert all out rows are present after gc
-	actual, err := sqle.ExecuteSelect(dEnv, working, test.query)
+	actual, err := sqle.ExecuteSelect(ctx, dEnv, working, test.query)
 	require.NoError(t, err)
 	assert.Equal(t, test.expected, actual)
 }
@@ -208,7 +209,7 @@ func testGarbageCollectionHasCacheDataCorruptionBugFix(t *testing.T) {
 	_, err = ns.Write(ctx, c1.Node())
 	require.NoError(t, err)
 
-	err = ddb.GC(ctx, nil)
+	err = ddb.GC(ctx, types.GCModeDefault, purgingSafepointController{ddb})
 	require.NoError(t, err)
 
 	c2 := newIntMap(t, ctx, ns, 2, 2)
@@ -264,4 +265,26 @@ func newAddrMap(t *testing.T, ctx context.Context, ns tree.NodeStore, key string
 	require.NoError(t, err)
 
 	return m
+}
+
+type purgingSafepointController struct {
+	ddb *doltdb.DoltDB
+}
+
+var _ (types.GCSafepointController) = purgingSafepointController{}
+
+func (c purgingSafepointController) BeginGC(ctx context.Context, keeper func(h hash.Hash) bool) error {
+	c.ddb.PurgeCaches()
+	return nil
+}
+
+func (c purgingSafepointController) EstablishPreFinalizeSafepoint(context.Context) error {
+	return nil
+}
+
+func (c purgingSafepointController) EstablishPostFinalizeSafepoint(context.Context) error {
+	return nil
+}
+
+func (c purgingSafepointController) CancelSafepoint() {
 }

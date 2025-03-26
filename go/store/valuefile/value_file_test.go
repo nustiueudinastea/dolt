@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dolthub/dolt/go/gen/fb/serial"
 	"github.com/dolthub/dolt/go/store/prolly"
 	"github.com/dolthub/dolt/go/store/prolly/message"
 	"github.com/dolthub/dolt/go/store/prolly/shim"
@@ -103,8 +104,9 @@ func TestRoundtripProllyMapIntoValueFile(t *testing.T) {
 		ref := vf.Values[i].(types.Ref)
 		v, err := vrw.ReadValue(ctx, ref.TargetHash())
 		require.NoError(t, err)
-		rootNode, err := shim.NodeFromValue(v)
+		rootNode, fileId, err := shim.NodeFromValue(v)
 		require.NoError(t, err)
+		require.Equal(t, fileId, serial.ProllyTreeNodeFileID)
 		m := prolly.NewMap(rootNode, vf.Ns, kd, vd)
 		assertProllyMapsEqual(t, expectedMaps[i], m)
 	}
@@ -130,7 +132,8 @@ var vd = val.NewTupleDescriptor(
 )
 
 func makeProllyMap(t *testing.T, ns tree.NodeStore, count int) (prolly.Map, [][2]val.Tuple) {
-	tuples := tree.RandomTuplePairs(count, kd, vd, ns)
+	ctx := context.Background()
+	tuples := tree.RandomTuplePairs(ctx, count, kd, vd, ns)
 	om := mustProllyMapFromTuples(t, kd, vd, ns, tuples)
 
 	for i := 0; i < len(tuples); i++ {

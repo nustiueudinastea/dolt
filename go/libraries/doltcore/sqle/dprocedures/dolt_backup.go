@@ -166,14 +166,19 @@ func restoreBackup(ctx *sql.Context, _ env.DbData, apr *argparser.ArgParseResult
 	dbName := strings.TrimSpace(apr.Arg(2))
 	force := apr.Contains(cli.ForceFlag)
 
-	remoteParams := map[string]string{}
-	r := env.NewRemote("", backupUrl, remoteParams)
+	sess := dsess.DSessFromSess(ctx.Session)
+
+	params, err := loadAwsParams(ctx, sess, apr, backupUrl, "restore")
+	if err != nil {
+		return err
+	}
+
+	r := env.NewRemote("", backupUrl, params)
 	srcDb, err := r.GetRemoteDB(ctx, types.Format_Default, nil)
 	if err != nil {
 		return err
 	}
 
-	sess := dsess.DSessFromSess(ctx.Session)
 	existingDbData, restoringExistingDb := sess.GetDbData(ctx, dbName)
 	if restoringExistingDb {
 		if !force {
@@ -199,7 +204,7 @@ func restoreBackup(ctx *sql.Context, _ env.DbData, apr *argparser.ArgParseResult
 			return err
 		}
 
-		if err = syncRootsFromBackup(ctx, clonedEnv.DbData(), sess, r); err != nil {
+		if err = syncRootsFromBackup(ctx, clonedEnv.DbData(ctx), sess, r); err != nil {
 			// If we're cloning into a directory that already exists do not erase it.
 			// Otherwise, make a best effort to delete any directory we created.
 			if userDirExisted {
@@ -235,24 +240,19 @@ func removeBackup(ctx *sql.Context, dbData env.DbData, apr *argparser.ArgParseRe
 	}
 }
 
-func syncBackupViaUrl(ctx *sql.Context, dbData env.DbData, sess *dsess.DoltSession, apr *argparser.ArgParseResults) error {
-	if apr.NArg() != 2 {
-		return fmt.Errorf("usage: dolt_backup('sync-url', BACKUP_URL)")
-	}
-
-	backupUrl := strings.TrimSpace(apr.Arg(1))
+func loadAwsParams(ctx *sql.Context, sess *dsess.DoltSession, apr *argparser.ArgParseResults, backupUrl, backupCmd string) (map[string]string, error) {
 	cfg := loadConfig(ctx)
 	scheme, absBackupUrl, err := env.GetAbsRemoteUrl(filesys.LocalFS, cfg, backupUrl)
 	if err != nil {
-		return fmt.Errorf("error: '%s' is not valid.", backupUrl)
+		return nil, fmt.Errorf("error: '%s' is not valid.", backupUrl)
 	} else if scheme == dbfactory.HTTPScheme || scheme == dbfactory.HTTPSScheme {
 		// not sure how to get the dialer so punting on this
-		return fmt.Errorf("sync-url does not support http or https backup locations currently")
+		return nil, fmt.Errorf("%s does not support http or https backup locations currently", backupCmd)
 	}
 
 	params, err := cli.ProcessBackupArgs(apr, scheme, absBackupUrl)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	credsFile, _ := sess.GetSessionVariable(ctx, dsess.AwsCredsFile)
@@ -271,6 +271,20 @@ func syncBackupViaUrl(ctx *sql.Context, dbData env.DbData, sess *dsess.DoltSessi
 	regionStr, isStr := credsRegion.(string)
 	if isStr && len(regionStr) > 0 {
 		params[dbfactory.AWSRegionParam] = regionStr
+	}
+
+	return params, nil
+}
+
+func syncBackupViaUrl(ctx *sql.Context, dbData env.DbData, sess *dsess.DoltSession, apr *argparser.ArgParseResults) error {
+	if apr.NArg() != 2 {
+		return fmt.Errorf("usage: dolt_backup('sync-url', BACKUP_URL)")
+	}
+
+	backupUrl := strings.TrimSpace(apr.Arg(1))
+	params, err := loadAwsParams(ctx, sess, apr, backupUrl, "sync-url")
+	if err != nil {
+		return err
 	}
 
 	b := env.NewRemote("__temp__", backupUrl, params)
@@ -337,15 +351,27 @@ func syncRootsFromBackup(ctx *sql.Context, dbData env.DbData, sess *dsess.DoltSe
 	return nil
 }
 
+// UserHasSuperAccess returns whether the current user has SUPER access. This is used by
+// Doltgres to check the user role by its own authentication methods.
+var UserHasSuperAccess = userHasSuperAccess
+
+func userHasSuperAccess(ctx *sql.Context) (bool, error) {
+	privs, counter := ctx.GetPrivilegeSet()
+	if counter == 0 {
+		return false, fmt.Errorf("unable to check user privileges")
+	}
+	return privs.Has(sql.PrivilegeType_Super) == true, nil
+}
+
 // checkBackupRestorePrivs returns an error if the user requesting to restore a database
 // does not have SUPER access. Since this is a potentially destructive operation, we restrict it to admins,
 // even though the SUPER privilege has been deprecated, since there isn't another appropriate global privilege.
 func checkBackupRestorePrivs(ctx *sql.Context) error {
-	privs, counter := ctx.GetPrivilegeSet()
-	if counter == 0 {
-		return fmt.Errorf("unable to check user privileges for dolt_backup() restore subcommand")
+	isSuper, err := UserHasSuperAccess(ctx)
+	if err != nil {
+		return fmt.Errorf("error in dolt_backup() restore subcommand: %w", err)
 	}
-	if privs.Has(sql.PrivilegeType_Super) == false {
+	if !isSuper {
 		return sql.ErrPrivilegeCheckFailed.New(ctx.Session.Client().User)
 	}
 

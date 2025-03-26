@@ -39,6 +39,8 @@ var slashCmds = []cli.Command{
 	BranchCmd{},
 	MergeCmd{},
 	SlashHelp{},
+	SlashEdit{},
+	SlashPager{},
 }
 
 // parseSlashCmd parses a command line string into a slice of strings, splitting on spaces, but allowing spaces within
@@ -68,6 +70,7 @@ func parseSlashCmd(cmd string) []string {
 	return cmdWords
 }
 
+// handleSlashCommand executes the command given by the fullCmd string. These are commands are direct calls to CLI commands.
 func handleSlashCommand(sqlCtx *sql.Context, subCmd cli.Command, fullCmd string, cliCtx cli.CliContext) error {
 	cliCmd := parseSlashCmd(fullCmd)
 	if len(cliCmd) == 0 {
@@ -109,7 +112,6 @@ func (s SlashHelp) Exec(ctx context.Context, _ string, args []string, _ *env.Dol
 		if ok {
 			foo, _ := cli.HelpAndUsagePrinters(subCmdInst.Docs())
 			foo()
-
 		} else {
 			cli.Println(fmt.Sprintf("Unknown command: %s", subCmd))
 		}
@@ -177,4 +179,90 @@ func findSlashCmd(cmd string) (cli.Command, bool) {
 		}
 	}
 	return nil, false
+}
+
+type SlashEdit struct{}
+
+var _ cli.Command = SlashEdit{}
+
+func (s SlashEdit) Name() string {
+	return "edit"
+}
+
+func (s SlashEdit) Description() string {
+	return "Use $EDITOR to edit the last command."
+}
+func (s SlashEdit) Exec(ctx context.Context, commandStr string, args []string, dEnv *env.DoltEnv, cliCtx cli.CliContext) int {
+
+	initialCmd := "select * from my_table;"
+
+	contents, err := execEditor(initialCmd, ".sql", cliCtx)
+	if err != nil {
+		cli.PrintErrln(err.Error())
+		return 1
+	}
+
+	cli.Printf("Edited command: %s", contents)
+
+	return 0
+}
+
+func (s SlashEdit) Docs() *cli.CommandDocumentation {
+	//TODO implement me
+	return &cli.CommandDocumentation{}
+}
+
+func (s SlashEdit) ArgParser() *argparser.ArgParser {
+	// No arguments.
+	return &argparser.ArgParser{}
+}
+
+type SlashPager struct{}
+
+func (s SlashPager) Docs() *cli.CommandDocumentation {
+	//TODO
+	return &cli.CommandDocumentation{}
+}
+
+func (s SlashPager) ArgParser() *argparser.ArgParser {
+	return &argparser.ArgParser{}
+}
+
+var _ cli.Command = SlashPager{}
+
+func (s SlashPager) Name() string {
+	return "pager"
+}
+func (s SlashPager) Description() string {
+	return "Enable or Disable the result pager"
+}
+
+// Exec is a little special because the shell is interested in the response. So rather than call Exec, it calls
+// handlePagerCommand function.
+func (s SlashPager) Exec(ctx context.Context, commandStr string, args []string, dEnv *env.DoltEnv, cliCtx cli.CliContext) int {
+	panic("runtime error. SlashPager.Exec should never be called.")
+}
+
+// handlePagerCommand executes the pager command and returns true if pager should be on, or false otherwise. An error
+// could come up if they provided weird input.
+func handlePagerCommand(fullCmd string) (bool, error) {
+	tokens := strings.Split(fullCmd, " ")
+
+	if len(tokens) == 0 || tokens[0] != "\\pager" {
+		return false, fmt.Errorf("runtime error: Expected \\pager command.")
+	}
+
+	if len(tokens) == 1 {
+		return false, fmt.Errorf("Usage: \\pager [on|off]")
+	}
+
+	// Kind of sloppy here,`\pager foo bar on` will work, but not the end of the world.
+	if tokens[len(tokens)-1] == "on" {
+		return true, nil
+	}
+	if tokens[len(tokens)-1] == "off" {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("Usage: \\pager [on|off]")
 }

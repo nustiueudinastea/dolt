@@ -45,7 +45,8 @@ type CreateIndexReturn struct {
 func CreateIndex(
 	ctx *sql.Context,
 	table *doltdb.Table,
-	tableName, indexName string,
+	tableName string,
+	indexName string,
 	columns []string,
 	prefixLengths []uint16,
 	props schema.IndexProperties,
@@ -149,7 +150,11 @@ func BuildSecondaryIndex(ctx *sql.Context, tbl *doltdb.Table, idx schema.Index, 
 		if err != nil {
 			return nil, err
 		}
-		primary := durable.ProllyMapFromIndex(m)
+		primary, err := durable.ProllyMapFromIndex(m)
+		if err != nil {
+			return nil, err
+		}
+
 		return BuildSecondaryProllyIndex(ctx, tbl.ValueReadWriter(), tbl.NodeStore(), sch, tableName, idx, primary)
 
 	default:
@@ -170,9 +175,9 @@ func BuildSecondaryProllyIndex(
 ) (durable.Index, error) {
 	var uniqCb DupEntryCb
 	if idx.IsUnique() {
-		kd := idx.Schema().GetKeyDescriptor()
+		kd := idx.Schema().GetKeyDescriptor(ns)
 		uniqCb = func(ctx context.Context, existingKey, newKey val.Tuple) error {
-			msg := FormatKeyForUniqKeyErr(newKey, kd)
+			msg := FormatKeyForUniqKeyErr(ctx, newKey, kd)
 			return sql.NewUniqueKeyErr(msg, false, nil)
 		}
 	}
@@ -182,7 +187,7 @@ func BuildSecondaryProllyIndex(
 // FormatKeyForUniqKeyErr formats the given tuple |key| using |d|. The resulting
 // string is suitable for use in a sql.UniqueKeyError
 // This is copied from the writer package to avoid pulling in that dependency and prevent cycles
-func FormatKeyForUniqKeyErr(key val.Tuple, d val.TupleDesc) string {
+func FormatKeyForUniqKeyErr(ctx context.Context, key val.Tuple, d val.TupleDesc) string {
 	var sb strings.Builder
 	sb.WriteString("[")
 	seenOne := false
@@ -191,7 +196,7 @@ func FormatKeyForUniqKeyErr(key val.Tuple, d val.TupleDesc) string {
 			sb.WriteString(",")
 		}
 		seenOne = true
-		sb.WriteString(d.FormatValue(i, key.GetField(i)))
+		sb.WriteString(d.FormatValue(ctx, i, key.GetField(i)))
 	}
 	sb.WriteString("]")
 	return sb.String()
@@ -213,13 +218,13 @@ func BuildUniqueProllyIndex(
 	primary prolly.Map,
 	cb DupEntryCb,
 ) (durable.Index, error) {
-	empty, err := durable.NewEmptyIndex(ctx, vrw, ns, idx.Schema())
+	empty, err := durable.NewEmptyIndexFromTableSchema(ctx, vrw, ns, idx, sch)
 	if err != nil {
 		return nil, err
 	}
-	secondary := durable.ProllyMapFromIndex(empty)
-	if schema.IsKeyless(sch) {
-		secondary = prolly.ConvertToSecondaryKeylessIndex(secondary)
+	secondary, err := durable.ProllyMapFromIndex(empty)
+	if err != nil {
+		return nil, err
 	}
 
 	iter, err := primary.IterAll(ctx)
@@ -285,7 +290,7 @@ type PrefixItr struct {
 }
 
 func NewPrefixItr(ctx context.Context, p val.Tuple, d val.TupleDesc, m rangeIterator) (PrefixItr, error) {
-	rng := prolly.PrefixRange(p, d)
+	rng := prolly.PrefixRange(ctx, p, d)
 	itr, err := m.IterRange(ctx, rng)
 	if err != nil {
 		return PrefixItr{}, err
@@ -332,16 +337,16 @@ type prollyUniqueKeyErr struct {
 
 // Error implements the error interface.
 func (u *prollyUniqueKeyErr) Error() string {
-	keyStr, _ := formatKey(u.k, u.kd)
+	keyStr, _ := formatKey(context.Background(), u.k, u.kd)
 	return fmt.Sprintf("duplicate unique key given: %s", keyStr)
 }
 
 // formatKey returns a comma-separated string representation of the key given
 // that matches the output of the old format.
-func formatKey(key val.Tuple, td val.TupleDesc) (string, error) {
+func formatKey(ctx context.Context, key val.Tuple, td val.TupleDesc) (string, error) {
 	vals := make([]string, td.Count())
 	for i := 0; i < td.Count(); i++ {
-		vals[i] = td.FormatValue(i, key.GetField(i))
+		vals[i] = td.FormatValue(ctx, i, key.GetField(i))
 	}
 
 	return fmt.Sprintf("[%s]", strings.Join(vals, ",")), nil

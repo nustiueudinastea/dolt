@@ -25,18 +25,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"sync"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/dolthub/dolt/go/store/chunks"
 	"github.com/dolthub/dolt/go/store/d"
 	"github.com/dolthub/dolt/go/store/hash"
 	"github.com/dolthub/dolt/go/store/util/sizecache"
 )
-
-type HashFilterFunc func(context.Context, hash.HashSet) (hash.HashSet, error)
 
 func unfilteredHashFunc(_ context.Context, hs hash.HashSet) (hash.HashSet, error) {
 	return hs, nil
@@ -56,6 +51,7 @@ type ValueReader interface {
 // package that implements Value writing.
 type ValueWriter interface {
 	WriteValue(ctx context.Context, v Value) (Ref, error)
+	PurgeCaches()
 }
 
 // ValueReadWriter is an interface that knows how to read and write Noms
@@ -536,120 +532,180 @@ func (lvs *ValueStore) Commit(ctx context.Context, current, last hash.Hash) (boo
 	return true, nil
 }
 
-func makeBatches(hss []hash.HashSet, count int) [][]hash.Hash {
-	const maxBatchSize = 16384
+type GCMode int
 
-	buffer := make([]hash.Hash, count)
-	i := 0
-	for _, hs := range hss {
-		for h := range hs {
-			buffer[i] = h
-			i++
-		}
-	}
+const (
+	GCModeDefault GCMode = iota
+	GCModeFull
+)
 
-	numBatches := (count + (maxBatchSize - 1)) / maxBatchSize
-	batchSize := count / numBatches
-
-	res := make([][]hash.Hash, numBatches)
-	for i := 0; i < numBatches; i++ {
-		if i != numBatches-1 {
-			res[i] = buffer[i*batchSize : (i+1)*batchSize]
-		} else {
-			res[i] = buffer[i*batchSize:]
-		}
-	}
-
-	return res
+type GCSafepointController interface {
+	BeginGC(ctx context.Context, keeper func(h hash.Hash) bool) error
+	EstablishPreFinalizeSafepoint(context.Context) error
+	EstablishPostFinalizeSafepoint(context.Context) error
+	CancelSafepoint()
 }
 
 // GC traverses the ValueStore from the root and removes unreferenced chunks from the ChunkStore
-func (lvs *ValueStore) GC(ctx context.Context, oldGenRefs, newGenRefs hash.HashSet, safepointF func() error) error {
+func (lvs *ValueStore) GC(ctx context.Context, mode GCMode, oldGenRefs, newGenRefs hash.HashSet, safepoint GCSafepointController) error {
 	lvs.versOnce.Do(lvs.expectVersion)
 
 	lvs.transitionToOldGenGC()
 	defer lvs.transitionToNoGC()
 
-	if gcs, ok := lvs.cs.(chunks.GenerationalCS); ok {
+	gcs, gcsOK := lvs.cs.(chunks.GenerationalCS)
+	collector, collectorOK := lvs.cs.(chunks.ChunkStoreGarbageCollector)
+
+	var chksMode chunks.GCMode
+
+	if gcsOK && collectorOK {
 		oldGen := gcs.OldGen()
 		newGen := gcs.NewGen()
 
-		err := newGen.BeginGC(lvs.gcAddChunk)
-		if err != nil {
-			return err
+		var oldGenHasMany chunks.HasManyFunc
+		switch mode {
+		case GCModeDefault:
+			oldGenHasMany = gcs.OldGenGCFilter()
+			chksMode = chunks.GCMode_Default
+		case GCModeFull:
+			oldGenHasMany = unfilteredHashFunc
+			chksMode = chunks.GCMode_Full
+		default:
+			return fmt.Errorf("unsupported GCMode %v", mode)
 		}
 
-		root, err := lvs.Root(ctx)
-		if err != nil {
-			newGen.EndGC()
-			return err
-		}
+		err := func() error {
+			err := collector.BeginGC(lvs.gcAddChunk, chksMode)
+			if err != nil {
+				return err
+			}
+			defer collector.EndGC(chksMode)
 
-		if root == (hash.Hash{}) {
-			// empty root
-			newGen.EndGC()
+			var callCancelSafepoint bool
+			if safepoint != nil {
+				err = safepoint.BeginGC(ctx, lvs.gcAddChunk)
+				if err != nil {
+					return err
+				}
+				callCancelSafepoint = true
+				defer func() {
+					if callCancelSafepoint {
+						safepoint.CancelSafepoint()
+					}
+				}()
+			}
+
+			root, err := lvs.Root(ctx)
+			if err != nil {
+				return err
+			}
+			if root.IsEmpty() {
+				return nil
+			}
+			newGenRefs.Insert(root)
+
+			var oldGenFinalizer, newGenFinalizer chunks.GCFinalizer
+			oldGenFinalizer, err = lvs.gc(ctx, oldGenRefs, oldGenHasMany, chksMode, collector, oldGen, nil, func() hash.HashSet {
+				n := lvs.transitionToNewGenGC()
+				newGenRefs.InsertAll(n)
+				return make(hash.HashSet)
+			})
+			if err != nil {
+				return err
+			}
+
+			var newFileHasMany chunks.HasManyFunc
+			newFileHasMany, err = oldGenFinalizer.AddChunksToStore(ctx)
+			if err != nil {
+				return err
+			}
+
+			if mode == GCModeDefault {
+				oldGenHasMany = gcs.OldGenGCFilter()
+			} else {
+				oldGenHasMany = newFileHasMany
+			}
+
+			newGenFinalizer, err = lvs.gc(ctx, newGenRefs, oldGenHasMany, chksMode, collector, newGen, safepoint, lvs.transitionToFinalizingGC)
+			if err != nil {
+				return err
+			}
+			callCancelSafepoint = false
+
+			err = newGenFinalizer.SwapChunksInStore(ctx)
+			if err != nil {
+				return err
+			}
+
+			if mode == GCModeFull {
+				err = oldGenFinalizer.SwapChunksInStore(ctx)
+				if err != nil {
+					return err
+				}
+			}
+
 			return nil
-		}
+		}()
 
-		oldGenRefs, err = oldGen.HasMany(ctx, oldGenRefs)
 		if err != nil {
 			return err
 		}
-
-		newGenRefs.Insert(root)
-
-		err = lvs.gc(ctx, oldGenRefs, oldGen.HasMany, newGen, oldGen, nil, func() hash.HashSet {
-			n := lvs.transitionToNewGenGC()
-			newGenRefs.InsertAll(n)
-			return make(hash.HashSet)
-		})
-		if err != nil {
-			newGen.EndGC()
-			return err
-		}
-
-		err = lvs.gc(ctx, newGenRefs, oldGen.HasMany, newGen, newGen, safepointF, lvs.transitionToFinalizingGC)
-		newGen.EndGC()
-		if err != nil {
-			return err
-		}
-
-	} else if collector, ok := lvs.cs.(chunks.ChunkStoreGarbageCollector); ok {
+	} else if collectorOK {
 		extraNewGenRefs := lvs.transitionToNewGenGC()
 		newGenRefs.InsertAll(extraNewGenRefs)
 		newGenRefs.InsertAll(oldGenRefs)
 
-		err := collector.BeginGC(lvs.gcAddChunk)
-		if err != nil {
-			return err
-		}
+		err := func() error {
+			err := collector.BeginGC(lvs.gcAddChunk, chunks.GCMode_Full)
+			if err != nil {
+				return err
+			}
+			defer collector.EndGC(chunks.GCMode_Full)
 
-		root, err := lvs.Root(ctx)
-		if err != nil {
-			collector.EndGC()
-			return err
-		}
+			var callCancelSafepoint bool
+			if safepoint != nil {
+				err = safepoint.BeginGC(ctx, lvs.gcAddChunk)
+				if err != nil {
+					return err
+				}
+				callCancelSafepoint = true
+				defer func() {
+					if callCancelSafepoint {
+						safepoint.CancelSafepoint()
+					}
+				}()
+			}
 
-		if root == (hash.Hash{}) {
-			// empty root
-			collector.EndGC()
+			root, err := lvs.Root(ctx)
+			if err != nil {
+				return err
+			}
+			if root.IsEmpty() {
+				return nil
+			}
+			newGenRefs.Insert(root)
+
+			var finalizer chunks.GCFinalizer
+			finalizer, err = lvs.gc(ctx, newGenRefs, unfilteredHashFunc, chunks.GCMode_Full, collector, collector, safepoint, lvs.transitionToFinalizingGC)
+			if err != nil {
+				return err
+			}
+			callCancelSafepoint = false
+
+			err = finalizer.SwapChunksInStore(ctx)
+			if err != nil {
+				return err
+			}
+
 			return nil
-		}
+		}()
 
-		newGenRefs.Insert(root)
-
-		err = lvs.gc(ctx, newGenRefs, unfilteredHashFunc, collector, collector, safepointF, lvs.transitionToFinalizingGC)
-		collector.EndGC()
 		if err != nil {
 			return err
 		}
 	} else {
 		return chunks.ErrUnsupportedOperation
 	}
-
-	// TODO: The decodedChunks cache can potentially allow phantom reads of
-	// already collected chunks until we clear it...
-	lvs.decodedChunks.Purge()
 
 	if tfs, ok := lvs.cs.(chunks.TableFileStore); ok {
 		return tfs.PruneTableFiles(ctx)
@@ -660,169 +716,66 @@ func (lvs *ValueStore) GC(ctx context.Context, oldGenRefs, newGenRefs hash.HashS
 
 func (lvs *ValueStore) gc(ctx context.Context,
 	toVisit hash.HashSet,
-	hashFilter HashFilterFunc,
+	hashFilter chunks.HasManyFunc,
+	chksMode chunks.GCMode,
 	src, dest chunks.ChunkStoreGarbageCollector,
-	safepointF func() error,
-	finalize func() hash.HashSet) error {
-	keepChunks := make(chan []hash.Hash, gcBuffSize)
-
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		return src.MarkAndSweepChunks(ctx, keepChunks, dest)
-	})
-
-	keepHashes := func(hs []hash.Hash) error {
-		select {
-		case keepChunks <- hs:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-
-	concurrency := runtime.GOMAXPROCS(0) - 1
-	if concurrency < 1 {
-		concurrency = 1
-	}
-	walker := newParallelRefWalker(ctx, lvs.nbf, concurrency)
-
-	eg.Go(func() error {
-		defer walker.Close()
-
-		err := lvs.gcProcessRefs(ctx, toVisit, keepHashes, walker, hashFilter, safepointF, finalize)
-		if err != nil {
-			return err
-		}
-
-		// NOTE: We do not defer this close here. When keepChunks
-		// closes, it signals to NBSStore.MarkAndSweepChunks that we
-		// are done walking the references. If gcProcessRefs returns an
-		// error, we did not successfully walk all references and we do
-		// not want MarkAndSweepChunks finishing its work, swapping
-		// table files, etc. It would be racing with returning an error
-		// here. Instead, we have returned the error above and that
-		// will force it to fail when the errgroup ctx fails.
-		close(keepChunks)
-		return nil
-	})
-
-	return eg.Wait()
-}
-
-func (lvs *ValueStore) gcProcessRefs(ctx context.Context,
-	initialToVisit hash.HashSet, keepHashes func(hs []hash.Hash) error,
-	walker *parallelRefWalker, hashFilter HashFilterFunc,
-	safepointF func() error,
-	finalize func() hash.HashSet) error {
-	visited := make(hash.HashSet)
-
-	process := func(initialToVisit hash.HashSet) error {
-		visited.InsertAll(initialToVisit)
-		toVisitCount := len(initialToVisit)
-		toVisit := []hash.HashSet{initialToVisit}
-		for toVisitCount > 0 {
-			batches := makeBatches(toVisit, toVisitCount)
-			toVisit = make([]hash.HashSet, len(batches)+1)
-			toVisitCount = 0
-			for i, batch := range batches {
-				vals, err := lvs.ReadManyValues(ctx, batch)
-				if err != nil {
-					return err
-				}
-				for i, v := range vals {
-					if v == nil {
-						return fmt.Errorf("gc failed, dangling reference requested %v", batch[i])
-					}
-				}
-
-				// GC skips ghost values, but other ref walkers don't. Filter them out here.
-				realVals := make(ValueSlice, 0, len(vals))
-				nonGhostBatch := make([]hash.Hash, 0, len(vals))
-				for _, v := range vals {
-					h, err := v.Hash(lvs.Format())
-					if err != nil {
-						return err
-					}
-					if _, ok := v.(GhostValue); ok {
-						visited.Insert(h) // Can't visit a ghost. That would be spooky.
-					} else {
-						realVals = append(realVals, v)
-						nonGhostBatch = append(nonGhostBatch, h)
-					}
-				}
-				vals = realVals
-
-				if err := keepHashes(nonGhostBatch); err != nil {
-					return err
-				}
-
-				hashes, err := walker.GetRefSet(visited, vals)
-				if err != nil {
-					return err
-				}
-
-				// continue processing
-				hashes, err = hashFilter(ctx, hashes)
-				if err != nil {
-					return err
-				}
-
-				toVisit[i] = hashes
-				toVisitCount += len(hashes)
-			}
-		}
-		return nil
-	}
-	err := process(initialToVisit)
+	safepointController GCSafepointController,
+	finalize func() hash.HashSet) (chunks.GCFinalizer, error) {
+	sweeper, err := src.MarkAndSweepChunks(ctx, lvs.getAddrs, hashFilter, dest, chksMode)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// We can accumulate hashes which which are already visited. We prune
-	// those here.
+	err = sweeper.SaveHashes(ctx, toVisit.ToSlice())
+	if err != nil {
+		cErr := sweeper.Close(ctx)
+		return nil, errors.Join(err, cErr)
+	}
+	toVisit = nil
+
+	if safepointController != nil {
+		err = safepointController.EstablishPreFinalizeSafepoint(ctx)
+		if err != nil {
+			cErr := sweeper.Close(ctx)
+			return nil, errors.Join(err, cErr)
+		}
+	}
 
 	// Before we call finalize(), we can process the current set of
 	// NewGenToVisit. NewGen -> Finalize is going to block writes until
 	// we are done, so its best to keep it as small as possible.
 	next := lvs.readAndResetNewGenToVisit()
-	if len(next) > 0 {
-		nextCopy := next.Copy()
-		for h, _ := range nextCopy {
-			if visited.Has(h) {
-				next.Remove(h)
-			}
-		}
-		next, err = hashFilter(ctx, next)
-		if err != nil {
-			return err
-		}
-		err = process(next)
-		if err != nil {
-			return err
-		}
+	err = sweeper.SaveHashes(ctx, next.ToSlice())
+	if err != nil {
+		cErr := sweeper.Close(ctx)
+		return nil, errors.Join(err, cErr)
 	}
+	next = nil
 
 	final := finalize()
-	finalCopy := final.Copy()
-	for h, _ := range finalCopy {
-		if visited.Has(h) {
-			final.Remove(h)
+	err = sweeper.SaveHashes(ctx, final.ToSlice())
+	if err != nil {
+		cErr := sweeper.Close(ctx)
+		return nil, errors.Join(err, cErr)
+	}
+	final = nil
+
+	if safepointController != nil {
+		err = safepointController.EstablishPostFinalizeSafepoint(ctx)
+		if err != nil {
+			cErr := sweeper.Close(ctx)
+			return nil, errors.Join(err, cErr)
 		}
 	}
-	finalCopy = nil
-	final, err = hashFilter(ctx, final)
+	finalizer, err := sweeper.Finalize(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	err = process(final)
-	if err != nil {
-		return err
-	}
+	return finalizer, sweeper.Close(ctx)
+}
 
-	if safepointF != nil {
-		return safepointF()
-	}
-	return nil
+func (lvs *ValueStore) PurgeCaches() {
+	lvs.decodedChunks.Purge()
 }
 
 // Close closes the underlying ChunkStore

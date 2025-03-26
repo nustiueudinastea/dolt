@@ -23,7 +23,7 @@ import (
 	"strings"
 )
 
-var ExpectedHeader = regexp.MustCompile(`// Copyright (2019|2020|2021|2022|2023|2024|2019-2020|2019-2021|2019-2022|2019-2023|2019-2024|2020-2021|2020-2022|2020-2023|2020-2024|2021-2022|2021-2023|2021-2024|2022-2023|2022-2024|2023-2024) Dolthub, Inc.
+var ExpectedHeader = regexp.MustCompile(`// Copyright (2019|2020|2021|2022|2023|2024|2025|2019-2020|2019-2021|2019-2022|2019-2023|2019-2024|2019-2025|2020-2021|2020-2022|2020-2023|2020-2024|2020-2025|2021-2022|2021-2023|2021-2024|2021-2025|2022-2023|2022-2024|2022-2025|2023-2024|2023-2025|2024-2025) Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 \(the "License"\);
 // you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ var ExpectedHeader = regexp.MustCompile(`// Copyright (2019|2020|2021|2022|2023|
 
 `)
 
-var ExpectedHeaderForFileFromNoms = regexp.MustCompile(`// Copyright (2019|2020|2021|2022|2023|2019-2020|2019-2021|2019-2022|2019-2023|2020-2021|2020-2022|2020-2023|2021-2022|2021-2023|2022-2023) Dolthub, Inc.
+var ExpectedHeaderForFileFromNoms = regexp.MustCompile(`// Copyright (2019|2020|2021|2022|2023|2019-2020|2019-2021|2019-2022|2019-2023|2019-2025|2020-2021|2020-2022|2020-2023|2021-2022|2021-2023|2022-2023) Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 \(the "License"\);
 // you may not use this file except in compliance with the License.
@@ -76,6 +76,7 @@ var CopiedNomsFiles []CopiedNomsFile = []CopiedNomsFile{
 	{Path: "store/prolly/tree/chunker.go", NomsPath: "go/types/sequence_chunker.go", HadCopyrightNotice: true},
 	{Path: "store/prolly/tree/node_cursor.go", NomsPath: "go/types/sequence_cursor.go", HadCopyrightNotice: true},
 	{Path: "store/prolly/tree/node_splitter.go", NomsPath: "go/types/rolling_value_hasher.go", HadCopyrightNotice: true},
+	{Path: "store/nbs/s3_object_reader.go", NomsPath: "go/nbs/s3_table_reader.go", HadCopyrightNotice: true},
 
 	// These included source files from noms did not have copyright notices.
 	{Path: "store/types/common_supertype.go", NomsPath: "go/types/common_supertype.go", HadCopyrightNotice: false},
@@ -96,8 +97,6 @@ var CopiedNomsFiles []CopiedNomsFile = []CopiedNomsFile{
 	{Path: "store/chunks/chunk_test.go", NomsPath: "go/chunks/chunk_test.go", HadCopyrightNotice: true},
 	{Path: "store/chunks/memory_store.go", NomsPath: "go/chunks/memory_store.go", HadCopyrightNotice: true},
 	{Path: "store/chunks/memory_store_test.go", NomsPath: "go/chunks/memory_store_test.go", HadCopyrightNotice: true},
-	{Path: "store/chunks/remote_requests.go", NomsPath: "go/chunks/remote_requests.go", HadCopyrightNotice: true},
-	{Path: "store/chunks/remote_requests_test.go", NomsPath: "go/chunks/remote_requests_test.go", HadCopyrightNotice: true},
 	{Path: "store/chunks/test_utils.go", NomsPath: "go/chunks/test_utils.go", HadCopyrightNotice: true},
 	{Path: "store/cmd/noms/commit_iterator.go", NomsPath: "cmd/noms/commit_iterator.go", HadCopyrightNotice: true},
 	{Path: "store/cmd/noms/noms.go", NomsPath: "cmd/noms/noms.go", HadCopyrightNotice: true},
@@ -157,8 +156,9 @@ var CopiedNomsFiles []CopiedNomsFile = []CopiedNomsFile{
 	{Path: "store/merge/three_way_test.go", NomsPath: "go/merge/three_way_test.go", HadCopyrightNotice: true},
 	{Path: "store/metrics/histogram.go", NomsPath: "go/metrics/histogram.go", HadCopyrightNotice: true},
 	{Path: "store/metrics/histogram_test.go", NomsPath: "go/metrics/histogram_test.go", HadCopyrightNotice: true},
-	{Path: "store/nbs/aws_chunk_source.go", NomsPath: "go/nbs/aws_chunk_source.go", HadCopyrightNotice: true},
-	{Path: "store/nbs/aws_chunk_source_test.go", NomsPath: "go/nbs/aws_chunk_source_test.go", HadCopyrightNotice: true},
+	{Path: "store/nbs/aws_table_chunk_source.go", NomsPath: "go/nbs/aws_chunk_source.go", HadCopyrightNotice: true},
+	{Path: "store/nbs/aws_table_chunk_source_test.go", NomsPath: "go/nbs/aws_chunk_source_test.go", HadCopyrightNotice: true},
+
 	{Path: "store/nbs/aws_table_persister.go", NomsPath: "go/nbs/aws_table_persister.go", HadCopyrightNotice: true},
 	{Path: "store/nbs/aws_table_persister_test.go", NomsPath: "go/nbs/aws_table_persister_test.go", HadCopyrightNotice: true},
 	{Path: "store/nbs/benchmarks/block_store_benchmarks.go", NomsPath: "go/nbs/benchmarks/block_store_benchmarks.go", HadCopyrightNotice: true},

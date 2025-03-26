@@ -28,6 +28,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/branch_control"
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/durable"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/gcctx"
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	"github.com/dolthub/dolt/go/libraries/doltcore/row"
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
@@ -44,26 +45,34 @@ import (
 
 // ExecuteSql executes all the SQL non-select statements given in the string against the root value given and returns
 // the updated root, or an error. Statements in the input string are split by `;\n`
-func ExecuteSql(dEnv *env.DoltEnv, root doltdb.RootValue, statements string) (doltdb.RootValue, error) {
+func ExecuteSql(ctx context.Context, dEnv *env.DoltEnv, root doltdb.RootValue, statements string) (doltdb.RootValue, error) {
 	tmpDir, err := dEnv.TempTableFilesDir()
 	if err != nil {
 		return nil, err
 	}
 
-	opts := editor.Options{Deaf: dEnv.DbEaFactory(), Tempdir: tmpDir}
-	db, err := NewDatabase(context.Background(), "dolt", dEnv.DbData(), opts)
+	opts := editor.Options{Deaf: dEnv.DbEaFactory(ctx), Tempdir: tmpDir}
+	db, err := NewDatabase(context.Background(), "dolt", dEnv.DbData(ctx), opts)
 	if err != nil {
 		return nil, err
 	}
 
-	engine, ctx, err := NewTestEngine(dEnv, context.Background(), db)
+	engine, sqlCtx, err := NewTestEngine(dEnv, context.Background(), db)
 	if err != nil {
 		return nil, err
 	}
 
-	err = ctx.Session.SetSessionVariable(ctx, sql.AutoCommitSessionVar, false)
+	err = ExecuteSqlOnEngine(sqlCtx, engine, statements)
 	if err != nil {
 		return nil, err
+	}
+	return db.GetRoot(sqlCtx)
+}
+
+func ExecuteSqlOnEngine(ctx *sql.Context, engine *sqle.Engine, statements string) error {
+	err := ctx.Session.SetSessionVariable(ctx, sql.AutoCommitSessionVar, false)
+	if err != nil {
+		return err
 	}
 
 	for _, query := range strings.Split(statements, ";\n") {
@@ -73,46 +82,50 @@ func ExecuteSql(dEnv *env.DoltEnv, root doltdb.RootValue, statements string) (do
 
 		sqlStatement, err := sqlparser.Parse(query)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		var execErr error
 		switch sqlStatement.(type) {
 		case *sqlparser.Show:
-			return nil, errors.New("Show statements aren't handled")
+			return errors.New("Show statements aren't handled")
 		case *sqlparser.Select, *sqlparser.OtherRead:
-			return nil, errors.New("Select statements aren't handled")
+			return errors.New("Select statements aren't handled")
 		case *sqlparser.Insert:
 			var rowIter sql.RowIter
 			_, rowIter, _, execErr = engine.Query(ctx, query)
 			if execErr == nil {
 				execErr = drainIter(ctx, rowIter)
 			}
-		case *sqlparser.DDL, *sqlparser.AlterTable:
+		case *sqlparser.DDL, *sqlparser.AlterTable, *sqlparser.DBDDL:
 			var rowIter sql.RowIter
 			_, rowIter, _, execErr = engine.Query(ctx, query)
 			if execErr == nil {
 				execErr = drainIter(ctx, rowIter)
 			}
 		default:
-			return nil, fmt.Errorf("Unsupported SQL statement: '%v'.", query)
+			return fmt.Errorf("Unsupported SQL statement: '%v'.", query)
 		}
 
 		if execErr != nil {
-			return nil, execErr
+			return execErr
 		}
 	}
 
-	err = dsess.DSessFromSess(ctx.Session).CommitTransaction(ctx, ctx.GetTransaction())
-	if err != nil {
-		return nil, err
+	// commit leftover transaction
+	trx := ctx.GetTransaction()
+	if trx != nil {
+		err = dsess.DSessFromSess(ctx.Session).CommitTransaction(ctx, trx)
+		if err != nil {
+			return err
+		}
 	}
 
-	return db.GetRoot(ctx)
+	return nil
 }
 
-func NewTestSQLCtxWithProvider(ctx context.Context, pro dsess.DoltDatabaseProvider, statsPro sql.StatsProvider) *sql.Context {
-	s, err := dsess.NewDoltSession(sql.NewBaseSession(), pro, config.NewMapConfig(make(map[string]string)), branch_control.CreateDefaultController(ctx), statsPro, writer.NewWriteSession)
+func NewTestSQLCtxWithProvider(ctx context.Context, pro dsess.DoltDatabaseProvider, config config.ReadWriteConfig, statsPro sql.StatsProvider, gcSafepointController *gcctx.GCSafepointController) *sql.Context {
+	s, err := dsess.NewDoltSession(sql.NewBaseSession(), pro, config, branch_control.CreateDefaultController(ctx), statsPro, writer.NewWriteSession, gcSafepointController)
 	if err != nil {
 		panic(err)
 	}
@@ -131,18 +144,20 @@ func NewTestEngine(dEnv *env.DoltEnv, ctx context.Context, db dsess.SqlDatabase)
 	if err != nil {
 		return nil, nil, err
 	}
+	gcSafepointController := gcctx.NewGCSafepointController()
 
 	engine := sqle.NewDefault(pro)
 
-	sqlCtx := NewTestSQLCtxWithProvider(ctx, pro, nil)
+	config, _ := dEnv.Config.GetConfig(env.GlobalConfig)
+	sqlCtx := NewTestSQLCtxWithProvider(ctx, pro, config, nil, gcSafepointController)
 	sqlCtx.SetCurrentDatabase(db.Name())
 	return engine, sqlCtx, nil
 }
 
 // ExecuteSelect executes the select statement given and returns the resulting rows, or an error if one is encountered.
-func ExecuteSelect(dEnv *env.DoltEnv, root doltdb.RootValue, query string) ([]sql.Row, error) {
+func ExecuteSelect(ctx context.Context, dEnv *env.DoltEnv, root doltdb.RootValue, query string) ([]sql.Row, error) {
 	dbData := env.DbData{
-		Ddb: dEnv.DoltDB,
+		Ddb: dEnv.DoltDB(ctx),
 		Rsw: dEnv.RepoStateWriter(),
 		Rsr: dEnv.RepoStateReader(),
 	}
@@ -152,18 +167,18 @@ func ExecuteSelect(dEnv *env.DoltEnv, root doltdb.RootValue, query string) ([]sq
 		return nil, err
 	}
 
-	opts := editor.Options{Deaf: dEnv.DbEaFactory(), Tempdir: tmpDir}
+	opts := editor.Options{Deaf: dEnv.DbEaFactory(ctx), Tempdir: tmpDir}
 	db, err := NewDatabase(context.Background(), "dolt", dbData, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	engine, ctx, err := NewTestEngine(dEnv, context.Background(), db)
+	engine, sqlCtx, err := NewTestEngine(dEnv, context.Background(), db)
 	if err != nil {
 		return nil, err
 	}
 
-	_, rowIter, _, err := engine.Query(ctx, query)
+	_, rowIter, _, err := engine.Query(sqlCtx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +188,7 @@ func ExecuteSelect(dEnv *env.DoltEnv, root doltdb.RootValue, query string) ([]sq
 		rowErr error
 		row    sql.Row
 	)
-	for row, rowErr = rowIter.Next(ctx); rowErr == nil; row, rowErr = rowIter.Next(ctx) {
+	for row, rowErr = rowIter.Next(sqlCtx); rowErr == nil; row, rowErr = rowIter.Next(sqlCtx) {
 		rows = append(rows, row)
 	}
 
@@ -342,7 +357,7 @@ func CreateEnvWithSeedData() (*env.DoltEnv, error) {
 		return nil, err
 	}
 
-	root, err = ExecuteSql(dEnv, root, seedData)
+	root, err = ExecuteSql(ctx, dEnv, root, seedData)
 	if err != nil {
 		return nil, err
 	}
@@ -422,10 +437,10 @@ func CreateEmptyTestTable(dEnv *env.DoltEnv, tableName string, sch schema.Schema
 		return err
 	}
 
-	vrw := dEnv.DoltDB.ValueReadWriter()
-	ns := dEnv.DoltDB.NodeStore()
+	vrw := dEnv.DoltDB(ctx).ValueReadWriter()
+	ns := dEnv.DoltDB(ctx).NodeStore()
 
-	rows, err := durable.NewEmptyIndex(ctx, vrw, ns, sch)
+	rows, err := durable.NewEmptyPrimaryIndex(ctx, vrw, ns, sch)
 	if err != nil {
 		return err
 	}
@@ -448,7 +463,7 @@ func CreateEmptyTestTable(dEnv *env.DoltEnv, tableName string, sch schema.Schema
 	return dEnv.UpdateWorkingRoot(ctx, newRoot)
 }
 
-// CreateTestDatabase creates a test database with the test data set in it.
+// CreateTestDatabase creates a test database with the test data set in it. Has a dirty workspace as well.
 func CreateTestDatabase() (*env.DoltEnv, error) {
 	ctx := context.Background()
 	dEnv, err := CreateEmptyTestDatabase()
@@ -486,7 +501,7 @@ func CreateTestDatabase() (*env.DoltEnv, error) {
 		return nil, err
 	}
 
-	root, err = ExecuteSql(dEnv, root, simpsonsRowData)
+	root, err = ExecuteSql(ctx, dEnv, root, simpsonsRowData)
 	if err != nil {
 		return nil, err
 	}
@@ -503,7 +518,10 @@ func SqlRowsFromDurableIndex(idx durable.Index, sch schema.Schema) ([]sql.Row, e
 	ctx := context.Background()
 	var sqlRows []sql.Row
 	if types.Format_Default == types.Format_DOLT {
-		rowData := durable.ProllyMapFromIndex(idx)
+		rowData, err := durable.ProllyMapFromIndex(idx)
+		if err != nil {
+			return nil, err
+		}
 		kd, vd := rowData.Descriptors()
 		iter, err := rowData.IterAll(ctx)
 		if err != nil {

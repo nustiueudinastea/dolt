@@ -438,9 +438,9 @@ func dumpViews(ctx *sql.Context, engine *engine.SqlEngine, root doltdb.RootValue
 		}
 		// We used to store just the SELECT part of a view, but now we store the entire CREATE VIEW statement
 		sqlEngine := engine.GetUnderlyingEngine()
-		binder := planbuilder.New(ctx, sqlEngine.Analyzer.Catalog, sqlEngine.Parser)
+		binder := planbuilder.New(ctx, sqlEngine.Analyzer.Catalog, sqlEngine.EventScheduler, sqlEngine.Parser)
 		binder.SetParserOptions(sql.NewSqlModeFromString(sqlMode).ParserOptions())
-		cv, _, _, _, err := binder.Parse(row[fragColIdx].(string), false)
+		cv, _, _, _, err := binder.Parse(row[fragColIdx].(string), nil, false)
 		if err != nil {
 			return err
 		}
@@ -595,7 +595,7 @@ func getTableWriter(ctx context.Context, dEnv *env.DoltEnv, tblOpts *tableOption
 	if err != nil {
 		return nil, errhand.BuildDError("error: ").AddCause(err).Build()
 	}
-	opts := editor.Options{Deaf: dEnv.DbEaFactory(), Tempdir: tmpDir}
+	opts := editor.Options{Deaf: dEnv.DbEaFactory(ctx), Tempdir: tmpDir}
 
 	writer, err := dEnv.FS.OpenForWriteAppend(filePath, os.ModePerm)
 	if err != nil {

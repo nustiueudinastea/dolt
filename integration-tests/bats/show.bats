@@ -191,7 +191,7 @@ assert_has_key_value() {
     dolt add .
     dolt sql -q "create table table3 (pk int PRIMARY KEY)"
     dolt sql -q "insert into table1 values (7), (8), (9)"
-    run dolt show WORKING
+    run dolt show --no-pretty WORKING
     [ $status -eq 0 ]
     [[ "$output" =~ "table1" ]] || false
     [[ "$output" =~ "table2" ]] || false
@@ -208,7 +208,7 @@ assert_has_key_value() {
     dolt add .
     dolt sql -q "create table table3 (pk int PRIMARY KEY)"
     dolt sql -q "insert into table1 values (7), (8), (9)"
-    run dolt show STAGED
+    run dolt show --no-pretty STAGED
     [ $status -eq 0 ]
     [[ "$output" =~ "table1" ]] || false
     [[ "$output" =~ "table2" ]] || false
@@ -225,16 +225,15 @@ assert_has_key_value() {
     dolt add .
     dolt sql -q "create table table3 (pk int PRIMARY KEY)"
     dolt sql -q "insert into table1 values (7), (8), (9)"
-    workingRoot=$(dolt show WORKING)
+    workingRoot=$(dolt show --no-pretty WORKING)
     tableAddress=$(extract_value table1 "$workingRoot")
 
-    run dolt show $tableAddress
+    run dolt show --no-pretty $tableAddress
     assert_has_key Schema "$output"
     assert_has_key Violations "$output"
     assert_has_key Autoinc "$output"
     assert_has_key "Primary index" "$output"
     assert_has_key "Secondary indexes" "$output"
-
 }
 
 @test "show: pretty commit from hash" {
@@ -316,4 +315,30 @@ EOF
     [[ "$output" =~ "Comment: " ]] || false
     [[ "$output" =~ "Checks: [" ]] || false
     [[ "$output" =~ "Collation: utf8mb4_0900_bin" ]] || false
+}
+
+@test "show: secondary index leaf" {
+    dolt sql <<EOF
+create table test(pk int primary key, v2 int unique);
+insert into test values (0, 35), (1, 19), (2, 3);
+EOF
+    run dolt show "#9afhmiubuqjviu4qocn15tqlgigea26l"
+    [ $status -eq 0 ]
+    [[ "$output" =~ "SerialMessage" ]] || false
+    [[ "$output" =~ "{ key: 03000000, 02000000 value:  }" ]] || false
+    [[ "$output" =~ "{ key: 13000000, 01000000 value:  }" ]] || false
+    [[ "$output" =~ "{ key: 23000000, 00000000 value:  }" ]] || false
+}
+
+@test "show: secondary index non-leaf" {
+    dolt sql <<EOF
+create table test(pk int primary key, v1 int, index(v1));
+insert into test values (1, 0);
+EOF
+    for i in {1..10}; do dolt sql -q "insert ignore into test select 2*(pk+$i), (pk+$i) from test;"; done
+    run dolt show "#3ir2otqqb8pnu28um6jc1ipv05iamdlk"
+    [ $status -eq 0 ]
+    [[ "$output" =~ "SerialMessage" ]] || false
+    [[ "$output" =~ "{ key: 73000000, e6000000 ref: #pdcuscnfqsusgil1642k5hup1cp5co6t }" ]] || false
+    [[ "$output" =~ "{ key: f4090000, e8130000 ref: #hddhk8djkj275q1so9fs3ag48v7qsfsi }" ]] || false
 }

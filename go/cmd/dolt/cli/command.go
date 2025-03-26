@@ -23,6 +23,7 @@ import (
 	"syscall"
 
 	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/vitess/go/vt/sqlparser"
 	"github.com/fatih/color"
 
 	eventsapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
@@ -86,6 +87,7 @@ type SignalCommand interface {
 // SQL. The Queryist can be obtained from the CliContext passed into the Exec method by calling the QueryEngine method.
 type Queryist interface {
 	Query(ctx *sql.Context, query string) (sql.Schema, sql.RowIter, *sql.QueryFlags, error)
+	QueryWithBindings(ctx *sql.Context, query string, parsed sqlparser.Statement, bindings map[string]sqlparser.Expr, qFlags *sql.QueryFlags) (sql.Schema, sql.RowIter, *sql.QueryFlags, error)
 }
 
 // This type is to store the content of a documented command, elsewhere we can transform this struct into
@@ -189,8 +191,7 @@ func (hc SubCommandHandler) Exec(ctx context.Context, commandStr string, args []
 	}
 
 	for _, cmd := range hc.Subcommands {
-		lwrName := strings.ToLower(cmd.Name())
-		if lwrName == subCommandStr {
+		if strings.EqualFold(cmd.Name(), subCommandStr) {
 			return hc.handleCommand(ctx, commandStr+" "+subCommandStr, cmd, args[1:], dEnv, cliCtx)
 		}
 	}
@@ -235,8 +236,8 @@ func (hc SubCommandHandler) handleCommand(ctx context.Context, commandStr string
 	}
 
 	fgc, ok := cmd.(FormatGatedCommand)
-	if ok && dEnv.DoltDB != nil && fgc.GatedForNBF(dEnv.DoltDB.Format()) {
-		vs := dEnv.DoltDB.Format().VersionString()
+	if ok && dEnv.DoltDB(ctx) != nil && fgc.GatedForNBF(dEnv.DoltDB(ctx).Format()) {
+		vs := dEnv.DoltDB(ctx).Format().VersionString()
 		err := fmt.Sprintf("Dolt command '%s' is not supported in format %s", cmd.Name(), vs)
 		PrintErrln(color.YellowString(err))
 		return 1

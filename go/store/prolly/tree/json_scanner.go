@@ -38,7 +38,7 @@ type JsonScanner struct {
 	valueOffset int
 }
 
-var jsonParseError = fmt.Errorf("an error occurred while reading or writing JSON to/from the database. This is most likely a bug, but could indicate database corruption")
+var jsonParseError = fmt.Errorf("encountered invalid JSON while reading JSON from the database, or while preparing to write JSON to the database. This is most likely a bug in JSON diffing")
 
 func (j JsonScanner) Clone() JsonScanner {
 	return JsonScanner{
@@ -118,6 +118,14 @@ func (s *JsonScanner) AdvanceToNextLocation() error {
 		} else {
 			return s.acceptNextKeyValue()
 		}
+	case middleOfStringValue:
+		finishedString, err := s.acceptRestOfValueString()
+		if finishedString {
+			s.currentPath.setScannerState(endOfValue)
+		} else {
+			s.currentPath.setScannerState(middleOfStringValue)
+		}
+		return err
 	default:
 		return jsonParseError
 	}
@@ -127,11 +135,16 @@ func (s *JsonScanner) acceptValue() error {
 	current := s.current()
 	switch current {
 	case '"':
-		_, err := s.acceptString()
+		finishedString, err := s.acceptValueString()
 		if err != nil {
 			return err
 		}
-		s.currentPath.setScannerState(endOfValue)
+		if finishedString {
+			s.currentPath.setScannerState(endOfValue)
+		} else {
+			s.currentPath.setScannerState(middleOfStringValue)
+		}
+
 		return nil
 	case '[':
 		s.valueOffset++
@@ -177,12 +190,36 @@ func (s *JsonScanner) accept(b byte) error {
 	return nil
 }
 
-func (s *JsonScanner) acceptString() ([]byte, error) {
-	err := s.accept('"')
+func (s *JsonScanner) acceptKeyString() (stringBytes []byte, err error) {
+	err = s.accept('"')
 	if err != nil {
 		return nil, err
 	}
 	stringStart := s.valueOffset
+	for s.current() != '"' {
+		switch s.current() {
+		case endOfFile:
+			return nil, jsonParseError
+		case '\\':
+			s.valueOffset++
+		}
+		s.valueOffset++
+	}
+	result := s.jsonBuffer[stringStart:s.valueOffset]
+	// Advance past the ending quotes
+	s.valueOffset++
+	return result, nil
+}
+
+func (s *JsonScanner) acceptValueString() (finishedString bool, err error) {
+	err = s.accept('"')
+	if err != nil {
+		return false, err
+	}
+	return s.acceptRestOfValueString()
+}
+
+func (s *JsonScanner) acceptRestOfValueString() (finishedString bool, err error) {
 	for s.current() != '"' {
 		switch s.current() {
 		case '\\':
@@ -190,9 +227,9 @@ func (s *JsonScanner) acceptString() ([]byte, error) {
 		}
 		s.valueOffset++
 	}
-	result := s.jsonBuffer[stringStart:s.valueOffset]
+	// Advance past the ending quotes
 	s.valueOffset++
-	return result, nil
+	return true, nil
 }
 
 func (s *JsonScanner) acceptKeyValue() error {
@@ -228,7 +265,7 @@ func (s *JsonScanner) acceptNextKeyValue() error {
 }
 
 func (s *JsonScanner) acceptObjectKey() error {
-	objectKey, err := s.acceptString()
+	objectKey, err := s.acceptKeyString()
 	if err != nil {
 		return err
 	}

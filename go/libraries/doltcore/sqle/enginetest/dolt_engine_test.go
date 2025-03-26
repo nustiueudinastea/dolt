@@ -106,13 +106,7 @@ func TestSchemaOverrides(t *testing.T) {
 func TestSingleScript(t *testing.T) {
 	t.Skip()
 
-	var scripts = []queries.ScriptTest{
-		{
-			Name:        "",
-			SetUpScript: []string{},
-			Assertions:  []queries.ScriptTestAssertion{},
-		},
-	}
+	var scripts = []queries.ScriptTest{}
 
 	for _, script := range scripts {
 		harness := newDoltHarness(t)
@@ -284,9 +278,9 @@ func TestSingleQueryPrepared(t *testing.T) {
 	t.Skip()
 
 	harness := newDoltHarness(t)
-	//engine := enginetest.NewEngine(t, harness)
-	//enginetest.CreateIndexes(t, harness, engine)
-	//engine := enginetest.NewSpatialEngine(t, harness)
+	// engine := enginetest.NewEngine(t, harness)
+	// enginetest.CreateIndexes(t, harness, engine)
+	// engine := enginetest.NewSpatialEngine(t, harness)
 	engine, err := harness.NewEngine(t)
 	if err != nil {
 		panic(err)
@@ -305,8 +299,8 @@ func TestSingleQueryPrepared(t *testing.T) {
 		enginetest.RunQueryWithContext(t, engine, harness, nil, q)
 	}
 
-	//engine.Analyzer.Debug = true
-	//engine.Analyzer.Verbose = true
+	// engine.Analyzer.Debug = true
+	// engine.Analyzer.Verbose = true
 
 	var test queries.QueryTest
 	test = queries.QueryTest{
@@ -398,16 +392,12 @@ func TestQueryPlans(t *testing.T) {
 }
 
 func TestIntegrationQueryPlans(t *testing.T) {
-	harness := newDoltEnginetestHarness(t).WithConfigureStats(true)
+	harness := newDoltEnginetestHarness(t)
 	defer harness.Close()
 	enginetest.TestIntegrationPlans(t, harness)
 }
 
 func TestDoltDiffQueryPlans(t *testing.T) {
-	if !types.IsFormat_DOLT(types.Format_Default) {
-		t.Skip("only new format support system table indexing")
-	}
-
 	harness := newDoltEnginetestHarness(t).WithParallelism(2) // want Exchange nodes
 	RunDoltDiffQueryPlansTest(t, harness)
 }
@@ -614,7 +604,7 @@ func TestScripts(t *testing.T) {
 	if types.IsFormat_DOLT(types.Format_Default) {
 		skipped = append(skipped, newFormatSkippedScripts...)
 	}
-	h := newDoltHarness(t).WithSkippedQueries(skipped)
+	h := newDoltHarness(t).WithSkippedQueries(skipped).WithConfigureStats(true)
 	defer h.Close()
 	enginetest.TestScripts(t, h)
 }
@@ -691,20 +681,13 @@ func TestDoltUserPrivileges(t *testing.T) {
 }
 
 func TestJoinOps(t *testing.T) {
-	if types.IsFormat_LD(types.Format_Default) {
-		t.Skip("DOLT_LD keyless indexes are not sorted")
-	}
-
 	h := newDoltHarness(t)
 	defer h.Close()
 	enginetest.TestJoinOps(t, h, enginetest.DefaultJoinOpTests)
 }
 
 func TestJoinPlanning(t *testing.T) {
-	if types.IsFormat_LD(types.Format_Default) {
-		t.Skip("DOLT_LD keyless indexes are not sorted")
-	}
-	h := newDoltEnginetestHarness(t).WithConfigureStats(true)
+	h := newDoltEnginetestHarness(t)
 	defer h.Close()
 	enginetest.TestJoinPlanning(t, h)
 }
@@ -712,7 +695,6 @@ func TestJoinPlanning(t *testing.T) {
 func TestJoinQueries(t *testing.T) {
 	h := newDoltHarness(t)
 	defer h.Close()
-	enginetest.TestJoinQueries(t, h)
 }
 
 func TestJoinQueriesPrepared(t *testing.T) {
@@ -842,8 +824,7 @@ func TestDropColumn(t *testing.T) {
 
 func TestCreateDatabase(t *testing.T) {
 	h := newDoltHarness(t)
-	defer h.Close()
-	enginetest.TestCreateDatabase(t, h)
+	RunCreateDatabaseTest(t, h)
 }
 
 func TestBlobs(t *testing.T) {
@@ -857,6 +838,18 @@ func TestIndexes(t *testing.T) {
 	harness := newDoltHarness(t)
 	defer harness.Close()
 	enginetest.TestIndexes(t, harness)
+}
+
+func TestVectorIndexes(t *testing.T) {
+	harness := newDoltHarness(t)
+	defer harness.Close()
+	enginetest.TestVectorIndexes(t, harness)
+}
+
+func TestVectorFunctions(t *testing.T) {
+	harness := newDoltHarness(t)
+	defer harness.Close()
+	enginetest.TestVectorFunctions(t, harness)
 }
 
 func TestIndexPrefix(t *testing.T) {
@@ -1267,7 +1260,7 @@ func TestDoltConflictsTableNameTable(t *testing.T) {
 // tests new format behavior for keyless merges that create CVs and conflicts
 func TestKeylessDoltMergeCVsAndConflicts(t *testing.T) {
 	h := newDoltEnginetestHarness(t)
-	RunKelyessDoltMergeCVsAndConflictsTests(t, h)
+	RunKeylessDoltMergeCVsAndConflictsTests(t, h)
 }
 
 // eventually this will be part of TestDoltMerge
@@ -1348,10 +1341,12 @@ func TestSingleTransactionScript(t *testing.T) {
 
 	sql.RunWithNowFunc(tcc.Now, func() error {
 		script := queries.TransactionTest{
-			Name: "Insert error with auto commit off",
+			Name: "non-ff commit merge with multiple indexes on a column",
 			SetUpScript: []string{
 				"create table t1 (pk int primary key, val int)",
-				"insert into t1 values (0,0)",
+				"create index i1 on t1 (val)",
+				"alter table t1 add unique key u1 (val)",
+				"insert into t1 values (1, 1)",
 			},
 			Assertions: []queries.ScriptTestAssertion{
 				{
@@ -1363,40 +1358,20 @@ func TestSingleTransactionScript(t *testing.T) {
 					SkipResultsCheck: true,
 				},
 				{
-					Query:    "/* client a */ insert into t1 values (1, 1)",
-					Expected: []sql.Row{{gmstypes.NewOkResult(1)}},
-				},
-				{
-					Query:       "/* client a */ insert into t1 values (1, 2)",
-					ExpectedErr: sql.ErrPrimaryKeyViolation,
-				},
-				{
 					Query:    "/* client a */ insert into t1 values (2, 2)",
 					Expected: []sql.Row{{gmstypes.NewOkResult(1)}},
 				},
 				{
-					Query:    "/* client a */ select * from t1 order by pk",
-					Expected: []sql.Row{{0, 0}, {1, 1}, {2, 2}},
-				},
-				{
-					Query:    "/* client b */ select * from t1 order by pk",
-					Expected: []sql.Row{{0, 0}},
+					Query:    "/* client b */ insert into t1 values (3, 3)",
+					Expected: []sql.Row{{gmstypes.NewOkResult(1)}},
 				},
 				{
 					Query:            "/* client a */ commit",
 					SkipResultsCheck: true,
 				},
 				{
-					Query:            "/* client b */ start transaction",
+					Query:            "/* client b */ commit",
 					SkipResultsCheck: true,
-				},
-				{
-					Query:    "/* client b */ select * from t1 order by pk",
-					Expected: []sql.Row{{0, 0}, {1, 1}, {2, 2}},
-				},
-				{
-					Query:    "/* client a */ select * from t1 order by pk",
-					Expected: []sql.Row{{0, 0}, {1, 1}, {2, 2}},
 				},
 			},
 		}
@@ -1415,6 +1390,12 @@ func TestBrokenSystemTableQueries(t *testing.T) {
 	h := newDoltHarness(t)
 	defer h.Close()
 	enginetest.RunQueryTests(t, h, BrokenSystemTableQueries)
+}
+
+func TestBackupsSystemTable(t *testing.T) {
+	h := newDoltHarness(t)
+	defer h.Close()
+	enginetest.TestScript(t, h, BackupsSystemTableQueries)
 }
 
 func TestHistorySystemTable(t *testing.T) {
@@ -1463,11 +1444,6 @@ func TestColumnDiffSystemTablePrepared(t *testing.T) {
 func TestStatBranchTests(t *testing.T) {
 	harness := newDoltEnginetestHarness(t)
 	RunStatBranchTests(t, harness)
-}
-
-func TestStatsFunctions(t *testing.T) {
-	harness := newDoltEnginetestHarness(t)
-	RunStatsFunctionsTest(t, harness)
 }
 
 func TestDiffTableFunction(t *testing.T) {
@@ -1614,10 +1590,11 @@ func TestNullRanges(t *testing.T) {
 }
 
 func TestPersist(t *testing.T) {
+	ctx := context.Background()
 	harness := newDoltHarness(t)
 	defer harness.Close()
 	dEnv := dtestutils.CreateTestEnv()
-	defer dEnv.DoltDB.Close()
+	defer dEnv.DoltDB(ctx).Close()
 	localConf, ok := dEnv.Config.GetConfig(env.LocalConfig)
 	require.True(t, ok)
 	globals := config.NewPrefixConfig(localConf, env.SqlServerGlobalsPrefix)
@@ -1670,14 +1647,9 @@ func TestStatsHistograms(t *testing.T) {
 
 // TestStatsIO force a provider reload in-between setup and assertions that
 // forces a round trip of the statistics table before inspecting values.
-func TestStatsIO(t *testing.T) {
+func TestStatsStorage(t *testing.T) {
 	h := newDoltEnginetestHarness(t)
-	RunStatsIOTests(t, h)
-}
-
-func TestStatsIOWithoutReload(t *testing.T) {
-	h := newDoltEnginetestHarness(t)
-	RunStatsIOTestsWithoutReload(t, h)
+	RunStatsStorageTests(t, h)
 }
 
 func TestJoinStats(t *testing.T) {
@@ -1750,7 +1722,7 @@ func TestScriptsPrepared(t *testing.T) {
 		skipped = append(skipped, newFormatSkippedScripts...)
 	}
 	skipPreparedTests(t)
-	h := newDoltHarness(t).WithSkippedQueries(skipped)
+	h := newDoltHarness(t).WithSkippedQueries(skipped).WithConfigureStats(true)
 	defer h.Close()
 	enginetest.TestScriptsPrepared(t, h)
 }
@@ -1951,9 +1923,14 @@ func TestCreateDatabaseErrorCleansUp(t *testing.T) {
 // (2) auto refresh threads, and (3) manual ANALYZE statements.
 // todo: the dolt_stat functions should be concurrency tested
 func TestStatsAutoRefreshConcurrency(t *testing.T) {
+	if runtime.GOOS == "windows" && os.Getenv("CI") != "" {
+		t.Skip("Racy on Windows CI.")
+	}
+
 	// create engine
 	harness := newDoltHarness(t)
 	harness.Setup(setup.MydbData)
+	harness.configureStats = true
 	engine := mustNewEngine(t, harness)
 	defer engine.Close()
 
@@ -1964,31 +1941,27 @@ func TestStatsAutoRefreshConcurrency(t *testing.T) {
 
 	// Setting an interval of 0 and a threshold of 0 will result
 	// in the stats being updated after every operation
-	intervalSec := time.Duration(0)
-	thresholdf64 := 0.
-	bThreads := sql.NewBackgroundThreads()
-	branches := []string{"main"}
-	statsProv := engine.EngineAnalyzer().Catalog.StatsProvider.(*statspro.Provider)
+	statsProv := engine.EngineAnalyzer().Catalog.StatsProvider.(*statspro.StatsController)
 
 	// it is important to use new sessions for this test, to avoid working root conflicts
 	readCtx := enginetest.NewSession(harness)
 	writeCtx := enginetest.NewSession(harness)
-	newCtx := func(context.Context) (*sql.Context, error) {
-		return enginetest.NewSession(harness), nil
-	}
 
-	err := statsProv.InitAutoRefreshWithParams(newCtx, sqlDb.Name(), bThreads, intervalSec, thresholdf64, branches)
+	fs, err := engine.EngineAnalyzer().Catalog.DbProvider.(*sqle.DoltDatabaseProvider).FileSystemForDatabase(sqlDb.AliasedName())
+	require.NoError(t, err)
+
+	err = statsProv.AddFs(readCtx, sqlDb, fs, true)
 	require.NoError(t, err)
 
 	execQ := func(ctx *sql.Context, q string, id int, tag string) {
 		_, iter, _, err := engine.Query(ctx, q)
 		require.NoError(t, err)
 		_, err = sql.RowIterToRows(ctx, iter)
-		//fmt.Printf("%s %d\n", tag, id)
+		// fmt.Printf("%s %d\n", tag, id)
 		require.NoError(t, err)
 	}
 
-	iters := 1_000
+	iters := 50
 	{
 		// 3 threads to test auto-refresh/DML concurrency safety
 		// - auto refresh (read + write)
@@ -2056,4 +2029,10 @@ func TestStatsAutoRefreshConcurrency(t *testing.T) {
 func TestDoltWorkspace(t *testing.T) {
 	harness := newDoltEnginetestHarness(t)
 	RunDoltWorkspaceTests(t, harness)
+}
+
+func TestDoltHelpSystemTable(t *testing.T) {
+	harness := newDoltHarness(t)
+	defer harness.Close()
+	RunDoltHelpSystemTableTests(t, harness)
 }

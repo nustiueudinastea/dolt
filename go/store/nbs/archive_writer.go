@@ -18,11 +18,16 @@ import (
 	"bytes"
 	"crypto/sha512"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 
+	"github.com/dolthub/gozstd"
+
+	"github.com/dolthub/dolt/go/store/chunks"
 	"github.com/dolthub/dolt/go/store/hash"
 )
 
@@ -46,6 +51,10 @@ const (
 )
 
 type archiveWriter struct {
+	// MD5 is calculated on the entire output, so this hash sink wraps actual ByteSink.
+	md5Summer *HashingByteSink
+	// SHA512 is calculated on chunks of the output stream, so will be reset at appropriate times. This
+	// sinker is what archive code writes to, and it wraps the MD5 sink.
 	output           *HashingByteSink
 	bytesWritten     uint64
 	stagedBytes      stagedByteSpanSlice
@@ -57,16 +66,18 @@ type archiveWriter struct {
 	indexCheckSum    sha512Sum
 	metadataCheckSum sha512Sum
 	footerCheckSum   sha512Sum
+	fullMD5          md5Sum
 	workflowStage    stage
 	finalPath        string
+	chunkDataLength  uint64
 }
 
 /*
 There is a workflow to writing an archive:
  1. writeByteSpan: Write a group of bytes to the archive. This will immediately write the bytes to the output, and
     return an ID for the byte span. Caller must keep track of this ID.
- 2. stageChunk: Given a hash, dictionary (as byteSpan ID), and data (as byteSpan ID), stage a chunk for writing. This
-    does not write anything to disk yet.
+ 2. stageZStdChunk: Given a hash, dictionary (as byteSpan ID), and data (as byteSpan ID), stage a chunk for writing. This
+    does not write anything to disk yet. stageSnappyChunk is a similar function for snappy compressed chunks (no dictionary).
  3. Repeat steps 1 and 2 as necessary. You can interleave them, but all chunks must be staged before the next step.
  4. finalizeByteSpans: At this point, all byte spans have been written out, and the checksum for the data block
     is calculated. No more byte spans can be written after this step.
@@ -78,22 +89,35 @@ There is a workflow to writing an archive:
 
 When all of these steps have been completed without error, the ByteSink used to create the writer can be flushed and closed
 to complete the archive writing process.
+
+The archiveWriter is not thread safe, and should only be used by a single routine for its entire build workflow.
 */
 
-// newArchiveWriter - Create an *archiveWriter with the given output ByteSync, which will be used to materialize an archive on disk.
-func newArchiveWriter() (*archiveWriter, error) {
-	bs, err := NewBufferedFileByteSink("", defaultTableSinkBlockSize, defaultChBufferSize)
+// newArchiveWriter creates a new archiveWriter. Output is written to a temp file, as the file name won't be known
+// until we've finished writing the footer.
+func newArchiveWriter(tmpDir string) (*archiveWriter, error) {
+	bs, err := NewBufferedFileByteSink(tmpDir, defaultTableSinkBlockSize, defaultChBufferSize)
 	if err != nil {
 		return nil, err
 	}
-
-	hbs := NewSHA512HashingByteSink(bs)
-	return &archiveWriter{output: hbs, seenChunks: hash.HashSet{}}, nil
+	hbMd5 := NewMD5HashingByteSink(bs)
+	hbSha := NewSHA512HashingByteSink(hbMd5)
+	return &archiveWriter{
+		md5Summer:  hbMd5,
+		seenChunks: hash.HashSet{},
+		output:     hbSha,
+	}, nil
 }
 
+// newArchiveWriter - Create an *archiveWriter with the given output ByteSync. This is used for testing.
 func newArchiveWriterWithSink(bs ByteSink) *archiveWriter {
-	hbs := NewSHA512HashingByteSink(bs)
-	return &archiveWriter{output: hbs, seenChunks: hash.HashSet{}}
+	hbMd5 := NewMD5HashingByteSink(bs)
+	hbSha := NewSHA512HashingByteSink(hbMd5)
+	return &archiveWriter{
+		md5Summer:  hbMd5,
+		seenChunks: hash.HashSet{},
+		output:     hbSha,
+	}
 }
 
 // writeByteSpan writes a byte span to the archive, returning the ByteSpan ID if the write was successful. Note
@@ -105,7 +129,7 @@ func (aw *archiveWriter) writeByteSpan(b []byte) (uint32, error) {
 	}
 
 	if len(b) == 0 {
-		return 0, fmt.Errorf("Rutime error: empty compressed byte span")
+		return 0, fmt.Errorf("Runtime error: empty compressed byte span")
 	}
 
 	offset := aw.bytesWritten
@@ -128,9 +152,11 @@ func (aw *archiveWriter) chunkSeen(h hash.Hash) bool {
 	return aw.seenChunks.Has(h)
 }
 
-func (aw *archiveWriter) stageChunk(hash hash.Hash, dictionary, data uint32) error {
+// stageZStdChunk stages a zStd compressed chunk for writing. The |dictionary| and |data| arguments must refer to IDs
+// returned by |writeByteSpan|.
+func (aw *archiveWriter) stageZStdChunk(hash hash.Hash, dictionary, data uint32) error {
 	if aw.workflowStage != stageByteSpan {
-		return fmt.Errorf("Runtime error: stageChunk called out of order")
+		return fmt.Errorf("Runtime error: stageZStdChunk called out of order")
 	}
 
 	if data == 0 || data > uint32(len(aw.stagedBytes)) {
@@ -139,12 +165,31 @@ func (aw *archiveWriter) stageChunk(hash hash.Hash, dictionary, data uint32) err
 	if aw.seenChunks.Has(hash) {
 		return ErrDuplicateChunkWritten
 	}
-	if dictionary > uint32(len(aw.stagedBytes)) {
+	if dictionary == 0 || dictionary > uint32(len(aw.stagedBytes)) {
 		return ErrInvalidDictionaryRange
 	}
 
 	aw.seenChunks.Insert(hash)
 	aw.stagedChunks = append(aw.stagedChunks, stagedChunkRef{hash, dictionary, data})
+	return nil
+}
+
+// stageSnappyChunk stages a snappy compressed chunk for writing. This is similar to stageZStdChunk, but does not require
+// the dictionary. the |dataId| must refer to an ID returned by |writeByteSpan|.
+func (aw *archiveWriter) stageSnappyChunk(hash hash.Hash, dataId uint32) error {
+	if aw.workflowStage != stageByteSpan {
+		return fmt.Errorf("Runtime error: stageSnappyChunk called out of order")
+	}
+
+	if dataId == 0 || dataId > uint32(len(aw.stagedBytes)) {
+		return ErrInvalidChunkRange
+	}
+	if aw.seenChunks.Has(hash) {
+		return ErrDuplicateChunkWritten
+	}
+
+	aw.seenChunks.Insert(hash)
+	aw.stagedChunks = append(aw.stagedChunks, stagedChunkRef{hash, 0, dataId})
 	return nil
 }
 
@@ -158,6 +203,8 @@ func (scrs stagedChunkRefSlice) Swap(i, j int) {
 	scrs[i], scrs[j] = scrs[j], scrs[i]
 }
 
+// finalizeByteSpans should be called after all byte spans have been written. It calculates the checksum for the data
+// to be written later in the footer.
 func (aw *archiveWriter) finalizeByteSpans() error {
 	if aw.workflowStage != stageByteSpan {
 		return fmt.Errorf("Runtime error: finalizeByteSpans called out of order")
@@ -166,6 +213,7 @@ func (aw *archiveWriter) finalizeByteSpans() error {
 	// Get the checksum for the data written so far
 	aw.dataCheckSum = sha512Sum(aw.output.GetSum())
 	aw.output.ResetHasher()
+	aw.chunkDataLength = aw.md5Summer.Size()
 	aw.workflowStage = stageIndex
 
 	return nil
@@ -275,6 +323,8 @@ func (aw *archiveWriter) writeMetadata(data []byte) error {
 	return nil
 }
 
+// writeFooter writes the footer to the archive. This method is intended to be called after writeMetadata,
+// and will complete the writing of bytes into the temp file.
 func (aw *archiveWriter) writeFooter() error {
 	if aw.workflowStage != stageFooter {
 		return fmt.Errorf("Runtime error: writeFooter called out of order")
@@ -310,7 +360,7 @@ func (aw *archiveWriter) writeFooter() error {
 	}
 
 	// Write out the format version
-	_, err = aw.output.Write([]byte{archiveFormatVersion})
+	_, err = aw.output.Write([]byte{archiveFormatVersionMax})
 	if err != nil {
 		return err
 	}
@@ -326,6 +376,8 @@ func (aw *archiveWriter) writeFooter() error {
 
 	aw.footerCheckSum = sha512Sum(aw.output.GetSum())
 	aw.output.ResetHasher()
+
+	aw.fullMD5 = md5Sum(aw.md5Summer.GetSum())
 
 	return nil
 }
@@ -376,15 +428,6 @@ func (aw *archiveWriter) writeUint32(val uint32) error {
 	return nil
 }
 
-// Write a uint64 to the archive as a varint. This is used during the index writing process, so we expect the io.Writer
-// to keep track of the written byte count.
-func writeVarUint64(w io.Writer, val uint64) error {
-	var buf [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(buf[:], val)
-	_, err := w.Write(buf[:n])
-	return err
-}
-
 // flushToFile writes the archive to disk. The input is the directory where the file should be written, the file name
 // will be the footer hash + ".darc" as a suffix.
 func (aw *archiveWriter) flushToFile(fullPath string) error {
@@ -408,6 +451,8 @@ func (aw *archiveWriter) flushToFile(fullPath string) error {
 	return nil
 }
 
+// getName returns the hash of the footer, which is used as the fileID for the archive. This differs from the name
+// on disk which has the .darc suffix.
 func (aw *archiveWriter) getName() (hash.Hash, error) {
 	if aw.workflowStage != stageFlush && aw.workflowStage != stageDone {
 		return hash.Hash{}, fmt.Errorf("Runtime error: getName called out of order")
@@ -416,6 +461,7 @@ func (aw *archiveWriter) getName() (hash.Hash, error) {
 	return hash.New(aw.footerCheckSum[:hash.ByteLen]), nil
 }
 
+// genFileName generates the file name for the archive. The path argument is the directory where the file should be written.
 func (aw *archiveWriter) genFileName(path string) (string, error) {
 	if aw.workflowStage != stageFlush {
 		return "", fmt.Errorf("Runtime error: genFileName called out of order")
@@ -426,7 +472,224 @@ func (aw *archiveWriter) genFileName(path string) (string, error) {
 		return "", err
 	}
 
-	fileName := fmt.Sprintf("%s%s", h.String(), archiveFileSuffix)
+	fileName := h.String() + ArchiveFileSuffix
 	fullPath := filepath.Join(path, fileName)
 	return fullPath, nil
+}
+
+func (aw *archiveWriter) getChunkDataLength() (uint64, error) {
+	if aw.workflowStage == stageByteSpan {
+		return 0, errors.New("runtime error: chunkData not valid until finalized")
+	}
+	return aw.chunkDataLength, nil
+}
+
+type ArchiveStreamWriter struct {
+	writer     *archiveWriter
+	dictMap    map[*DecompBundle]uint32
+	chunkCount int32
+
+	// snappyQueue is a queue of CompressedChunk that have been written, but not flushed to the archive.
+	// These are kept in memory until we have enough to create a compression dictionary for them (and subsequent
+	// snappy chunks). When this value is nil, the snappyDict must be set (they are exclusive)
+	snappyQueue *[]CompressedChunk
+	snappyDict  *DecompBundle
+}
+
+func NewArchiveStreamWriter(tmpDir string) (*ArchiveStreamWriter, error) {
+	writer, err := newArchiveWriter(tmpDir)
+	if err != nil {
+		return nil, err
+	}
+
+	sq := make([]CompressedChunk, 0, 1000)
+
+	return &ArchiveStreamWriter{
+		writer:      writer,
+		dictMap:     map[*DecompBundle]uint32{},
+		chunkCount:  0,
+		snappyQueue: &sq,
+		snappyDict:  nil,
+	}, nil
+}
+
+var _ GenericTableWriter = (*ArchiveStreamWriter)(nil)
+
+func (asw *ArchiveStreamWriter) Reader() (io.ReadCloser, error) {
+	return asw.writer.output.Reader()
+}
+
+func (asw *ArchiveStreamWriter) Finish() (uint32, string, error) {
+	bytesWritten := uint32(0)
+
+	if asw.snappyQueue != nil {
+		// There may be snappy chunks queued up because we didn't get enough to build a dictionary.
+		for _, cc := range *asw.snappyQueue {
+			dataId, err := asw.writer.writeByteSpan(cc.FullCompressedChunk)
+			if err != nil {
+				return bytesWritten, "", err
+			}
+
+			bytesWritten += uint32(len(cc.FullCompressedChunk))
+			asw.chunkCount += 1
+			err = asw.writer.stageSnappyChunk(cc.Hash(), dataId)
+			if err != nil {
+				return bytesWritten, "", err
+			}
+		}
+	}
+
+	// This will perform all the steps to construct an archive file - starting with the finalization of byte spans.
+	// All writeByteSpan calls and stage* calls must be completed before this.
+	err := indexFinalize(asw.writer, hash.Hash{})
+	if err != nil {
+		return 0, "", err
+	}
+
+	h, err := asw.writer.getName()
+	if err != nil {
+		return 0, "", err
+	}
+	return 0, h.String() + ArchiveFileSuffix, nil
+}
+
+func (asw *ArchiveStreamWriter) ChunkCount() int {
+	return int(asw.chunkCount)
+}
+
+func (asw *ArchiveStreamWriter) ChunkDataLength() (uint64, error) {
+	return asw.writer.getChunkDataLength()
+}
+
+func (asw *ArchiveStreamWriter) AddChunk(chunker ToChunker) (uint32, error) {
+	if cc, ok := chunker.(CompressedChunk); ok {
+		return asw.writeCompressedChunk(cc)
+	}
+	if ac, ok := chunker.(ArchiveToChunker); ok {
+		return asw.writeArchiveToChunker(ac)
+	}
+	return 0, fmt.Errorf("Unknown chunk type: %T", chunker)
+}
+
+func (asw *ArchiveStreamWriter) FullLength() uint64 {
+	return asw.writer.md5Summer.Size()
+}
+
+func (asw *ArchiveStreamWriter) GetMD5() []byte {
+	return asw.writer.fullMD5[:]
+}
+
+func (asw *ArchiveStreamWriter) Remove() error {
+	return os.Remove(asw.writer.finalPath)
+}
+
+func (asw *ArchiveStreamWriter) writeArchiveToChunker(chunker ArchiveToChunker) (uint32, error) {
+	dict := chunker.dict
+
+	bytesWritten := uint32(0)
+
+	var err error
+	dictId, ok := asw.dictMap[dict]
+	if !ok {
+		// compress the raw bytes of the dictionary before persisting it.
+		compressedDict := gozstd.Compress(nil, *dict.rawDictionary)
+
+		// New dictionary. Write it out, and add id to the map.
+		dictId, err = asw.writer.writeByteSpan(compressedDict)
+		if err != nil {
+			return 0, err
+		}
+		bytesWritten += uint32(len(compressedDict))
+		asw.dictMap[dict] = dictId
+	}
+
+	dataId, err := asw.writer.writeByteSpan(chunker.chunkData)
+	if err != nil {
+		return bytesWritten, err
+	}
+	bytesWritten += uint32(len(chunker.chunkData))
+	asw.chunkCount += 1
+	return bytesWritten, asw.writer.stageZStdChunk(chunker.Hash(), dictId, dataId)
+}
+
+func (asw *ArchiveStreamWriter) writeCompressedChunk(chunker CompressedChunk) (bytesWritten uint32, err error) {
+	if asw.snappyQueue != nil {
+		// We have a queue of compressed chunks that we are waiting to flush.
+		// Add this chunk to the queue.
+		*asw.snappyQueue = append(*asw.snappyQueue, chunker)
+		if len(*asw.snappyQueue) < maxSamples {
+			return 0, nil
+		}
+
+		// We have enough to build a dictionary. Build it, and flush the queue.
+		samples := make([]*chunks.Chunk, len(*asw.snappyQueue))
+		for i, cc := range *asw.snappyQueue {
+			chk, err := cc.ToChunk()
+			if err != nil {
+				return 0, err
+			}
+			samples[i] = &chk
+		}
+		rawDictionary := buildDictionary(samples)
+		compressedDict := gozstd.Compress(nil, rawDictionary)
+		asw.snappyDict, err = NewDecompBundle(compressedDict)
+		if err != nil {
+			return 0, err
+		}
+
+		// New dictionary. Write it out, and add id to the map.
+		dictId, err := asw.writer.writeByteSpan(compressedDict)
+		if err != nil {
+			return 0, err
+		}
+		bytesWritten += uint32(len(compressedDict))
+		asw.dictMap[asw.snappyDict] = dictId
+
+		// Now stage all the
+		for _, cc := range *asw.snappyQueue {
+			bw := uint32(0)
+			bw, err = asw.convertSnappyAndStage(cc)
+			if err != nil {
+				return bytesWritten, err
+			}
+			bytesWritten += bw
+			asw.chunkCount += 1
+		}
+		asw.snappyQueue = nil
+		return bytesWritten, err
+	} else {
+		// Convert this chunk from snappy to zstd, and write it out.
+		bw, err := asw.convertSnappyAndStage(chunker)
+		if err != nil {
+			return 0, err
+		}
+		asw.chunkCount += 1
+		return bw, nil
+	}
+}
+
+// convertSnappyAndStage converts a snappy compressed chunk to zstd compression and stages it for writing.
+// It returns the number of bytes written and an error if any occurred during the process. This method
+// assumes that the snappyDict is already created and available in the ArchiveStreamWriter.
+func (asw *ArchiveStreamWriter) convertSnappyAndStage(cc CompressedChunk) (uint32, error) {
+	dictId, ok := asw.dictMap[asw.snappyDict]
+	if !ok {
+		return 0, errors.New("runtime error: snappyDict not found in dictMap")
+	}
+
+	h := cc.Hash()
+	chk, err := cc.ToChunk()
+	if err != nil {
+		return 0, err
+	}
+
+	compressedData := gozstd.CompressDict(nil, chk.Data(), asw.snappyDict.cDict)
+
+	dataId, err := asw.writer.writeByteSpan(compressedData)
+	if err != nil {
+		return 0, err
+	}
+	bytesWritten := uint32(len(compressedData))
+
+	return bytesWritten, asw.writer.stageZStdChunk(h, dictId, dataId)
 }

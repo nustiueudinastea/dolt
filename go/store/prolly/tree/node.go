@@ -116,15 +116,15 @@ func walkOpaqueNodes(ctx context.Context, nd Node, ns NodeStore, cb NodeCb) erro
 	})
 }
 
-func NodeFromBytes(msg []byte) (Node, error) {
-	keys, values, level, count, err := message.UnpackFields(msg)
+func NodeFromBytes(msg []byte) (node Node, fileId string, err error) {
+	fileId, keys, values, level, count, err := message.UnpackFields(msg)
 	return Node{
 		keys:   keys,
 		values: values,
 		count:  count,
 		level:  level,
 		msg:    msg,
-	}, err
+	}, fileId, err
 }
 
 func (nd Node) HashOf() hash.Hash {
@@ -211,8 +211,8 @@ func getLastKey(nd Node) Item {
 // to the type specified by the provided schema. All nodes have keys displayed in this manner. Interior nodes have
 // their child hash references spelled out, leaf nodes have value tuples delineated like the keys
 func OutputProllyNode(ctx context.Context, w io.Writer, node Node, ns NodeStore, schema schema.Schema) error {
-	kd := schema.GetKeyDescriptor()
-	vd := schema.GetValueDescriptor()
+	kd := schema.GetKeyDescriptor(ns)
+	vd := schema.GetValueDescriptor(ns)
 	for i := 0; i < int(node.count); i++ {
 		k := node.GetKey(i)
 		kt := val.Tuple(k)
@@ -223,7 +223,7 @@ func OutputProllyNode(ctx context.Context, w io.Writer, node Node, ns NodeStore,
 				w.Write([]byte(", "))
 			}
 
-			isAddr := val.IsAddrEncoding(kd.Types[j].Enc)
+			isAddr := j < len(kd.Types) && val.IsAddrEncoding(kd.Types[j].Enc)
 			if isAddr {
 				w.Write([]byte("#"))
 			}

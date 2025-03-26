@@ -19,7 +19,10 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+
+	"github.com/dolthub/dolt/go/serial"
 
 	"github.com/dolthub/dolt/go/store/hash"
 	"github.com/dolthub/dolt/go/store/pool"
@@ -41,7 +44,7 @@ type commitClosureKeyOrdering struct{}
 
 var _ tree.Ordering[CommitClosureKey] = commitClosureKeyOrdering{}
 
-func (o commitClosureKeyOrdering) Compare(left, right CommitClosureKey) int {
+func (o commitClosureKeyOrdering) Compare(ctx context.Context, left, right CommitClosureKey) int {
 	lh, rh := left.Height(), right.Height()
 	if lh == rh {
 		return bytes.Compare(left[prefixWidth:], right[prefixWidth:])
@@ -54,7 +57,10 @@ func (o commitClosureKeyOrdering) Compare(left, right CommitClosureKey) int {
 func NewEmptyCommitClosure(ns tree.NodeStore) (CommitClosure, error) {
 	serializer := message.NewCommitClosureSerializer(ns.Pool())
 	msg := serializer.Serialize(nil, nil, nil, 0)
-	node, err := tree.NodeFromBytes(msg)
+	node, fileId, err := tree.NodeFromBytes(msg)
+	if fileId != serial.CommitClosureFileID {
+		return CommitClosure{}, fmt.Errorf("unexpected file ID for commit closure, expected %s, found %s", serial.CommitClosureFileID, fileId)
+	}
 	if err != nil {
 		return CommitClosure{}, err
 	}
@@ -148,7 +154,7 @@ func (c CommitClosure) AsHashSet(ctx context.Context) (hash.HashSet, error) {
 }
 
 type CommitClosureEditor struct {
-	closure tree.MutableMap[CommitClosureKey, CommitClosureValue, commitClosureKeyOrdering]
+	closure tree.MutableMap[CommitClosureKey, CommitClosureValue, commitClosureKeyOrdering, tree.StaticMap[CommitClosureKey, CommitClosureValue, commitClosureKeyOrdering]]
 }
 
 type CommitClosureKey []byte
@@ -170,8 +176,8 @@ func (k CommitClosureKey) Addr() hash.Hash {
 	return hash.New(k[prefixWidth:])
 }
 
-func (k CommitClosureKey) Less(other CommitClosureKey) bool {
-	return commitClosureKeyOrdering{}.Compare(k, other) < 0
+func (k CommitClosureKey) Less(ctx context.Context, other CommitClosureKey) bool {
+	return commitClosureKeyOrdering{}.Compare(ctx, k, other) < 0
 }
 
 var emptyCommitClosureValue CommitClosureValue = CommitClosureValue(make([]byte, 1))

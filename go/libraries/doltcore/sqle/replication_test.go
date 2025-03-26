@@ -29,20 +29,20 @@ import (
 )
 
 func TestCommitHooksNoErrors(t *testing.T) {
+	ctx := context.Background()
 	dEnv, err := CreateEnvWithSeedData()
 	require.NoError(t, err)
-	defer dEnv.DoltDB.Close()
+	defer dEnv.DoltDB(ctx).Close()
 
 	sql.SystemVariables.SetGlobal(dsess.SkipReplicationErrors, true)
 	sql.SystemVariables.SetGlobal(dsess.ReplicateToRemote, "unknown")
-	bThreads := sql.NewBackgroundThreads()
-	hooks, err := GetCommitHooks(context.Background(), bThreads, dEnv, &buffer.Buffer{})
+	hooks, _, err := GetCommitHooks(context.Background(), dEnv, &buffer.Buffer{})
 	assert.NoError(t, err)
 	if len(hooks) < 1 {
 		t.Error("failed to produce noop hook")
 	} else {
 		switch h := hooks[0].(type) {
-		case *doltdb.LogHook:
+		case *LogHook:
 		default:
 			t.Errorf("expected LogHook, found: %s", h)
 		}
@@ -80,12 +80,17 @@ func TestReplicationBranches(t *testing.T) {
 			local:       []string{"feature4", "feature5", "feature6", "feature7", "feature8", "feature9"},
 			expToDelete: []string{"feature4", "feature5", "feature6", "feature7", "feature8", "feature9"},
 		},
+		{
+			remote:      []string{"main", "new1", "a1"},
+			local:       []string{"main", "a1"},
+			expToDelete: []string{},
+		},
 	}
 
 	for _, tt := range tests {
 		remoteRefs := make([]doltdb.RefWithHash, len(tt.remote))
 		for i := range tt.remote {
-			remoteRefs[i] = doltdb.RefWithHash{Ref: ref.NewRemoteRef("", tt.remote[i])}
+			remoteRefs[i] = doltdb.RefWithHash{Ref: ref.NewBranchRef(tt.remote[i])}
 		}
 		localRefs := make([]doltdb.RefWithHash, len(tt.local))
 		for i := range tt.local {
@@ -96,6 +101,6 @@ func TestReplicationBranches(t *testing.T) {
 		for i := range diff {
 			diffNames[i] = diff[i].Ref.GetPath()
 		}
-		assert.Equal(t, diffNames, tt.expToDelete)
+		assert.Equal(t, tt.expToDelete, diffNames)
 	}
 }

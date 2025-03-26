@@ -255,7 +255,7 @@ end
 			{
 				Query: "insert into t values (1, 1);",
 				Expected: []sql.Row{
-					{gmstypes.OkResult{RowsAffected: 1, InsertID: 4}},
+					{gmstypes.OkResult{RowsAffected: 1, InsertID: 1}},
 				},
 			},
 			{
@@ -406,6 +406,46 @@ end
 			{
 				Query:    "select * from `mydb/branch1`.t order by 1",
 				Expected: []sql.Row{{1, 100}, {2, 200}},
+			},
+		},
+	},
+
+	{
+		Name: "create and call procedure which exceeds 1024 bytes",
+		SetUpScript: []string{
+			`CREATE PROCEDURE long_proc()
+BEGIN
+  DECLARE long_text TEXT;
+  SET long_text = CONCAT(
+			'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ',
+			'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ',
+			'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris ',
+			'nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in ',
+			'reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. ',
+			'Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia ',
+			'deserunt mollit anim id est laborum.',
+			'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ',
+			'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ',
+			'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris ',
+			'nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in ',
+			'reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. ',
+			'Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia ',
+			'deserunt mollit anim id est laborum.',
+			'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ',
+			'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ',
+			'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris ',
+			'nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in ',
+			'reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. ',
+			'Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia ',
+			'deserunt mollit anim id est laborum.');
+  SELECT SHA2(long_text,256) AS checksum, LENGTH(long_text) AS length;
+END
+`,
+		},
+		Assertions: []queries.ScriptTestAssertion{
+			{
+				Query:    "call long_proc();",
+				Expected: []sql.Row{{"a702e99e5ee2dc03095bb2efd58e28330b6ea085d036249de82977a5c0dbb4be", 1335}},
 			},
 		},
 	},

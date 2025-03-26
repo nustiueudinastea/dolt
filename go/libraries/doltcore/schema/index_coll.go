@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/dolthub/go-mysql-server/sql/expression/function/vector"
 )
 
 type IndexCollection interface {
@@ -83,6 +85,8 @@ type IndexProperties struct {
 	IsUserDefined bool
 	Comment       string
 	FullTextProperties
+	IsVector bool
+	VectorProperties
 }
 
 type FullTextProperties struct {
@@ -94,6 +98,10 @@ type FullTextProperties struct {
 	KeyType          uint8
 	KeyName          string
 	KeyPositions     []uint16
+}
+
+type VectorProperties struct {
+	DistanceType vector.DistanceType
 }
 
 type indexCollectionImpl struct {
@@ -190,7 +198,7 @@ func (ixc *indexCollectionImpl) AddIndexByColNames(indexName string, cols []stri
 
 func (ixc *indexCollectionImpl) AddIndexByColTags(indexName string, tags []uint64, prefixLengths []uint16, props IndexProperties) (Index, error) {
 	lowerName := strings.ToLower(indexName)
-	if strings.HasPrefix(lowerName, "dolt_") {
+	if strings.HasPrefix(lowerName, "dolt_") && !strings.HasPrefix(lowerName, "dolt_ci_") {
 		return nil, fmt.Errorf("indexes cannot be prefixed with `dolt_`")
 	}
 	if ixc.Contains(lowerName) {
@@ -210,17 +218,19 @@ func (ixc *indexCollectionImpl) AddIndexByColTags(indexName string, tags []uint6
 	}
 
 	index := &indexImpl{
-		indexColl:     ixc,
-		name:          indexName,
-		tags:          tags,
-		allTags:       combineAllTags(tags, ixc.pks),
-		isUnique:      props.IsUnique,
-		isSpatial:     props.IsSpatial,
-		isFullText:    props.IsFullText,
-		isUserDefined: props.IsUserDefined,
-		comment:       props.Comment,
-		prefixLengths: prefixLengths,
-		fullTextProps: props.FullTextProperties,
+		indexColl:        ixc,
+		name:             indexName,
+		tags:             tags,
+		allTags:          combineAllTags(tags, ixc.pks),
+		isUnique:         props.IsUnique,
+		isSpatial:        props.IsSpatial,
+		isFullText:       props.IsFullText,
+		isVector:         props.IsVector,
+		isUserDefined:    props.IsUserDefined,
+		comment:          props.Comment,
+		prefixLengths:    prefixLengths,
+		fullTextProps:    props.FullTextProperties,
+		vectorProperties: props.VectorProperties,
 	}
 	ixc.indexes[lowerName] = index
 	for _, tag := range tags {
@@ -243,6 +253,7 @@ func (ixc *indexCollectionImpl) UnsafeAddIndexByColTags(indexName string, tags [
 		isUnique:      props.IsUnique,
 		isSpatial:     props.IsSpatial,
 		isFullText:    props.IsFullText,
+		isVector:      props.IsVector,
 		isUserDefined: props.IsUserDefined,
 		comment:       props.Comment,
 		prefixLengths: prefixLengths,
@@ -283,6 +294,25 @@ func (ixc *indexCollectionImpl) Equals(other IndexCollection) bool {
 		// if the lengths don't match then we can quickly return
 		return false
 	}
+
+	// if named indexes are all equal, then we can skip the checks which compare indexes by their tags.
+	nameCmp := true
+	for name, i1 := range ixc.indexes {
+		i2, ok := otherIxc.indexes[name]
+		if !ok {
+			nameCmp = false
+			break
+		}
+
+		if !i1.Equals(i2) {
+			nameCmp = false
+			break
+		}
+	}
+	if nameCmp {
+		return true
+	}
+
 	for _, index := range ixc.indexes {
 		otherIndex := otherIxc.containsColumnTagCollection(index.tags...)
 		if otherIndex == nil || !index.Equals(otherIndex) {
@@ -302,7 +332,7 @@ func (ixc *indexCollectionImpl) GetByName(indexName string) Index {
 
 func (ixc *indexCollectionImpl) GetByNameCaseInsensitive(indexName string) (Index, bool) {
 	for name, ix := range ixc.indexes {
-		if strings.ToLower(name) == strings.ToLower(indexName) {
+		if strings.EqualFold(name, indexName) {
 			return ix, true
 		}
 	}
@@ -410,6 +440,7 @@ func (ixc *indexCollectionImpl) Merge(indexes ...Index) {
 				isUnique:      index.IsUnique(),
 				isSpatial:     index.IsSpatial(),
 				isFullText:    index.IsFullText(),
+				isVector:      index.IsVector(),
 				isUserDefined: index.IsUserDefined(),
 				comment:       index.Comment(),
 				prefixLengths: index.PrefixLengths(),

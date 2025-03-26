@@ -108,29 +108,15 @@ func CherryPick(ctx *sql.Context, commit string, options CherryPickOptions) (str
 		return "", mergeResult, nil
 	}
 
-	commitProps := actions.CommitStagedProps{
-		Date:    ctx.QueryTime(),
-		Name:    ctx.Client().User,
-		Email:   fmt.Sprintf("%s@%s", ctx.Client().User, ctx.Client().Address),
-		Message: commitMsg,
+	commitProps, err := CreateCommitStagedPropsFromCherryPickOptions(ctx, options)
+	if err != nil {
+		return "", nil, err
 	}
 
-	if options.CommitMessage != "" {
-		commitProps.Message = options.CommitMessage
-	}
-	if options.Amend {
-		commitProps.Amend = true
-	}
-	if options.EmptyCommitHandling == doltdb.KeepEmptyCommit {
-		commitProps.AllowEmpty = true
-	}
-
-	if options.CommitBecomesEmptyHandling == doltdb.DropEmptyCommit {
-		commitProps.SkipEmpty = true
-	} else if options.CommitBecomesEmptyHandling == doltdb.KeepEmptyCommit {
-		commitProps.AllowEmpty = true
-	} else if options.CommitBecomesEmptyHandling == doltdb.StopOnEmptyCommit {
-		return "", nil, fmt.Errorf("stop on empty commit is not currently supported")
+	// If no commit message was explicitly provided in the cherry-pick options,
+	// use the commit message from the cherry-picked commit.
+	if commitProps.Message == "" {
+		commitProps.Message = commitMsg
 	}
 
 	// NOTE: roots are old here (after staging the tables) and need to be refreshed
@@ -139,7 +125,7 @@ func CherryPick(ctx *sql.Context, commit string, options CherryPickOptions) (str
 		return "", nil, fmt.Errorf("failed to get roots for current session")
 	}
 
-	pendingCommit, err := doltSession.NewPendingCommit(ctx, dbName, roots, commitProps)
+	pendingCommit, err := doltSession.NewPendingCommit(ctx, dbName, roots, *commitProps)
 	if err != nil {
 		return "", nil, err
 	}
@@ -162,6 +148,36 @@ func CherryPick(ctx *sql.Context, commit string, options CherryPickOptions) (str
 	}
 
 	return h.String(), nil, nil
+}
+
+// CreateCommitStagedPropsFromCherryPickOptions converts the specified cherry-pick |options| into a CommitStagedProps
+// instance that can be used to create a pending commit.
+func CreateCommitStagedPropsFromCherryPickOptions(ctx *sql.Context, options CherryPickOptions) (*actions.CommitStagedProps, error) {
+	commitProps := actions.CommitStagedProps{
+		Date:  ctx.QueryTime(),
+		Name:  ctx.Client().User,
+		Email: fmt.Sprintf("%s@%s", ctx.Client().User, ctx.Client().Address),
+	}
+
+	if options.CommitMessage != "" {
+		commitProps.Message = options.CommitMessage
+	}
+	if options.Amend {
+		commitProps.Amend = true
+	}
+	if options.EmptyCommitHandling == doltdb.KeepEmptyCommit {
+		commitProps.AllowEmpty = true
+	}
+
+	if options.CommitBecomesEmptyHandling == doltdb.DropEmptyCommit {
+		commitProps.SkipEmpty = true
+	} else if options.CommitBecomesEmptyHandling == doltdb.KeepEmptyCommit {
+		commitProps.AllowEmpty = true
+	} else if options.CommitBecomesEmptyHandling == doltdb.StopOnEmptyCommit {
+		return nil, fmt.Errorf("stop on empty commit is not currently supported")
+	}
+
+	return &commitProps, nil
 }
 
 func previousCommitMessage(ctx *sql.Context) (string, error) {
@@ -230,7 +246,7 @@ func cherryPick(ctx *sql.Context, dSess *dsess.DoltSession, roots doltdb.Roots, 
 
 	doltDB, ok := dSess.GetDoltDB(ctx, dbName)
 	if !ok {
-		return nil, "", fmt.Errorf("failed to get DoltDB")
+		return nil, "", fmt.Errorf("failed to get doltDB")
 	}
 
 	dbData, ok := dSess.GetDbData(ctx, dbName)
@@ -375,8 +391,8 @@ func rootsEqual(root1, root2 doltdb.RootValue) (bool, error) {
 
 // stageCherryPickedTables stages the tables from |mergeStats| that don't have any merge artifacts – i.e.
 // tables that don't have any data or schema conflicts and don't have any constraint violations.
-func stageCherryPickedTables(ctx *sql.Context, mergeStats map[string]*merge.MergeStats) (err error) {
-	tablesToAdd := make([]string, 0, len(mergeStats))
+func stageCherryPickedTables(ctx *sql.Context, mergeStats map[doltdb.TableName]*merge.MergeStats) (err error) {
+	tablesToAdd := make([]doltdb.TableName, 0, len(mergeStats))
 	for tableName, mergeStats := range mergeStats {
 		if mergeStats.HasArtifacts() {
 			continue
@@ -384,7 +400,7 @@ func stageCherryPickedTables(ctx *sql.Context, mergeStats map[string]*merge.Merg
 
 		// Find any tables being deleted and make sure we stage those tables first
 		if mergeStats.Operation == merge.TableRemoved {
-			tablesToAdd = append([]string{tableName}, tablesToAdd...)
+			tablesToAdd = append([]doltdb.TableName{tableName}, tablesToAdd...)
 		} else {
 			tablesToAdd = append(tablesToAdd, tableName)
 		}
@@ -397,8 +413,7 @@ func stageCherryPickedTables(ctx *sql.Context, mergeStats map[string]*merge.Merg
 		return fmt.Errorf("unable to get roots for database '%s' from session", dbName)
 	}
 
-	// TODO: schema name
-	roots, err = actions.StageTables(ctx, roots, doltdb.ToTableNames(tablesToAdd, doltdb.DefaultSchemaName), true)
+	roots, err = actions.StageTables(ctx, roots, tablesToAdd, true)
 	if err != nil {
 		return err
 	}

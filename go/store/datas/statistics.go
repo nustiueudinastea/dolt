@@ -30,6 +30,8 @@ import (
 	"github.com/dolthub/dolt/go/store/types"
 )
 
+var ErrNoBranchStats = errors.New("stats for branch not found")
+
 type Statistics struct {
 	m    prolly.Map
 	addr hash.Hash
@@ -76,7 +78,7 @@ func LoadStatistics(ctx context.Context, nbf *types.NomsBinFormat, ns tree.NodeS
 	}
 
 	if val == nil {
-		return nil, errors.New("root hash doesn't exist")
+		return nil, ErrNoBranchStats
 	}
 
 	return parse_Statistics(ctx, []byte(val.(types.SerialMessage)), ns, vr)
@@ -107,7 +109,7 @@ func Statistics_flatbuffer(addr hash.Hash) serial.Message {
 // embedding the stats table and address.
 func parse_Statistics(ctx context.Context, bs []byte, ns tree.NodeStore, vr types.ValueReader) (*Statistics, error) {
 	if serial.GetFileID(bs) != serial.StatisticFileID {
-		return nil, fmt.Errorf("expected statistics file id, got: " + serial.GetFileID(bs))
+		return nil, fmt.Errorf("expected statistics file id, got: %s", serial.GetFileID(bs))
 	}
 	stat, err := serial.TryGetRootAsStatistic(bs, serial.MessagePrefixSz)
 	if err != nil {
@@ -120,7 +122,7 @@ func parse_Statistics(ctx context.Context, bs []byte, ns tree.NodeStore, vr type
 		return nil, err
 	}
 
-	m, err := shim.MapFromValue(value, schema.StatsTableDoltSchema, ns)
+	m, err := shim.MapFromValue(value, schema.StatsTableDoltSchema, ns, false)
 	if err != nil {
 		return nil, err
 	}

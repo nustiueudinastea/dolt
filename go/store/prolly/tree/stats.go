@@ -65,7 +65,7 @@ func DiffChunksAtLevel[K, V ~[]byte, O Ordering[K]](ctx context.Context, level u
 
 		f := fromNode.GetKey(i)
 		t := toNode.GetKey(j)
-		cmp := from.Order.Compare(K(f), K(t))
+		cmp := from.Order.Compare(ctx, K(f), K(t))
 		if cmp == 0 {
 			// replace from->to
 			diffs = append(diffs, chunkDiff{from: []hash.Hash{fromAddr}, to: []hash.Hash{toAddr}})
@@ -85,7 +85,7 @@ func DiffChunksAtLevel[K, V ~[]byte, O Ordering[K]](ctx context.Context, level u
 				}
 				f = fromNode.GetKey(i)
 				t = toNode.GetKey(j)
-				cmp = from.Order.Compare(K(f), K(t))
+				cmp = from.Order.Compare(ctx, K(f), K(t))
 			}
 			// either addrs equal, or keys synced
 			var newChunkDiff chunkDiff
@@ -141,6 +141,11 @@ func GetChunksAtLevel[K, V ~[]byte, O Ordering[K]](ctx context.Context, m Static
 // GetHistogramLevel returns the highest internal level of the tree that has
 // more than |low| addresses.
 func GetHistogramLevel[K, V ~[]byte, O Ordering[K]](ctx context.Context, m StaticMap[K, V, O], low int) ([]Node, error) {
+	if cnt, err := m.Count(); err != nil {
+		return nil, err
+	} else if cnt == 0 {
+		return nil, nil
+	}
 	currentLevel := []Node{m.Root}
 	level := m.Root.Level()
 	for len(currentLevel) < low && level > 0 {

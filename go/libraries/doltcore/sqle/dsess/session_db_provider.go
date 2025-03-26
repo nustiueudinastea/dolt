@@ -120,6 +120,9 @@ type SessionDatabaseBranchSpec struct {
 
 type SqlDatabase interface {
 	sql.Database
+	sql.SchemaDatabase
+	sql.DatabaseSchema
+	sql.AliasedDatabase
 	SessionDatabase
 	RevisionDatabase
 

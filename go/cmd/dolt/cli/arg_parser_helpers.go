@@ -69,6 +69,7 @@ func CreateCommitArgParser() *argparser.ArgParser {
 	ap.SupportsFlag(AllFlag, "a", "Adds all existing, changed tables (but not new tables) in the working set to the staged set.")
 	ap.SupportsFlag(UpperCaseAllFlag, "A", "Adds all tables and databases (including new tables) in the working set to the staged set.")
 	ap.SupportsFlag(AmendFlag, "", "Amend previous commit")
+	ap.SupportsOptionalString(SignFlag, "S", "key-id", "Sign the commit using GPG. If no key-id is provided the key-id is taken from 'user.signingkey' the in the configuration")
 	return ap
 }
 
@@ -210,6 +211,7 @@ func CreatePullArgParser() *argparser.ArgParser {
 	ap.SupportsFlag(NoCommitFlag, "", "Perform the merge and stop just before creating a merge commit. Note this will not prevent a fast-forward merge; use the --no-ff arg together with the --no-commit arg to prevent both fast-forwards and merge commits.")
 	ap.SupportsFlag(NoEditFlag, "", "Use an auto-generated commit message when creating a merge commit. The default for interactive CLI sessions is to open an editor.")
 	ap.SupportsString(UserFlag, "", "user", "User name to use when authenticating with the remote. Gets password from the environment variable {{.EmphasisLeft}}DOLT_REMOTE_PASSWORD{{.EmphasisRight}}.")
+	ap.SupportsFlag(PruneFlag, "p", "After fetching, remove any remote-tracking references that don't exist on the remote.")
 	ap.SupportsFlag(SilentFlag, "", "Suppress progress information.")
 	return ap
 }
@@ -279,6 +281,7 @@ func CreateLogArgParser(isTableFunction bool) *argparser.ArgParser {
 	ap.SupportsFlag(ParentsFlag, "", "Shows all parents of each commit in the log.")
 	ap.SupportsString(DecorateFlag, "", "decorate_fmt", "Shows refs next to commits. Valid options are short, full, no, and auto")
 	ap.SupportsStringList(NotFlag, "", "revision", "Excludes commits from revision.")
+	ap.SupportsFlag(ShowSignatureFlag, "", "Shows the signature of each commit.")
 	if isTableFunction {
 		ap.SupportsStringList(TablesFlag, "t", "table", "Restricts the log to commits that modified the specified tables.")
 	} else {
@@ -292,6 +295,7 @@ func CreateLogArgParser(isTableFunction bool) *argparser.ArgParser {
 func CreateGCArgParser() *argparser.ArgParser {
 	ap := argparser.NewArgParserWithMaxArgs("gc", 0)
 	ap.SupportsFlag(ShallowFlag, "s", "perform a fast, but incomplete garbage collection pass")
+	ap.SupportsFlag(FullFlag, "f", "perform a full garbage collection, including the old generation")
 	return ap
 }
 

@@ -106,7 +106,7 @@ func TestKeylessMerge(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			dEnv := dtu.CreateTestEnv()
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
 			root, err := dEnv.WorkingRoot(ctx)
 			require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestKeylessMerge(t *testing.T) {
 			require.NoError(t, err)
 			err = dEnv.UpdateWorkingRoot(ctx, root)
 			require.NoError(t, err)
-			cliCtx, err := cmd.NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := cmd.NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			for _, c := range test.setup {
@@ -249,7 +249,7 @@ func TestKeylessMergeConflicts(t *testing.T) {
 		require.NoError(t, err)
 		err = dEnv.UpdateWorkingRoot(ctx, root)
 		require.NoError(t, err)
-		cliCtx, err := cmd.NewArgFreeCliContext(ctx, dEnv)
+		cliCtx, err := cmd.NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 		require.NoError(t, err)
 
 		for _, c := range cc {
@@ -265,7 +265,7 @@ func TestKeylessMergeConflicts(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			dEnv := dtu.CreateTestEnv()
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 			setupTest(t, ctx, dEnv, test.setup)
 
 			root, err := dEnv.WorkingRoot(ctx)
@@ -279,10 +279,10 @@ func TestKeylessMergeConflicts(t *testing.T) {
 
 		t.Run(test.name+"_resolved_ours", func(t *testing.T) {
 			dEnv := dtu.CreateTestEnv()
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
 			setupTest(t, ctx, dEnv, test.setup)
-			cliCtx, verr := cmd.NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, verr := cmd.NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, verr)
 
 			resolve := cnfcmds.ResolveCmd{}
@@ -299,10 +299,10 @@ func TestKeylessMergeConflicts(t *testing.T) {
 		})
 		t.Run(test.name+"_resolved_theirs", func(t *testing.T) {
 			dEnv := dtu.CreateTestEnv()
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
 			setupTest(t, ctx, dEnv, test.setup)
-			cliCtx, verr := cmd.NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, verr := cmd.NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, verr)
 
 			resolve := cnfcmds.ResolveCmd{}
@@ -358,15 +358,15 @@ func assertProllyConflicts(t *testing.T, ctx context.Context, tbl *doltdb.Table,
 
 		if expectedConf.base != nil {
 			_, value := expectedConf.base.HashAndValue()
-			require.Equal(t, valDesc.Format(value), valDesc.Format(base))
+			require.Equal(t, valDesc.Format(ctx, value), valDesc.Format(ctx, base))
 		}
 		if expectedConf.ours != nil {
 			_, value := expectedConf.ours.HashAndValue()
-			require.Equal(t, valDesc.Format(value), valDesc.Format(ours))
+			require.Equal(t, valDesc.Format(ctx, value), valDesc.Format(ctx, ours))
 		}
 		if expectedConf.theirs != nil {
 			_, value := expectedConf.theirs.HashAndValue()
-			require.Equal(t, valDesc.Format(value), valDesc.Format(theirs))
+			require.Equal(t, valDesc.Format(ctx, value), valDesc.Format(ctx, theirs))
 		}
 	}
 
@@ -403,7 +403,7 @@ func assertNomsConflicts(t *testing.T, ctx context.Context, tbl *doltdb.Table, e
 func mustGetRowValueFromTable(t *testing.T, ctx context.Context, tbl *doltdb.Table, key val.Tuple) val.Tuple {
 	idx, err := tbl.GetRowData(ctx)
 	require.NoError(t, err)
-	m := durable.ProllyMapFromIndex(idx)
+	m, _ := durable.ProllyMapFromIndex(idx)
 
 	var value val.Tuple
 	err = m.Get(ctx, key, func(_, v val.Tuple) error {
@@ -438,7 +438,7 @@ func assertKeylessRows(t *testing.T, ctx context.Context, tbl *doltdb.Table, exp
 func assertKeylessProllyRows(t *testing.T, ctx context.Context, tbl *doltdb.Table, expected []keylessEntry) {
 	idx, err := tbl.GetRowData(ctx)
 	require.NoError(t, err)
-	m := durable.ProllyMapFromIndex(idx)
+	m, _ := durable.ProllyMapFromIndex(idx)
 
 	expectedSet := mustHash128Set(expected...)
 
@@ -457,7 +457,7 @@ func assertKeylessProllyRows(t *testing.T, ctx context.Context, tbl *doltdb.Tabl
 		copy(h[:], hashId.GetField(0))
 		expectedVal, ok := expectedSet[h]
 		assert.True(t, ok)
-		assert.Equal(t, valDesc.Format(expectedVal), valDesc.Format(value))
+		assert.Equal(t, valDesc.Format(ctx, expectedVal), valDesc.Format(ctx, value))
 	}
 
 	require.Equal(t, len(expected), c)

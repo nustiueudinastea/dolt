@@ -1,4 +1,4 @@
-// Copyright 2024 Dolthub, Inc.
+// Copyright 2025 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,9 +15,6 @@
 package statspro
 
 import (
-	"context"
-	"strings"
-
 	"github.com/dolthub/go-mysql-server/sql"
 
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
@@ -25,41 +22,33 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
 )
 
-func NewStatsInitDatabaseHook(
-	statsProv *Provider,
-	ctxFactory func(ctx context.Context) (*sql.Context, error),
-	bThreads *sql.BackgroundThreads,
-) sqle.InitDatabaseHook {
+func NewInitDatabaseHook(sc *StatsController) sqle.InitDatabaseHook {
 	return func(
 		ctx *sql.Context,
-		pro *sqle.DoltDatabaseProvider,
+		_ *sqle.DoltDatabaseProvider,
 		name string,
 		denv *env.DoltEnv,
 		db dsess.SqlDatabase,
 	) error {
-		statsDb, err := statsProv.sf.Init(ctx, db, statsProv.pro, denv.FS, env.GetCurrentUserHomeDir)
-		if err != nil {
-			ctx.GetLogger().Debugf("statistics load error: %s", err.Error())
+		if sc.hdpEnv == nil {
+			sc.mu.Lock()
+			sc.hdpEnv = denv
+			sc.mu.Unlock()
+		}
+		sqlDb, ok := db.(sqle.Database)
+		if !ok {
 			return nil
 		}
-		statsProv.mu.Lock()
-		statsProv.setStatDb(strings.ToLower(db.Name()), statsDb)
-		statsProv.mu.Unlock()
 
-		ctx.GetLogger().Debugf("statistics refresh: initialize %s", name)
-		return statsProv.InitAutoRefresh(ctxFactory, name, bThreads)
+		// call should only fail if backpressure in secondary queue
+		return sc.AddFs(ctx, sqlDb, denv.FS, true)
 	}
 }
 
-func NewStatsDropDatabaseHook(statsProv *Provider) sqle.DropDatabaseHook {
+func NewDropDatabaseHook(sc *StatsController) sqle.DropDatabaseHook {
 	return func(ctx *sql.Context, name string) {
-		statsProv.CancelRefreshThread(name)
-		statsProv.DropDbStats(ctx, name, false)
-
-		if db, ok := statsProv.getStatDb(name); ok {
-			if err := db.Close(); err != nil {
-				ctx.GetLogger().Debugf("failed to close stats database: %s", err)
-			}
+		if err := sc.DropDbStats(ctx, name, false); err != nil {
+			ctx.GetLogger().Debugf("failed to close stats database: %s", err)
 		}
 	}
 }

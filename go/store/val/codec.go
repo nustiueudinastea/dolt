@@ -16,6 +16,7 @@ package val
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"math"
 	"math/big"
@@ -306,7 +307,7 @@ func compareInt32(l, r int32) int {
 	}
 }
 
-func readUint32(val []byte) uint32 {
+func ReadUint32(val []byte) uint32 {
 	expectSize(val, uint32Size)
 	return binary.LittleEndian.Uint32(val)
 }
@@ -368,7 +369,7 @@ func compareUint64(l, r uint64) int {
 
 func readFloat32(val []byte) float32 {
 	expectSize(val, float32Size)
-	return math.Float32frombits(readUint32(val))
+	return math.Float32frombits(ReadUint32(val))
 }
 
 func writeFloat32(buf []byte, val float32) {
@@ -490,7 +491,7 @@ const (
 
 func readDate(val []byte) (date time.Time) {
 	expectSize(val, dateSize)
-	t := readUint32(val)
+	t := ReadUint32(val)
 	y := t >> yearShift
 	m := (t & monthMask) >> monthShift
 	d := (t & dayMask)
@@ -595,8 +596,8 @@ func compareByteString(l, r []byte) int {
 	return bytes.Compare(l, r)
 }
 
-func readExtended(handler TupleTypeHandler, val []byte) any {
-	v, err := handler.DeserializeValue(val)
+func readExtended(ctx context.Context, handler TupleTypeHandler, val []byte) any {
+	v, err := handler.DeserializeValue(ctx, val)
 	if err != nil {
 		panic(err)
 	}

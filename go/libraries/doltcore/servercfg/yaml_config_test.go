@@ -27,23 +27,22 @@ var trueValue = true
 func TestUnmarshall(t *testing.T) {
 	testStr := `
 log_level: info
-
+log_format: text
 behavior:
     read_only: false
     autocommit: true
     dolt_transaction_commit: true
-    persistence_behavior: load
     disable_client_multi_statements: false
     event_scheduler: ON
-
-user:
-    name: ""
-    password: ""
+    auto_gc_behavior:
+        enable: false
 
 listener:
     host: localhost
     port: 3306
-    max_connections: 100
+    max_connections: 1000
+    back_log: 50
+    max_connections_timeout_millis: 60000
     read_timeout_millis: 28800000
     write_timeout_millis: 28800000
     
@@ -107,7 +106,7 @@ jwks:
 	expected.Vars = []UserSessionVars{
 		{
 			Name: "user0",
-			Vars: map[string]string{
+			Vars: map[string]interface{}{
 				"var1": "val0_1",
 				"var2": "val0_2",
 				"var3": "val0_3",
@@ -115,7 +114,7 @@ jwks:
 		},
 		{
 			Name: "user1",
-			Vars: map[string]string{
+			Vars: map[string]interface{}{
 				"var1": "val1_1",
 				"var2": "val1_2",
 				"var4": "val1_4",
@@ -326,11 +325,13 @@ func TestYAMLConfigDefaults(t *testing.T) {
 	assert.Equal(t, DefaultHost, cfg.Host())
 	assert.Equal(t, DefaultPort, cfg.Port())
 	assert.Equal(t, DefaultUser, cfg.User())
+	assert.False(t, cfg.UserIsSpecified())
 	assert.Equal(t, DefaultPass, cfg.Password())
 	assert.Equal(t, uint64(DefaultTimeout), cfg.WriteTimeout())
 	assert.Equal(t, uint64(DefaultTimeout), cfg.ReadTimeout())
 	assert.Equal(t, DefaultReadOnly, cfg.ReadOnly())
 	assert.Equal(t, DefaultLogLevel, cfg.LogLevel())
+	assert.Equal(t, DefaultLogFormat, cfg.LogFormat())
 	assert.Equal(t, DefaultAutoCommit, cfg.AutoCommit())
 	assert.Equal(t, DefaultDoltTransactionCommit, cfg.DoltTransactionCommit())
 	assert.Equal(t, uint64(DefaultMaxConnections), cfg.MaxConnections())
@@ -414,4 +415,142 @@ listener:
 	require.NoError(t, err)
 	err = ValidateConfig(cfg)
 	assert.Error(t, err)
+}
+
+func TestYAMLConfigMetrics(t *testing.T) {
+	var cfg YAMLConfig
+	err := yaml.Unmarshal([]byte(`
+metrics:
+  host: localhost
+  port: null
+`), &cfg)
+	require.NoError(t, err)
+
+	assert.Equal(t, "localhost", cfg.MetricsHost())
+	assert.Equal(t, -1, cfg.MetricsPort())
+}
+
+// Tests that YAMLConfig.String() and YAMLConfig.VerboseString() produce equivalent YAML.
+func TestYAMLConfigVerboseStringEquivalent(t *testing.T) {
+	yamlEquivalent := func(a, b string) bool {
+		var unmarshaled1 any
+		err := yaml.Unmarshal([]byte(a), &unmarshaled1)
+		require.NoError(t, err)
+
+		var unmarshaled2 any
+		err = yaml.Unmarshal([]byte(a), &unmarshaled2)
+		require.NoError(t, err)
+
+		remarshaled1, err := yaml.Marshal(unmarshaled1)
+		require.NoError(t, err)
+
+		remarshaled2, err := yaml.Marshal(unmarshaled1)
+		require.NoError(t, err)
+
+		return string(remarshaled1) == string(remarshaled2)
+	}
+
+	configs := []YAMLConfig{
+		YAMLConfig{
+			LogLevelStr:       ptr("warn"),
+			MaxQueryLenInLogs: ptr(1234),
+			ListenerConfig: ListenerYAMLConfig{
+				HostStr:    ptr("XXYYZZ"),
+				PortNumber: ptr(33333),
+			},
+			DataDirStr:      ptr("abcdef"),
+			GoldenMysqlConn: ptr("abc123"),
+		},
+		YAMLConfig{
+			MetricsConfig: MetricsYAMLConfig{
+				Labels: map[string]string{
+					"xyz": "123",
+					"0":   "AAABBB",
+				},
+				Host: ptr("!!!!!!!!"),
+			},
+		},
+		YAMLConfig{
+			MetricsConfig: MetricsYAMLConfig{
+				Port: ptr(0),
+			},
+			RemotesapiConfig: RemotesapiYAMLConfig{
+				Port_:     ptr(111),
+				ReadOnly_: ptr(false),
+			},
+		},
+	}
+
+	for _, config := range configs {
+		assert.True(t, yamlEquivalent(config.String(), config.VerboseString()))
+	}
+}
+
+func TestCommentYAMLDiffs(t *testing.T) {
+	a := `abc: 100
+dddddd: "1234"
+fire: water
+
+a:
+  b:
+	c: 1001011
+
+	t: g
+
+x:
+- we
+- se
+- ll`
+
+	b := `abc: 100
+dddddd: "1234"
+
+fire: water
+extra1: 12345
+
+a:
+  b:
+	c: 1001011
+	extra2: iiiii
+
+	t: g
+
+x:
+- we
+- extra3
+- extra4
+- se
+- extra5
+- ll
+
+extra6:
+  extra7:
+    extra8: 999`
+
+	expected := `abc: 100
+dddddd: "1234"
+
+fire: water
+# extra1: 12345
+
+a:
+  b:
+	c: 1001011
+	# extra2: iiiii
+
+	t: g
+
+x:
+- we
+# - extra3
+# - extra4
+- se
+# - extra5
+- ll
+
+# extra6:
+  # extra7:
+    # extra8: 999`
+
+	assert.Equal(t, expected, commentYAMLDiffs(a, b))
 }

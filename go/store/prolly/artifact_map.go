@@ -57,6 +57,20 @@ type ArtifactMap struct {
 	valDesc    val.TupleDesc
 }
 
+func (m ArtifactMap) Has(ctx context.Context, key val.Tuple) (ok bool, err error) {
+	return m.tuples.Has(ctx, key)
+}
+
+func (m ArtifactMap) ValDesc() val.TupleDesc {
+	return m.valDesc
+}
+
+func (m ArtifactMap) KeyDesc() val.TupleDesc {
+	return m.keyDesc
+}
+
+var _ MapInterface = (*ArtifactMap)(nil)
+
 // NewArtifactMap creates an artifact map based on |srcKeyDesc| which is the key descriptor for
 // the corresponding row map.
 func NewArtifactMap(node tree.Node, ns tree.NodeStore, srcKeyDesc val.TupleDesc) ArtifactMap {
@@ -162,6 +176,7 @@ func (m ArtifactMap) Editor() *ArtifactsEditor {
 			keyDesc:    m.keyDesc,
 			valDesc:    m.valDesc,
 			maxPending: artifactMapPendingBufferSize,
+			flusher:    ProllyFlusher{},
 		},
 		artKB: val.NewTupleBuilder(artKD),
 		artVB: val.NewTupleBuilder(artVD),
@@ -169,8 +184,13 @@ func (m ArtifactMap) Editor() *ArtifactsEditor {
 	}
 }
 
-// IterAll returns an iterator for all artifacts.
-func (m ArtifactMap) IterAll(ctx context.Context) (ArtifactIter, error) {
+// IterAll returns a MapIter for all artifacts.
+func (m ArtifactMap) IterAll(ctx context.Context) (MapIter, error) {
+	return m.tuples.IterAll(ctx)
+}
+
+// IterAllArtifacts returns an iterator for all artifacts.
+func (m ArtifactMap) IterAllArtifacts(ctx context.Context) (ArtifactIter, error) {
 	numPks := m.srcKeyDesc.Count()
 	tb := val.NewTupleBuilder(m.srcKeyDesc)
 	itr, err := m.tuples.IterAll(ctx)
@@ -279,7 +299,7 @@ func (m ArtifactMap) CountOfTypes(ctx context.Context, artTypes ...ArtifactType)
 }
 
 func (m ArtifactMap) iterAllOfType(ctx context.Context, artType ArtifactType) (artifactTypeIter, error) {
-	itr, err := m.IterAll(ctx)
+	itr, err := m.IterAllArtifacts(ctx)
 	if err != nil {
 		return artifactTypeIter{}, err
 	}
@@ -287,7 +307,7 @@ func (m ArtifactMap) iterAllOfType(ctx context.Context, artType ArtifactType) (a
 }
 
 func (m ArtifactMap) iterAllOfTypes(ctx context.Context, artTypes ...ArtifactType) (multiArtifactTypeItr, error) {
-	itr, err := m.IterAll(ctx)
+	itr, err := m.IterAllArtifacts(ctx)
 	if err != nil {
 		return multiArtifactTypeItr{}, err
 	}
@@ -350,7 +370,7 @@ func (wr *ArtifactsEditor) Add(ctx context.Context, srcKey val.Tuple, srcRootish
 // existing violation exists but has a different |meta.VInfo| value then
 // ErrMergeArtifactCollision is a returned.
 func (wr *ArtifactsEditor) ReplaceConstraintViolation(ctx context.Context, srcKey val.Tuple, srcRootish hash.Hash, artType ArtifactType, meta ConstraintViolationMeta) error {
-	itr, err := wr.mut.IterRange(ctx, PrefixRange(srcKey, wr.srcKeyDesc))
+	itr, err := wr.mut.IterRange(ctx, PrefixRange(ctx, srcKey, wr.srcKeyDesc))
 	if err != nil {
 		return err
 	}
@@ -381,7 +401,7 @@ func (wr *ArtifactsEditor) ReplaceConstraintViolation(ctx context.Context, srcKe
 
 		if bytes.Compare(currMeta.Value, meta.Value) == 0 {
 			if bytes.Compare(currMeta.VInfo, meta.VInfo) != 0 {
-				return artifactCollisionErr(srcKey, wr.srcKeyDesc, currMeta.VInfo, meta.VInfo)
+				return artifactCollisionErr(ctx, srcKey, wr.srcKeyDesc, currMeta.VInfo, meta.VInfo)
 			}
 			// Key and Value is the same, so delete this
 			err = wr.Delete(ctx, art.ArtKey)
@@ -406,9 +426,9 @@ func (wr *ArtifactsEditor) ReplaceConstraintViolation(ctx context.Context, srcKe
 	return nil
 }
 
-func artifactCollisionErr(key val.Tuple, desc val.TupleDesc, old, new []byte) error {
+func artifactCollisionErr(ctx context.Context, key val.Tuple, desc val.TupleDesc, old, new []byte) error {
 	return fmt.Errorf("error storing constraint violation for primary key (%s): another violation already exists\n"+
-		"new violation: %s old violation: (%s)", desc.Format(key), string(old), string(new))
+		"new violation: %s old violation: (%s)", desc.Format(ctx, key), string(old), string(new))
 }
 
 func (wr *ArtifactsEditor) Delete(ctx context.Context, key val.Tuple) error {
@@ -429,7 +449,7 @@ func (wr *ArtifactsEditor) Flush(ctx context.Context) (ArtifactMap, error) {
 	}
 
 	return ArtifactMap{
-		tuples:     m.tuples,
+		tuples:     m,
 		srcKeyDesc: wr.srcKeyDesc,
 		keyDesc:    wr.mut.keyDesc,
 		valDesc:    wr.mut.valDesc,
@@ -630,9 +650,9 @@ func ArtifactDebugFormat(ctx context.Context, m ArtifactMap) (string, error) {
 		}
 
 		sb.WriteString("\t")
-		sb.WriteString(kd.Format(k))
+		sb.WriteString(kd.Format(ctx, k))
 		sb.WriteString(": ")
-		sb.WriteString(vd.Format(v))
+		sb.WriteString(vd.Format(ctx, v))
 		sb.WriteString(",\n")
 	}
 	sb.WriteString("}")

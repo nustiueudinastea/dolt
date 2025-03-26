@@ -30,10 +30,10 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/gcctx"
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	dsql "github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/statsnoms"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/statspro"
 	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
 	"github.com/dolthub/dolt/go/libraries/utils/filesys"
@@ -123,6 +123,7 @@ func (h *DoltHarness) GetTimeout() int64 {
 }
 
 func innerInit(h *DoltHarness, dEnv *env.DoltEnv) error {
+	ctx := context.Background()
 	if !dEnv.HasDoltDir() {
 		err := dEnv.InitRepoWithTime(context.Background(), types.Format_Default, name, email, env.DefaultInitBranch, time.Now())
 		if err != nil {
@@ -137,16 +138,19 @@ func innerInit(h *DoltHarness, dEnv *env.DoltEnv) error {
 
 	var err error
 	var pro dsess.DoltDatabaseProvider
-	h.engine, pro, err = sqlNewEngine(dEnv)
+	h.engine, pro, err = sqlNewEngine(ctx, dEnv)
 
 	if err != nil {
 		return err
 	}
 
-	ctx := dsql.NewTestSQLCtxWithProvider(context.Background(), pro, statspro.NewProvider(pro.(*dsql.DoltDatabaseProvider), statsnoms.NewNomsStatsFactory(env.NewGRPCDialProviderFromDoltEnv(dEnv))))
-	h.sess = ctx.Session.(*dsess.DoltSession)
+	gcSafepointController := gcctx.NewGCSafepointController()
 
-	dbs := h.engine.Analyzer.Catalog.AllDatabases(ctx)
+	config, _ := dEnv.Config.GetConfig(env.GlobalConfig)
+	sqlCtx := dsql.NewTestSQLCtxWithProvider(ctx, pro, config, statspro.StatsNoop{}, gcSafepointController)
+	h.sess = sqlCtx.Session.(*dsess.DoltSession)
+
+	dbs := h.engine.Analyzer.Catalog.AllDatabases(sqlCtx)
 	var dbName string
 	for _, db := range dbs {
 		dsqlDB, ok := db.(dsql.Database)
@@ -282,13 +286,13 @@ func schemaToSchemaString(sch sql.Schema) (string, error) {
 	return b.String(), nil
 }
 
-func sqlNewEngine(dEnv *env.DoltEnv) (*sqle.Engine, dsess.DoltDatabaseProvider, error) {
+func sqlNewEngine(ctx context.Context, dEnv *env.DoltEnv) (*sqle.Engine, dsess.DoltDatabaseProvider, error) {
 	tmpDir, err := dEnv.TempTableFilesDir()
 	if err != nil {
 		return nil, nil, err
 	}
-	opts := editor.Options{Deaf: dEnv.DbEaFactory(), Tempdir: tmpDir}
-	db, err := dsql.NewDatabase(context.Background(), "dolt", dEnv.DbData(), opts)
+	opts := editor.Options{Deaf: dEnv.DbEaFactory(ctx), Tempdir: tmpDir}
+	db, err := dsql.NewDatabase(context.Background(), "dolt", dEnv.DbData(ctx), opts)
 	if err != nil {
 		return nil, nil, err
 	}

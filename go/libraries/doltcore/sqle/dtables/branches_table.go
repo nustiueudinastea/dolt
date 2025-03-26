@@ -15,6 +15,7 @@
 package dtables
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 const branchesDefaultRowCount = 10
@@ -39,18 +41,19 @@ var _ sql.ReplaceableTable = (*BranchesTable)(nil)
 
 // BranchesTable is the system table that accesses branches
 type BranchesTable struct {
-	db     dsess.SqlDatabase
-	remote bool
+	db        dsess.SqlDatabase
+	remote    bool
+	tableName string
 }
 
 // NewBranchesTable creates a BranchesTable
-func NewBranchesTable(_ *sql.Context, db dsess.SqlDatabase) sql.Table {
-	return &BranchesTable{db: db}
+func NewBranchesTable(_ *sql.Context, db dsess.SqlDatabase, tableName string) sql.Table {
+	return &BranchesTable{db: db, tableName: tableName}
 }
 
 // NewRemoteBranchesTable creates a BranchesTable with only remote refs
-func NewRemoteBranchesTable(_ *sql.Context, ddb dsess.SqlDatabase) sql.Table {
-	return &BranchesTable{ddb, true}
+func NewRemoteBranchesTable(_ *sql.Context, ddb dsess.SqlDatabase, tableName string) sql.Table {
+	return &BranchesTable{ddb, true, tableName}
 }
 
 func (bt *BranchesTable) DataLength(ctx *sql.Context) (uint64, error) {
@@ -66,42 +69,30 @@ func (bt *BranchesTable) RowCount(_ *sql.Context) (uint64, bool, error) {
 	return branchesDefaultRowCount, false, nil
 }
 
-// Name is a sql.Table interface function which returns the name of the table which is defined by the constant
-// BranchesTableName
+// Name is a sql.Table interface function which returns the name of the table
 func (bt *BranchesTable) Name() string {
-	if bt.remote {
-		return doltdb.RemoteBranchesTableName
-	}
-	return doltdb.BranchesTableName
+	return bt.tableName
 }
 
-// String is a sql.Table interface function which returns the name of the table which is defined by the constant
-// BranchesTableName
+// String is a sql.Table interface function which returns the name of the table
 func (bt *BranchesTable) String() string {
-	if bt.remote {
-		return doltdb.RemoteBranchesTableName
-	}
-	return doltdb.BranchesTableName
+	return bt.tableName
 }
 
 // Schema is a sql.Table interface function that gets the sql.Schema of the branches system table
 func (bt *BranchesTable) Schema() sql.Schema {
-	tableName := doltdb.BranchesTableName
-	if bt.remote {
-		tableName = doltdb.RemoteBranchesTableName
-	}
-
 	columns := []*sql.Column{
-		{Name: "name", Type: types.Text, Source: tableName, PrimaryKey: true, Nullable: false, DatabaseSource: bt.db.Name()},
-		{Name: "hash", Type: types.Text, Source: tableName, PrimaryKey: false, Nullable: false, DatabaseSource: bt.db.Name()},
-		{Name: "latest_committer", Type: types.Text, Source: tableName, PrimaryKey: false, Nullable: true, DatabaseSource: bt.db.Name()},
-		{Name: "latest_committer_email", Type: types.Text, Source: tableName, PrimaryKey: false, Nullable: true, DatabaseSource: bt.db.Name()},
-		{Name: "latest_commit_date", Type: types.Datetime, Source: tableName, PrimaryKey: false, Nullable: true, DatabaseSource: bt.db.Name()},
-		{Name: "latest_commit_message", Type: types.Text, Source: tableName, PrimaryKey: false, Nullable: true, DatabaseSource: bt.db.Name()},
+		{Name: "name", Type: types.Text, Source: bt.tableName, PrimaryKey: true, Nullable: false, DatabaseSource: bt.db.Name()},
+		{Name: "hash", Type: types.Text, Source: bt.tableName, PrimaryKey: false, Nullable: false, DatabaseSource: bt.db.Name()},
+		{Name: "latest_committer", Type: types.Text, Source: bt.tableName, PrimaryKey: false, Nullable: true, DatabaseSource: bt.db.Name()},
+		{Name: "latest_committer_email", Type: types.Text, Source: bt.tableName, PrimaryKey: false, Nullable: true, DatabaseSource: bt.db.Name()},
+		{Name: "latest_commit_date", Type: types.Datetime, Source: bt.tableName, PrimaryKey: false, Nullable: true, DatabaseSource: bt.db.Name()},
+		{Name: "latest_commit_message", Type: types.Text, Source: bt.tableName, PrimaryKey: false, Nullable: true, DatabaseSource: bt.db.Name()},
 	}
 	if !bt.remote {
-		columns = append(columns, &sql.Column{Name: "remote", Type: types.Text, Source: tableName, PrimaryKey: false, Nullable: true})
-		columns = append(columns, &sql.Column{Name: "branch", Type: types.Text, Source: tableName, PrimaryKey: false, Nullable: true})
+		columns = append(columns, &sql.Column{Name: "remote", Type: types.Text, Source: bt.tableName, PrimaryKey: false, Nullable: true})
+		columns = append(columns, &sql.Column{Name: "branch", Type: types.Text, Source: bt.tableName, PrimaryKey: false, Nullable: true})
+		columns = append(columns, &sql.Column{Name: "dirty", Type: types.Boolean, Source: bt.tableName, PrimaryKey: false, Nullable: true})
 	}
 	return columns
 }
@@ -126,6 +117,7 @@ type BranchItr struct {
 	table    *BranchesTable
 	branches []string
 	commits  []*doltdb.Commit
+	dirty    []bool
 	idx      int
 }
 
@@ -157,11 +149,19 @@ func NewBranchItr(ctx *sql.Context, table *BranchesTable) (*BranchItr, error) {
 
 	branchNames := make([]string, len(branchRefs))
 	commits := make([]*doltdb.Commit, len(branchRefs))
+	dirtyBits := make([]bool, len(branchRefs))
 	for i, branch := range branchRefs {
 		commit, err := ddb.ResolveCommitRefAtRoot(ctx, branch, txRoot)
-
 		if err != nil {
 			return nil, err
+		}
+
+		var dirty bool
+		if !remote {
+			dirty, err = isDirty(ctx, ddb, commit, branch, txRoot)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		if branch.GetType() == ref.RemoteRefType {
@@ -170,6 +170,7 @@ func NewBranchItr(ctx *sql.Context, table *BranchesTable) (*BranchItr, error) {
 			branchNames[i] = branch.GetPath()
 		}
 
+		dirtyBits[i] = dirty
 		commits[i] = commit
 	}
 
@@ -177,6 +178,7 @@ func NewBranchItr(ctx *sql.Context, table *BranchesTable) (*BranchItr, error) {
 		table:    table,
 		branches: branchNames,
 		commits:  commits,
+		dirty:    dirtyBits,
 		idx:      0,
 	}, nil
 }
@@ -194,6 +196,7 @@ func (itr *BranchItr) Next(ctx *sql.Context) (sql.Row, error) {
 
 	name := itr.branches[itr.idx]
 	cm := itr.commits[itr.idx]
+	dirty := itr.dirty[itr.idx]
 	meta, err := cm.GetCommitMeta(ctx)
 
 	if err != nil {
@@ -223,8 +226,53 @@ func (itr *BranchItr) Next(ctx *sql.Context) (sql.Row, error) {
 			remoteName = branch.Remote
 			branchName = branch.Merge.Ref.GetPath()
 		}
-		return sql.NewRow(name, h.String(), meta.Name, meta.Email, meta.Time(), meta.Description, remoteName, branchName), nil
+		return sql.NewRow(name, h.String(), meta.Name, meta.Email, meta.Time(), meta.Description, remoteName, branchName, dirty), nil
 	}
+}
+
+// isDirty returns true if the working ref points to a dirty branch.
+func isDirty(ctx *sql.Context, ddb *doltdb.DoltDB, commit *doltdb.Commit, branch ref.DoltRef, txRoot hash.Hash) (bool, error) {
+	wsRef, err := ref.WorkingSetRefForHead(branch)
+	if err != nil {
+		return false, err
+	}
+	ws, err := ddb.ResolveWorkingSetAtRoot(ctx, wsRef, txRoot)
+	if err != nil {
+		if errors.Is(err, doltdb.ErrWorkingSetNotFound) {
+			// If there is no working set for this branch, then it is never dirty. This happens on servers commonly.
+			return false, nil
+		}
+		return false, err
+	}
+
+	workingRoot := ws.WorkingRoot()
+	workingRootHash, err := workingRoot.HashOf()
+	if err != nil {
+		return false, err
+	}
+	stagedRoot := ws.StagedRoot()
+	stagedRootHash, err := stagedRoot.HashOf()
+	if err != nil {
+		return false, err
+	}
+
+	dirty := false
+	if workingRootHash != stagedRootHash {
+		dirty = true
+	} else {
+		cmRt, err := commit.GetRootValue(ctx)
+		if err != nil {
+			return false, err
+		}
+		cmRtHash, err := cmRt.HashOf()
+		if err != nil {
+			return false, err
+		}
+		if cmRtHash != workingRootHash {
+			dirty = true
+		}
+	}
+	return dirty, nil
 }
 
 // Close closes the iterator.

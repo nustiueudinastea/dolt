@@ -65,8 +65,12 @@ func newJsonCursor(ctx context.Context, ns NodeStore, root Node, startKey jsonLo
 }
 
 func newJsonCursorAtStartOfChunk(ctx context.Context, ns NodeStore, root Node, startKey []byte) (jCur *JsonCursor, err error) {
-	cur, err := newCursorAtKey(ctx, ns, root, startKey, jsonLocationOrdering{})
+	ordering := jsonLocationOrdering{}
+	cur, err := newCursorAtKey(ctx, ns, root, startKey, &ordering)
 	if err != nil {
+		return nil, err
+	}
+	if ordering.err != nil {
 		return nil, err
 	}
 	return newJsonCursorFromCursor(ctx, cur)
@@ -125,7 +129,15 @@ func (j *JsonCursor) NextValue(ctx context.Context) (result []byte, err error) {
 		return
 	}
 
-	for compareJsonLocations(j.jsonScanner.currentPath, path) < 0 {
+	for {
+		var cmp int
+		cmp, err = compareJsonLocations(j.jsonScanner.currentPath, path)
+		if err != nil {
+			return
+		}
+		if cmp >= 0 {
+			break
+		}
 		parseChunk()
 		if err != nil {
 			return
@@ -135,13 +147,14 @@ func (j *JsonCursor) NextValue(ctx context.Context) (result []byte, err error) {
 	return
 }
 
-func (j *JsonCursor) isKeyInChunk(path jsonLocation) bool {
+func (j *JsonCursor) isKeyInChunk(path jsonLocation) (bool, error) {
 	if j.cur.parent == nil {
 		// This is the only chunk, so the path must refer to this chunk.
-		return true
+		return true, nil
 	}
 	nodeEndPosition := jsonPathFromKey(j.cur.parent.CurrentKey())
-	return compareJsonLocations(path, nodeEndPosition) <= 0
+	cmp, err := compareJsonLocations(path, nodeEndPosition)
+	return cmp <= 0, err
 }
 
 // AdvanceToLocation causes the cursor to advance to the specified position. This function returns a boolean indicating
@@ -151,10 +164,18 @@ func (j *JsonCursor) isKeyInChunk(path jsonLocation) bool {
 // the cursor advances to the end of the previous value, prior to the object key. This allows the key to be removed along
 // with the value.
 func (j *JsonCursor) AdvanceToLocation(ctx context.Context, path jsonLocation, forRemoval bool) (found bool, err error) {
-	if !j.isKeyInChunk(path) {
+	isInChunk, err := j.isKeyInChunk(path)
+	if err != nil {
+		return false, err
+	}
+	if !isInChunk {
 		// Our destination is in another chunk, load it.
-		err := Seek(ctx, j.cur.parent, path.key, jsonLocationOrdering{})
+		ordering := jsonLocationOrdering{}
+		err := Seek(ctx, j.cur.parent, path.key, &ordering)
 		if err != nil {
+			return false, err
+		}
+		if ordering.err != nil {
 			return false, err
 		}
 		j.cur.nd, err = fetchChild(ctx, j.cur.nrw, j.cur.parent.currentRef())
@@ -169,7 +190,10 @@ func (j *JsonCursor) AdvanceToLocation(ctx context.Context, path jsonLocation, f
 	}
 
 	previousScanner := j.jsonScanner
-	cmp := compareJsonLocations(j.jsonScanner.currentPath, path)
+	cmp, err := compareJsonLocations(j.jsonScanner.currentPath, path)
+	if err != nil {
+		return false, err
+	}
 	for cmp < 0 {
 		previousScanner = j.jsonScanner.Clone()
 		err := j.jsonScanner.AdvanceToNextLocation()
@@ -180,7 +204,10 @@ func (j *JsonCursor) AdvanceToLocation(ctx context.Context, path jsonLocation, f
 		} else if err != nil {
 			return false, err
 		}
-		cmp = compareJsonLocations(j.jsonScanner.currentPath, path)
+		cmp, err = compareJsonLocations(j.jsonScanner.currentPath, path)
+		if err != nil {
+			return false, err
+		}
 	}
 	// If the supplied path doesn't exist in the document, then we want to stop the cursor at the start of the point
 	// were it would appear. This may mean that we've gone too far and need to rewind one location.
@@ -195,20 +222,28 @@ func (j *JsonCursor) AdvanceToLocation(ctx context.Context, path jsonLocation, f
 	return true, nil
 }
 
+func (j *JsonCursor) advanceCursor(ctx context.Context) error {
+	err := j.cur.advance(ctx)
+	if err != nil {
+		return err
+	}
+	if !j.cur.Valid() {
+		// We hit the end of the tree. This shouldn't happen.
+		return io.EOF
+	}
+	j.jsonScanner = ScanJsonFromMiddle(j.cur.currentValue(), j.jsonScanner.currentPath)
+	return nil
+}
+
 func (j *JsonCursor) AdvanceToNextLocation(ctx context.Context) (crossedBoundary bool, err error) {
 	err = j.jsonScanner.AdvanceToNextLocation()
 	if err == io.EOF {
 		crossedBoundary = true
 		// We hit the end of the chunk, load the next one
-		err = j.cur.advance(ctx)
+		err = j.advanceCursor(ctx)
 		if err != nil {
-			return
+			return false, err
 		}
-		if !j.cur.Valid() {
-			// We hit the end of the tree. This shouldn't happen.
-			return true, io.EOF
-		}
-		j.jsonScanner = ScanJsonFromMiddle(j.cur.currentValue(), j.jsonScanner.currentPath)
 		return true, j.jsonScanner.AdvanceToNextLocation()
 	} else if err != nil {
 		return
@@ -221,6 +256,12 @@ func (j *JsonCursor) GetCurrentPath() jsonLocation {
 	return j.jsonScanner.currentPath
 }
 
-func (j *JsonCursor) nextCharacter() byte {
-	return j.jsonScanner.jsonBuffer[j.jsonScanner.valueOffset]
+func (j *JsonCursor) nextCharacter(ctx context.Context) (byte, error) {
+	if j.jsonScanner.atEndOfChunk() {
+		err := j.advanceCursor(ctx)
+		if err != nil {
+			return 255, err
+		}
+	}
+	return j.jsonScanner.jsonBuffer[j.jsonScanner.valueOffset], nil
 }

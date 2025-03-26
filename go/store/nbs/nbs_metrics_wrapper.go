@@ -57,13 +57,8 @@ func (nbsMW *NBSMetricWrapper) WriteTableFile(ctx context.Context, fileId string
 }
 
 // AddTableFilesToManifest adds table files to the manifest
-func (nbsMW *NBSMetricWrapper) AddTableFilesToManifest(ctx context.Context, fileIdToNumChunks map[string]int) error {
-	return nbsMW.nbs.AddTableFilesToManifest(ctx, fileIdToNumChunks)
-}
-
-// SetRootChunk changes the root chunk hash from the previous value to the new root.
-func (nbsMW *NBSMetricWrapper) SetRootChunk(ctx context.Context, root, previous hash.Hash) error {
-	return nbsMW.nbs.SetRootChunk(ctx, root, previous)
+func (nbsMW *NBSMetricWrapper) AddTableFilesToManifest(ctx context.Context, fileIdToNumChunks map[string]int, getAddrs chunks.GetAddrsCurry) error {
+	return nbsMW.nbs.AddTableFilesToManifest(ctx, fileIdToNumChunks, getAddrs)
 }
 
 // Forwards SupportedOperations to wrapped block store.
@@ -71,16 +66,24 @@ func (nbsMW *NBSMetricWrapper) SupportedOperations() chunks.TableFileStoreOps {
 	return nbsMW.nbs.SupportedOperations()
 }
 
-func (nbsMW *NBSMetricWrapper) BeginGC(keeper func(hash.Hash) bool) error {
-	return nbsMW.nbs.BeginGC(keeper)
+func (nbsMW *NBSMetricWrapper) BeginGC(keeper func(hash.Hash) bool, mode chunks.GCMode) error {
+	return nbsMW.nbs.BeginGC(keeper, mode)
 }
 
-func (nbsMW *NBSMetricWrapper) EndGC() {
-	nbsMW.nbs.EndGC()
+func (nbsMW *NBSMetricWrapper) EndGC(mode chunks.GCMode) {
+	nbsMW.nbs.EndGC(mode)
 }
 
-func (nbsMW *NBSMetricWrapper) MarkAndSweepChunks(ctx context.Context, hashes <-chan []hash.Hash, dest chunks.ChunkStore) error {
-	return nbsMW.nbs.MarkAndSweepChunks(ctx, hashes, dest)
+func (nbsMW *NBSMetricWrapper) MarkAndSweepChunks(ctx context.Context, getAddrs chunks.GetAddrsCurry, filter chunks.HasManyFunc, dest chunks.ChunkStore, mode chunks.GCMode) (chunks.MarkAndSweeper, error) {
+	return nbsMW.nbs.MarkAndSweepChunks(ctx, getAddrs, filter, dest, mode)
+}
+
+func (nbsMW *NBSMetricWrapper) Count() (uint32, error) {
+	return nbsMW.nbs.Count()
+}
+
+func (nbsMW *NBSMetricWrapper) IterateAllChunks(ctx context.Context, cb func(chunk chunks.Chunk)) error {
+	return nbsMW.nbs.IterateAllChunks(ctx, cb)
 }
 
 // PruneTableFiles deletes old table files that are no longer referenced in the manifest.
@@ -91,7 +94,7 @@ func (nbsMW *NBSMetricWrapper) PruneTableFiles(ctx context.Context) error {
 // GetManyCompressed gets the compressed Chunks with |hashes| from the store. On return,
 // |found| will have been fully sent all chunks which have been
 // found. Any non-present chunks will silently be ignored.
-func (nbsMW *NBSMetricWrapper) GetManyCompressed(ctx context.Context, hashes hash.HashSet, found func(context.Context, CompressedChunk)) error {
+func (nbsMW *NBSMetricWrapper) GetManyCompressed(ctx context.Context, hashes hash.HashSet, found func(context.Context, ToChunker)) error {
 	atomic.AddInt32(&nbsMW.TotalChunkGets, int32(len(hashes)))
 	return nbsMW.nbs.GetManyCompressed(ctx, hashes, found)
 }

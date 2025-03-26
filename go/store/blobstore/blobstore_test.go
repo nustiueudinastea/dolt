@@ -202,7 +202,7 @@ func testCheckAndPutError(t *testing.T, bs Blobstore) {
 	if !ok {
 		t.Errorf("Error is not of the expected type")
 	} else if cpe.Key != key || cpe.ExpectedVersion != badVersion {
-		t.Errorf("CheckAndPutError does not have expected values - " + cpe.Error())
+		t.Errorf("CheckAndPutError does not have expected values - %s", cpe.Error())
 	}
 }
 
@@ -324,7 +324,7 @@ func TestConcurrentCheckAndPuts(t *testing.T) {
 	for _, bsTest := range newBlobStoreTests() {
 		t.Run(bsTest.bsType, func(t *testing.T) {
 			if bsTest.rmwIterations*bsTest.rmwConcurrency > 255 {
-				panic("Test epects less than 255 total updates or it won't work as is.")
+				panic("Test expects less than 255 total updates or it won't work as is.")
 			}
 			testConcurrentCheckAndPuts(t, bsTest, uuid.New().String())
 		})

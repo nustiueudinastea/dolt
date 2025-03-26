@@ -18,12 +18,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/big"
+	"strings"
 	"time"
 
 	"github.com/dolthub/go-mysql-server/sql"
 	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/common"
+	"github.com/xitongsys/parquet-go/parquet"
 	"github.com/xitongsys/parquet-go/reader"
 	"github.com/xitongsys/parquet-go/source"
 
@@ -36,14 +39,22 @@ import (
 
 // ParquetReader implements TableReader.  It reads parquet files and returns rows.
 type ParquetReader struct {
-	fileReader     source.ParquetFile
-	pReader        *reader.ParquetReader
-	sch            schema.Schema
-	vrw            types.ValueReadWriter
-	numRow         int
-	rowReadCounter int
-	fileData       map[string][]interface{}
-	columnName     []string
+	fileReader source.ParquetFile
+	pReader    *reader.ParquetReader
+	sch        schema.Schema
+	vrw        types.ValueReadWriter
+	numRow     int
+	rowsRead   int
+	// rowReadCounters tracks offsets into each column. Necessary because of repeated fields.
+	rowReadCounters map[string]int
+	fileData        map[string][]interface{}
+	// rLevels indicate whether a value in a column is a repeat of a repeated type.
+	// We only include these for repeated fields.
+	rLevels map[string][]int32
+	// dLevels are used for interpreting null values by indicating the deepest level in
+	// a nested field that's defined.
+	dLevels    map[string][]int32
+	columnName []string
 }
 
 var _ table.SqlTableReader = (*ParquetReader)(nil)
@@ -66,61 +77,204 @@ func NewParquetReader(vrw types.ValueReadWriter, fr source.ParquetFile, sche sch
 		return nil, err
 	}
 
+	rootName := pr.SchemaHandler.GetRootExName()
+
 	columns := sche.GetAllCols().GetColumns()
 	num := pr.GetNumRows()
 
 	// TODO : need to solve for getting single row data in readRow (storing all columns data in memory right now)
 	data := make(map[string][]interface{})
+	rLevels := make(map[string][]int32)
+	dLevels := make(map[string][]int32)
+	rowReadCounters := make(map[string]int)
 	var colName []string
 	for _, col := range columns {
-		colData, _, _, cErr := pr.ReadColumnByPath(common.ReformPathStr(fmt.Sprintf("parquet_go_root.%s", col.Name)), num)
+		pathName := common.ReformPathStr(fmt.Sprintf("%s.%s", rootName, col.Name))
+		resolvedColumnName, found, isRepeated, err := resolveColumnPrefix(pr, pathName)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read column: %s", err.Error())
+		}
+		if !found {
+			if resolvedColumnName != "" {
+				return nil, fmt.Errorf("cannot read column: %s is ambiguous", resolvedColumnName)
+			}
+			return nil, fmt.Errorf("cannot read column: %s Column not found", col.Name)
+		}
+		colData, rLevel, dLevel, cErr := pr.ReadColumnByPath(resolvedColumnName, num)
 		if cErr != nil {
 			return nil, fmt.Errorf("cannot read column: %s", cErr.Error())
 		}
 		data[col.Name] = colData
+		if isRepeated {
+			rLevels[col.Name] = rLevel
+		}
+		dLevels[col.Name] = dLevel
+		rowReadCounters[col.Name] = 0
 		colName = append(colName, col.Name)
 	}
 
 	return &ParquetReader{
-		fileReader:     fr,
-		pReader:        pr,
-		sch:            sche,
-		vrw:            vrw,
-		numRow:         int(num),
-		rowReadCounter: 0,
-		fileData:       data,
-		columnName:     colName,
+		fileReader:      fr,
+		pReader:         pr,
+		sch:             sche,
+		vrw:             vrw,
+		numRow:          int(num),
+		rowsRead:        0,
+		rowReadCounters: rowReadCounters,
+		fileData:        data,
+		rLevels:         rLevels,
+		dLevels:         dLevels,
+		columnName:      colName,
 	}, nil
+}
+
+// resolveColumnPrefix takes a path into a parquet schema and determines:
+// - whether there is exactly one leaf column corresponding to that path
+// - whether any of the types after the prefix are repeated.
+func resolveColumnPrefix(pr *reader.ParquetReader, columnPrefix string) (columnName string, found bool, isRepeated bool, err error) {
+	inPath, err := pr.SchemaHandler.ConvertToInPathStr(columnPrefix)
+	if err != nil {
+		return "", false, false, err
+	}
+
+	segments := strings.Split(inPath, "\x01")
+	pathMapType := pr.SchemaHandler.PathMap
+	for _, segment := range segments[1:] {
+		pathMapType, found = pathMapType.Children[segment]
+		if !found {
+			return "", false, isRepeated, nil
+		}
+	}
+
+	for {
+		if len(pathMapType.Children) == 0 {
+			// type has no children, we've reached the leaf
+			return pathMapType.Path, true, isRepeated, nil
+		}
+		if len(pathMapType.Children) > 1 {
+			// type has many children, ambiguous
+			return pathMapType.Path, false, isRepeated, nil
+		}
+		// type has exactly one child; recurse
+		for _, child := range pathMapType.Children {
+			pathMapType = child
+			repetitionType, err := pr.SchemaHandler.GetRepetitionType([]string{pathMapType.Path})
+			if err != nil {
+				return "", false, false, err
+			}
+			if repetitionType == parquet.FieldRepetitionType_REPEATED {
+				if isRepeated {
+					// We can't currently parse fields with multiple repeated fields.
+					return "", false, false, fmt.Errorf("%s has multiple repeated fields", columnPrefix)
+				}
+				isRepeated = true
+			}
+		}
+	}
 }
 
 func (pr *ParquetReader) ReadRow(ctx context.Context) (row.Row, error) {
 	panic("deprecated")
 }
 
+// DecimalByteArrayToString converts a decimal byte array to a string
+// This is copied from https://github.com/xitongsys/parquet-go/blob/master/types/converter.go
+// while we wait for official release
+func DecimalByteArrayToString(dec []byte, prec int, scale int) string {
+	sign := ""
+	if dec[0] > 0x7f {
+		sign = "-"
+		for i := range dec {
+			dec[i] = dec[i] ^ 0xff
+		}
+	}
+	a := new(big.Int)
+	a.SetBytes(dec)
+	if sign == "-" {
+		a = a.Add(a, big.NewInt(1))
+	}
+	sa := a.Text(10)
+
+	if scale > 0 {
+		ln := len(sa)
+		if ln < scale+1 {
+			sa = strings.Repeat("0", scale+1-ln) + sa
+			ln = scale + 1
+		}
+		sa = sa[:ln-scale] + "." + sa[ln-scale:]
+	}
+	return sign + sa
+}
+
 func (pr *ParquetReader) ReadSqlRow(ctx context.Context) (sql.Row, error) {
-	if pr.rowReadCounter >= pr.numRow {
+	if pr.rowsRead >= pr.numRow {
 		return nil, io.EOF
 	}
 
 	allCols := pr.sch.GetAllCols()
 	row := make(sql.Row, allCols.Size())
 	allCols.Iter(func(tag uint64, col schema.Column) (stop bool, err error) {
-		val := pr.fileData[col.Name][pr.rowReadCounter]
-		if val != nil {
-			switch col.TypeInfo.GetTypeIdentifier() {
-			case typeinfo.DatetimeTypeIdentifier:
-				val = time.UnixMicro(val.(int64))
-			case typeinfo.TimeTypeIdentifier:
-				val = gmstypes.Timespan(time.Duration(val.(int64)).Microseconds())
+		rowReadCounter := pr.rowReadCounters[col.Name]
+		readVal := func() interface{} {
+			val := pr.fileData[col.Name][rowReadCounter]
+			rowReadCounter++
+			if val != nil {
+				switch col.TypeInfo.GetTypeIdentifier() {
+				case typeinfo.DatetimeTypeIdentifier:
+					val = time.UnixMicro(val.(int64))
+				case typeinfo.TimeTypeIdentifier:
+					val = gmstypes.Timespan(time.Duration(val.(int64)).Microseconds())
+				}
 			}
+
+			if col.Kind == types.DecimalKind {
+				prec, scale := col.TypeInfo.ToSqlType().(gmstypes.DecimalType_).Precision(), col.TypeInfo.ToSqlType().(gmstypes.DecimalType_).Scale()
+				val = DecimalByteArrayToString([]byte(val.(string)), int(prec), int(scale))
+			}
+			return val
+		}
+		var val interface{}
+		rLevels, isRepeated := pr.rLevels[col.Name]
+		dLevels, _ := pr.dLevels[col.Name]
+		readVals := func() (val interface{}) {
+			var vals []interface{}
+			for {
+				dLevel := dLevels[rowReadCounter]
+				subVal := readVal()
+				if subVal == nil {
+					// dLevels tells us how to interpret this nil value:
+					// 0  -> the column value is NULL
+					// 1  -> the column exists but is empty
+					// 2  -> the column contains an empty value
+					// 3+ -> the column contains a non-empty value
+					switch dLevel {
+					case 0:
+						return nil
+					case 1:
+						return []interface{}{}
+					}
+				}
+				vals = append(vals, subVal)
+				// an rLevel of 0 marks the start of a new record.
+				if rowReadCounter >= len(rLevels) || rLevels[rowReadCounter] == 0 {
+					break
+				}
+			}
+			return vals
+		}
+		if !isRepeated {
+			val = readVal()
+		} else {
+			val = readVals()
 		}
 
+		pr.rowReadCounters[col.Name] = rowReadCounter
 		row[allCols.TagToIdx[tag]] = val
 
 		return false, nil
 	})
 
-	pr.rowReadCounter++
+	pr.rowsRead++
 
 	return row, nil
 }
@@ -134,32 +288,4 @@ func (pr *ParquetReader) Close(ctx context.Context) error {
 	pr.pReader.ReadStop()
 	pr.fileReader.Close()
 	return nil
-}
-
-func (r *ParquetReader) convToRow(ctx context.Context, rowMap map[string]interface{}) (row.Row, error) {
-	allCols := r.sch.GetAllCols()
-
-	taggedVals := make(row.TaggedValues, allCols.Size())
-	for k, v := range rowMap {
-		col, ok := allCols.GetByName(k)
-		if !ok {
-			return nil, fmt.Errorf("column %s not found in schema", k)
-		}
-
-		taggedVals[col.Tag], _ = col.TypeInfo.ConvertValueToNomsValue(ctx, r.vrw, v)
-
-	}
-
-	// todo: move null value checks to pipeline
-	err := r.sch.GetAllCols().Iter(func(tag uint64, col schema.Column) (stop bool, err error) {
-		if val, ok := taggedVals.Get(tag); !col.IsNullable() && (!ok || types.IsNull(val)) {
-			return true, fmt.Errorf("column `%s` does not allow null values", col.Name)
-		}
-		return false, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return row.New(r.vrw.Format(), r.sch, taggedVals)
 }

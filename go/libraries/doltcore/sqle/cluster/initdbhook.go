@@ -64,7 +64,7 @@ func NewInitDatabaseHook(controller *Controller, bt *sql.BackgroundThreads) sqle
 			}
 
 			remoteDBs = append(remoteDBs, func(ctx context.Context) (*doltdb.DoltDB, error) {
-				return er.GetRemoteDB(ctx, types.Format_Default, dialprovider)
+				return er.GetRemoteDBWithoutCaching(ctx, types.Format_Default, dialprovider)
 			})
 			remoteUrls = append(remoteUrls, remoteUrl)
 		}
@@ -83,10 +83,10 @@ func NewInitDatabaseHook(controller *Controller, bt *sql.BackgroundThreads) sqle
 				// XXX: An error here means we are not replicating to every standby.
 				return err
 			}
-			commitHook := newCommitHook(controller.lgr, r.Name(), remoteUrls[i], name, role, remoteDBs[i], denv.DoltDB, ttfdir)
-			denv.DoltDB.PrependCommitHook(ctx, commitHook)
+			commitHook := newCommitHook(controller.lgr, r.Name(), remoteUrls[i], name, role, remoteDBs[i], denv.DoltDB(ctx), ttfdir)
+			denv.DoltDB(ctx).PrependCommitHooks(ctx, commitHook)
 			controller.registerCommitHook(commitHook)
-			if err := commitHook.Run(bt); err != nil {
+			if err := commitHook.Run(bt, controller.sqlCtxFactory); err != nil {
 				// XXX: An error here means we are not replicating to every standby.
 				return err
 			}

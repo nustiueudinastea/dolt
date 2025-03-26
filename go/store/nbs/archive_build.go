@@ -57,7 +57,7 @@ func UnArchive(ctx context.Context, cs chunks.ChunkStore, smd StorageMetadata, p
 					return err
 				}
 				if exists {
-					// We have a fast path to follow because oritinal table file is still on disk.
+					// We have a fast path to follow because original table file is still on disk.
 					swapMap[arc.hash()] = orginTfId
 				} else {
 					// We don't have the original table file id, so we have to create a new one.
@@ -68,19 +68,19 @@ func UnArchive(ctx context.Context, cs chunks.ChunkStore, smd StorageMetadata, p
 
 					err = arc.iterate(ctx, func(chk chunks.Chunk) error {
 						cmpChk := ChunkToCompressedChunk(chk)
-						err := classicTable.AddCmpChunk(cmpChk)
+						_, err := classicTable.AddChunk(cmpChk)
 						if err != nil {
 							return err
 						}
 
 						progress <- fmt.Sprintf("Unarchiving %s (bytes: %d)", chk.Hash().String(), len(chk.Data()))
 						return nil
-					})
+					}, &Stats{})
 					if err != nil {
 						return err
 					}
 
-					id, err := classicTable.Finish()
+					_, id, err := classicTable.Finish()
 					if err != nil {
 						return err
 					}
@@ -105,7 +105,7 @@ func UnArchive(ctx context.Context, cs chunks.ChunkStore, smd StorageMetadata, p
 					newSpecs = append(newSpecs, spec)
 				}
 			}
-			err = gs.oldGen.swapTables(ctx, newSpecs)
+			err = gs.oldGen.swapTables(ctx, newSpecs, chunks.GCMode_Default)
 			if err != nil {
 				return err
 			}
@@ -150,7 +150,7 @@ func BuildArchive(ctx context.Context, cs chunks.ChunkStore, dagGroups *ChunkRel
 			}
 			archiveSize := fileInfo.Size()
 
-			err = verifyAllChunks(idx, archivePath, progress)
+			err = verifyAllChunks(ctx, idx, archivePath, progress, &stats)
 			if err != nil {
 				return err
 			}
@@ -175,7 +175,7 @@ func BuildArchive(ctx context.Context, cs chunks.ChunkStore, dagGroups *ChunkRel
 				newSpecs = append(newSpecs, spec)
 			}
 		}
-		err = gs.oldGen.swapTables(ctx, newSpecs)
+		err = gs.oldGen.swapTables(ctx, newSpecs, chunks.GCMode_Default)
 		if err != nil {
 			return err
 		}
@@ -225,28 +225,30 @@ func convertTableFileToArchive(
 	//	cg.print(n, p)
 	//}
 
-	// Allocate buffer used to compress chunks.
-	cmpBuff := make([]byte, 0, maxChunkSize)
+	const fourMb = 1 << 22
 
-	cmpDefDict := gozstd.Compress(cmpBuff, defaultDict)
+	// Allocate buffer used to compress chunks.
+	cmpBuff := make([]byte, 0, fourMb)
+
+	cmpBuff = gozstd.Compress(cmpBuff[:0], defaultDict)
 	// p("Default Dict Raw vs Compressed: %d , %d\n", len(defaultDict), len(cmpDefDict))
 
-	arcW, err := newArchiveWriter()
+	arcW, err := newArchiveWriter("")
 	if err != nil {
 		return "", hash.Hash{}, err
 	}
 	var defaultDictByteSpanId uint32
-	defaultDictByteSpanId, err = arcW.writeByteSpan(cmpDefDict)
+	defaultDictByteSpanId, err = arcW.writeByteSpan(cmpBuff)
 	if err != nil {
 		return "", hash.Hash{}, err
 	}
 
-	_, grouped, singles, err := writeDataToArchive(ctx, cmpBuff, allChunks, cgList, defaultDictByteSpanId, defaultCDict, arcW, progress, stats)
+	_, grouped, singles, err := writeDataToArchive(ctx, cmpBuff[:0], allChunks, cgList, defaultDictByteSpanId, defaultCDict, arcW, progress, stats)
 	if err != nil {
 		return "", hash.Hash{}, err
 	}
 
-	err = indexAndFinalizeArchive(arcW, archivePath, cs.hash())
+	err = indexFinalizeFlushArchive(arcW, archivePath, cs.hash())
 	if err != nil {
 		return "", hash.Hash{}, err
 	}
@@ -265,9 +267,7 @@ func convertTableFileToArchive(
 	return arcW.finalPath, name, err
 }
 
-// indexAndFinalizeArchive writes the index, metadata, and footer to the archive file. It also flushes the archive writer
-// to the directory provided. The name is calculated from the footer, and can be obtained by calling getName on the archive.
-func indexAndFinalizeArchive(arcW *archiveWriter, archivePath string, originTableFile hash.Hash) error {
+func indexFinalize(arcW *archiveWriter, originTableFile hash.Hash) error {
 	err := arcW.finalizeByteSpans()
 	if err != nil {
 		return err
@@ -279,10 +279,13 @@ func indexAndFinalizeArchive(arcW *archiveWriter, archivePath string, originTabl
 	}
 
 	meta := map[string]string{
-		amdkDoltVersion:     doltversion.Version,
-		amdkOriginTableFile: originTableFile.String(),
-		amdkConversionTime:  time.Now().UTC().Format(time.RFC3339),
+		amdkDoltVersion:    doltversion.Version,
+		amdkConversionTime: time.Now().UTC().Format(time.RFC3339),
 	}
+	if !originTableFile.IsEmpty() {
+		meta[amdkOriginTableFile] = originTableFile.String()
+	}
+
 	jsonData, err := json.Marshal(meta)
 	if err != nil {
 		return err
@@ -293,7 +296,13 @@ func indexAndFinalizeArchive(arcW *archiveWriter, archivePath string, originTabl
 		return err
 	}
 
-	err = arcW.writeFooter()
+	return arcW.writeFooter()
+}
+
+// indexAndFinalizeArchive writes the index, metadata, and footer to the archive file. It also flushes the archive writer
+// to the directory provided. The name is calculated from the footer, and can be obtained by calling getName on the archive.
+func indexFinalizeFlushArchive(arcW *archiveWriter, archivePath string, originTableFile hash.Hash) error {
+	err := indexFinalize(arcW, originTableFile)
 	if err != nil {
 		return err
 	}
@@ -337,9 +346,9 @@ func writeDataToArchive(
 			if cg.totalBytesSavedWDict > cg.totalBytesSavedDefaultDict {
 				groupCount++
 
-				cmpDict := gozstd.Compress(cmpBuff, cg.dict)
+				cmpBuff = gozstd.Compress(cmpBuff[:0], cg.dict)
 
-				dictId, err := arcW.writeByteSpan(cmpDict)
+				dictId, err := arcW.writeByteSpan(cmpBuff)
 				if err != nil {
 					return 0, 0, 0, err
 				}
@@ -351,13 +360,13 @@ func writeDataToArchive(
 					}
 
 					if !arcW.chunkSeen(cs.chunkId) {
-						compressed := gozstd.CompressDict(cmpBuff, c.Data(), cg.cDict)
+						cmpBuff = gozstd.CompressDict(cmpBuff[:0], c.Data(), cg.cDict)
 
-						dataId, err := arcW.writeByteSpan(compressed)
+						dataId, err := arcW.writeByteSpan(cmpBuff)
 						if err != nil {
 							return 0, 0, 0, err
 						}
-						err = arcW.stageChunk(cs.chunkId, dictId, dataId)
+						err = arcW.stageZStdChunk(cs.chunkId, dictId, dataId)
 						if err != nil {
 							return 0, 0, 0, err
 						}
@@ -374,13 +383,12 @@ func writeDataToArchive(
 	ungroupedChunkCount := int32(len(allChunks))
 	ungroupedChunkProgress := int32(0)
 
-	// Any chunks remaining will be written out individually.
+	// Any chunks remaining will be written out individually, using the default dictionary.
 	for h := range allChunks {
 		select {
 		case <-ctx.Done():
 			return 0, 0, 0, ctx.Err()
 		default:
-			var compressed []byte
 			dictId := uint32(0)
 
 			c, e2 := chunkCache.get(ctx, h, stats)
@@ -388,14 +396,14 @@ func writeDataToArchive(
 				return 0, 0, 0, e2
 			}
 
-			compressed = gozstd.CompressDict(cmpBuff, c.Data(), defaultDict)
+			cmpBuff = gozstd.CompressDict(cmpBuff[:0], c.Data(), defaultDict)
 			dictId = defaultSpanId
 
-			id, err := arcW.writeByteSpan(compressed)
+			id, err := arcW.writeByteSpan(cmpBuff)
 			if err != nil {
 				return 0, 0, 0, err
 			}
-			err = arcW.stageChunk(h, dictId, id)
+			err = arcW.stageZStdChunk(h, dictId, id)
 			if err != nil {
 				return 0, 0, 0, err
 			}
@@ -424,7 +432,7 @@ func gatherAllChunks(ctx context.Context, cs chunkSource, idx tableIndex, stats 
 			return nil, nil, err
 		}
 
-		bytes, err := cs.get(ctx, h, stats)
+		bytes, _, err := cs.get(ctx, h, nil, stats)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -440,19 +448,14 @@ func gatherAllChunks(ctx context.Context, cs chunkSource, idx tableIndex, stats 
 
 	return chkCache, defaultSamples, nil
 }
-func verifyAllChunks(idx tableIndex, archiveFile string, progress chan interface{}) error {
-	file, err := os.Open(archiveFile)
+
+func verifyAllChunks(ctx context.Context, idx tableIndex, archiveFile string, progress chan interface{}, stats *Stats) error {
+	fra, err := newFileReaderAt(archiveFile)
 	if err != nil {
 		return err
 	}
 
-	stat, err := file.Stat()
-	if err != nil {
-		return err
-	}
-	fileSize := stat.Size()
-
-	index, err := newArchiveReader(file, uint64(fileSize))
+	index, err := newArchiveReader(ctx, fra, uint64(fra.sz), stats)
 	if err != nil {
 		return err
 	}
@@ -482,7 +485,7 @@ func verifyAllChunks(idx tableIndex, archiveFile string, progress chan interface
 			return errors.New(msg)
 		}
 
-		data, err := index.get(h)
+		data, err := index.get(ctx, h, stats)
 		if err != nil {
 			return fmt.Errorf("error reading chunk: %s (err: %w)", h.String(), err)
 		}
@@ -531,7 +534,7 @@ type chunkGroup struct {
 type chunkCmpScore struct {
 	chunkId hash.Hash
 	// The compression score. Higher is better. This is the ratio of the compressed size to the raw size, using the group's
-	// dictionary. IE, this number only has meaning withing the group
+	// dictionary. IE, this number only has meaning within the group
 	score float64
 	// The size of the compressed chunk using the group's dictionary.
 	dictCmpSize int
@@ -906,7 +909,7 @@ func (csc *simpleChunkSourceCache) get(ctx context.Context, h hash.Hash, stats *
 		return chk, nil
 	}
 
-	bytes, err := csc.cs.get(ctx, h, stats)
+	bytes, _, err := csc.cs.get(ctx, h, nil, stats)
 	if bytes == nil || err != nil {
 		return nil, err
 	}
@@ -918,7 +921,8 @@ func (csc *simpleChunkSourceCache) get(ctx context.Context, h hash.Hash, stats *
 
 // has returns true if the chunk is in the ChunkSource. This is not related to what is cached, just a helper.
 func (csc *simpleChunkSourceCache) has(h hash.Hash) (bool, error) {
-	return csc.cs.has(h)
+	res, _, err := csc.cs.has(h, nil)
+	return res, err
 }
 
 // addresses get all chunk addresses of the ChunkSource as a hash.HashSet.

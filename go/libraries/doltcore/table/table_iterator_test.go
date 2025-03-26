@@ -38,15 +38,12 @@ var testRand = rand.New(rand.NewSource(1))
 func TestTableIteratorProlly(t *testing.T) {
 	n := 100
 
-	for i := 0; i < 10; i++ {
-		offset := testRand.Intn(n)
-		m, tups := mustMakeProllyMap(t, n)
-		idx := durable.IndexFromProllyMap(m)
-		itr, err := NewTableIterator(context.Background(), sch, idx, uint64(offset))
-		require.NoError(t, err)
-		expectedRows := tuplesToRows(t, tups[offset:])
-		testIterator(t, itr, expectedRows)
-	}
+	m, tups := mustMakeProllyMap(t, n)
+	idx := durable.IndexFromProllyMap(m)
+	itr, err := NewTableIterator(context.Background(), sch, idx)
+	require.NoError(t, err)
+	expectedRows := tuplesToRows(t, tups)
+	testIterator(t, itr, expectedRows)
 }
 
 func testIterator(t *testing.T, iter RowIter, expected []sql.Row) {
@@ -71,10 +68,11 @@ var vd = val.NewTupleDescriptor(
 )
 
 func mustMakeProllyMap(t *testing.T, count int) (prolly.Map, [][2]val.Tuple) {
+	ctx := context.Background()
 
 	ns := tree.NewTestNodeStore()
 
-	tuples := tree.RandomTuplePairs(count, kd, vd, ns)
+	tuples := tree.RandomTuplePairs(ctx, count, kd, vd, ns)
 	om := mustProllyMapFromTuples(t, kd, vd, tuples)
 
 	return om, tuples

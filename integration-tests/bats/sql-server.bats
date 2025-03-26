@@ -32,8 +32,6 @@ teardown() {
 
     # assert that innodb_autoinc_lock_mode is set to 2
     cat > config.yml <<EOF
-user:
-  name: dolt
 listener:
   host: "0.0.0.0"
   port: $PORT
@@ -126,7 +124,7 @@ EOF
     # assert that loglevel on command line is not case sensitive
     cd repo1
     PORT=$( definePORT )
-    dolt sql-server --loglevel TrAcE --port=$PORT --user dolt --socket "dolt.$PORT.sock" > log.txt 2>&1 &
+    dolt sql-server --loglevel TrAcE --port=$PORT --socket "dolt.$PORT.sock" > log.txt 2>&1 &
     SERVER_PID=$!
     wait_for_connection $PORT 8500
     dolt sql -q "show databases;"
@@ -137,8 +135,31 @@ EOF
 log_level: dEBuG
 behavior:
   disable_client_multi_statements: true
-user:
-  name: dolt
+listener:
+  host: "0.0.0.0"
+  port: $PORT
+EOF
+    dolt sql-server --config ./config.yml --socket "dolt.$PORT.sock" &
+    SERVER_PID=$!
+    wait_for_connection $PORT 8500
+    dolt sql -q "show databases;"
+    stop_sql_server
+}
+@test "sql-server: logformats are case insensitive" {
+    # assert that logformat on command line is not case sensitive
+    cd repo1
+    PORT=$( definePORT )
+    dolt sql-server --logformat jSon --port=$PORT --socket "dolt.$PORT.sock" > log.txt 2>&1 &
+    SERVER_PID=$!
+    wait_for_connection $PORT 8500 
+    dolt sql -q "show databases;"
+    stop_sql_server
+
+    # assert that logformat in yaml config is not case sensitive
+    cat >config.yml <<EOF
+log_format: teXt
+behavior:
+  disable_client_multi_statements: true
 listener:
   host: "0.0.0.0"
   port: $PORT
@@ -150,18 +171,31 @@ EOF
     stop_sql_server
 }
 
+@test "sql-server: logformat json functionality is working" {
+    cd repo1
+    PORT=$( definePORT )
+    dolt sql-server --logformat json --port=$PORT --socket "dolt.$PORT.sock" > log.txt 2>&1 &
+    SERVER_PID=$!
+    wait_for_connection $PORT 8500 
+    dolt sql -q "show databases;"
+    stop_sql_server
+
+    # Assert that log is in JSON format (checking if logs contain `{...}`)
+    grep -q '^{.*}$' log.txt
+}
+
 @test "sql-server: server assumes existing user" {
     cd repo1
     dolt sql -q "create user dolt@'%' identified by '123'"
 
     PORT=$( definePORT )
-    dolt sql-server --port=$PORT --user dolt --socket "dolt.$PORT.sock" > log.txt 2>&1 &
+    dolt sql-server --port=$PORT --socket "dolt.$PORT.sock" > log.txt 2>&1 &
     SERVER_PID=$!
     sleep 5
 
     run dolt --user=dolt --password=wrongpassword sql -q "select 1"
     [ "$status" -eq 1 ]
-    run grep 'Error authenticating user using MySQL native password' log.txt
+    run grep 'Error authenticating user' log.txt
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 2 ]
 }
@@ -193,13 +227,20 @@ user_session_vars:
 - name: user1
   vars:
     aws_credentials_file: /Users/user1/.aws/config
-    aws_credentials_profile: lddev" > server.yaml
+    aws_credentials_profile: lddev
+- name: user3
+  vars:
+    autocommit: 0" > server.yaml
 
     dolt --privilege-file=privs.json sql -q "CREATE USER dolt@'127.0.0.1'"
     dolt --privilege-file=privs.json sql -q "CREATE USER user0@'127.0.0.1' IDENTIFIED BY 'pass0'"
     dolt --privilege-file=privs.json sql -q "CREATE USER user1@'127.0.0.1' IDENTIFIED BY 'pass1'"
     dolt --privilege-file=privs.json sql -q "CREATE USER user2@'127.0.0.1' IDENTIFIED BY 'pass2'"
+    dolt --privilege-file=privs.json sql -q "CREATE USER user3@'127.0.0.1' IDENTIFIED BY 'pass3'"
 
+    # start_sql_server_with_config calls wait_for_connection and tests the connection with the root user, but
+    # since root isn't created in this setup, we set SQL_USER so that wait_for_connection uses the dolt user instead.
+    SQL_USER=dolt
     start_sql_server_with_config "" server.yaml
 
     run dolt --host=127.0.0.1 --port=$PORT --no-tls --user=user0 --password=pass0 sql -q "SELECT @@aws_credentials_file, @@aws_credentials_profile;"
@@ -209,10 +250,13 @@ user_session_vars:
     [[ "$output" =~ /Users/user1/.aws/config.*lddev ]] || false
 
     run dolt --host=127.0.0.1 --port=$PORT --no-tls --user=user2 --password=pass2 sql -q "SELECT @@aws_credentials_file, @@aws_credentials_profile;"
-    [[ "$output" =~ NULL.*NULL ]] || false
+    [[ "$output" =~ "   " ]] || false
 
     run dolt --host=127.0.0.1 --port=$PORT --no-tls --user=user2 --password=pass2 sql -q "SET @@aws_credentials_file='/Users/should_fail';"
     [[ "$output" =~ "Variable 'aws_credentials_file' is a read only variable" ]] || false
+
+    run dolt --host=127.0.0.1 --port=$PORT --no-tls --user=user3 --password=pass3 sql -q "SELECT @@autocommit;"
+    [[ "$output" =~ "0" ]] || false
 }
 
 @test "sql-server: read-only mode" {
@@ -227,7 +271,7 @@ user_session_vars:
     dolt push origin main
 
     # Start up the server in read-only mode
-    start_sql_server_with_args "--readonly" "--user dolt"
+    start_sql_server_with_args "--readonly"
 
     # Assert that we can still checkout other branches and run dolt status
     # while the sql-server is running in read-only mode
@@ -258,7 +302,7 @@ user_session_vars:
     [[ "$output" =~ "one_pk" ]] || false
 
     # Add rows on the command line
-    run dolt --verbose-engine-setup --user=dolt sql -q "insert into one_pk values (1,1,1)"
+    run dolt --verbose-engine-setup sql -q "insert into one_pk values (1,1,1)"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "starting remote mode" ]] || false
     run dolt sql -q "SELECT * FROM one_pk"
@@ -294,16 +338,16 @@ SQL
 
     # add some working changes
     dolt sql -q "INSERT INTO test VALUES (7,7);"
-    run dolt --user=dolt status
+    run dolt status
     [ "$status" -eq 0 ]
     [[ "$output" =~ "test" ]] || false
 
     dolt sql -q "CALL DOLT_RESET('--hard');"
 
-    run dolt --user=dolt status
+    run dolt status
     [ "$status" -eq 0 ]
     [[ "$output" =~ "working tree clean" ]] || false
-    run dolt --user=dolt sql -q "SELECT sum(pk), sum(c0) FROM test;" -r csv
+    run dolt sql -q "SELECT sum(pk), sum(c0) FROM test;" -r csv
     [ "$status" -eq 0 ]
     [[ "$output" =~ "6,6" ]] || false
 
@@ -311,10 +355,10 @@ SQL
         INSERT INTO test VALUES (8,8);
         CALL DOLT_RESET('--hard');"
 
-    run dolt --user=dolt status
+    run dolt status
     [ "$status" -eq 0 ]
     [[ "$output" =~ "working tree clean" ]] || false
-    run dolt --user=dolt sql -q "SELECT sum(pk), sum(c0) FROM test;" -r csv
+    run dolt sql -q "SELECT sum(pk), sum(c0) FROM test;" -r csv
     [ "$status" -eq 0 ]
     [[ "$output" =~ "6,6" ]] || false
 }
@@ -560,7 +604,7 @@ SQL
      [[ $output =~ " 21 " ]] || false
      [[ $output =~ " 60 " ]] || false
 
-     run dolt --user=dolt status
+     run dolt status
      [ $status -eq 0 ]
      [[ "$output" =~ "nothing to commit, working tree clean" ]] || false
 }
@@ -646,7 +690,7 @@ SQL
 
      # create a new database and table and rerun
      dolt sql -q "CREATE DATABASE testdb"
-     dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db '' sql -q "CREATE TABLE testdb.one_pk (
+     dolt --port $PORT --host 0.0.0.0 --no-tls --use-db '' sql -q "CREATE TABLE testdb.one_pk (
         pk int,
         PRIMARY KEY (pk))"
 
@@ -682,11 +726,11 @@ SQL
 
      # verify changes outside the session
      cd repo2
-     run dolt --user=dolt sql -q "show tables"
+     run dolt sql -q "show tables"
      [ "$status" -eq 0 ]
      [[ "$output" =~ "one_pk" ]] || false
 
-     run dolt --user=dolt sql -q "select * from one_pk"
+     run dolt sql -q "select * from one_pk"
      [ "$status" -eq 0 ]
      [[ "$output" =~ " 0 " ]] || false
      [[ "$output" =~ " 1 " ]] || false
@@ -704,7 +748,7 @@ SQL
 
      # verify changes outside the session
      cd newdb
-     run dolt --user=dolt sql -q "show tables"
+     run dolt sql -q "show tables"
      [ "$status" -eq 0 ]
      [[ "$output" =~ "test" ]] || false
 }
@@ -737,7 +781,7 @@ SQL
     [ "$status" -eq 0 ]
     [[ "$output" =~ "one_pk" ]] || false
 
-    run dolt --verbose-engine-setup  --user=dolt --use-db repo1 sql -q "drop table one_pk"
+    run dolt --verbose-engine-setup --use-db repo1 sql -q "drop table one_pk"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "starting remote mode" ]] || false
 
@@ -879,8 +923,6 @@ SQL
 log_level: debug
 behavior:
   disable_client_multi_statements: true
-user:
-  name: dolt
 listener:
   host: "0.0.0.0"
   port: $PORT
@@ -898,7 +940,7 @@ import time
 i=0
 while True:
   try:
-    with mysql.connector.connect(host="127.0.0.1", user="dolt", port='"$PORT"', database="repo1", connection_timeout=1) as c:
+    with mysql.connector.connect(host="127.0.0.1", user="root", port='"$PORT"', database="repo1", connection_timeout=1) as c:
       cursor = c.cursor()
       cursor.execute("""
 CREATE TRIGGER test_on_insert BEFORE INSERT ON test
@@ -927,8 +969,6 @@ END""")
     PORT=$( definePORT )
     cat >config.yml <<EOF
 log_level: debug
-user:
-  name: dolt
 listener:
   host: "0.0.0.0"
   port: $PORT
@@ -944,7 +984,7 @@ import time
 i=0
 while True:
   try:
-    with mysql.connector.connect(host="127.0.0.1", user="dolt", port='"$PORT"', database="repo1", connection_timeout=1) as c:
+    with mysql.connector.connect(host="127.0.0.1", user="root", port='"$PORT"', database="repo1", connection_timeout=1) as c:
       cursor = c.cursor()
       cursor.execute("""
 CREATE TRIGGER test_on_insert BEFORE INSERT ON test
@@ -1088,7 +1128,7 @@ END""")
     [ "$status" -eq 0 ]
     [[ "$output" =~ "new table a" ]] || false
 
-    run dolt --user=dolt sql -q "show tables"
+    run dolt sql -q "show tables"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "a" ]] || false
 
@@ -1097,7 +1137,7 @@ END""")
     [ "$status" -eq 0 ]
     [[ "$output" =~ "new table b" ]] || false
 
-    run dolt --user=dolt sql -q "show tables"
+    run dolt sql -q "show tables"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "b" ]] || false
 
@@ -1229,19 +1269,19 @@ END""")
 
     mkdir no_dolt && cd no_dolt
     mkdir db_dir
-    start_sql_server_with_args --host 0.0.0.0 --user dolt --data-dir=db_dir
+    start_sql_server_with_args --host 0.0.0.0 --data-dir=db_dir
 
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db '' sql -q "create database test1"
-    run dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db '' sql -q "show databases"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db '' sql -q "create database test1"
+    run dolt --port $PORT --host 0.0.0.0 --no-tls --use-db '' sql -q "show databases"
     [ $status -eq 0 ]
     [[ $output =~ "mysql" ]] || false
     [[ $output =~ "information_schema" ]] || false
     [[ $output =~ "test1" ]] || false
 
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db test1 sql -q "create table a(x int)"
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db test1 sql -q "call dolt_add('.')"
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db test1 sql -q "insert into a values (1), (2)"
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db test1 sql -q "call dolt_commit('-a', '-m', 'new table a')"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db test1 sql -q "create table a(x int)"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db test1 sql -q "call dolt_add('.')"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db test1 sql -q "insert into a values (1), (2)"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db test1 sql -q "call dolt_commit('-a', '-m', 'new table a')"
     stop_sql_server 1
 
     [ -d db_dir/test1 ]
@@ -1253,13 +1293,13 @@ END""")
 
     cd ../..
 
-    start_sql_server_with_args --host 0.0.0.0 --user dolt --data-dir=db_dir
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db '' sql -q "create database test3"
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db test3 sql -q "create table c(x int)"
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db test3 sql -q "call dolt_add('.')"
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db test3 sql -q "insert into c values (1), (2)"
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db test3 sql -q "call dolt_commit('-a', '-m', 'new table c')"
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db '' sql -q "drop database test1"
+    start_sql_server_with_args --host 0.0.0.0 --data-dir=db_dir
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db '' sql -q "create database test3"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db test3 sql -q "create table c(x int)"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db test3 sql -q "call dolt_add('.')"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db test3 sql -q "insert into c values (1), (2)"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db test3 sql -q "call dolt_commit('-a', '-m', 'new table c')"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db '' sql -q "drop database test1"
     stop_sql_server 1
 
     [ -d db_dir/test3 ]
@@ -1267,8 +1307,8 @@ END""")
 
     # make sure the databases exist on restart
     stop_sql_server
-    start_sql_server_with_args --host 0.0.0.0 --user dolt --data-dir=db_dir
-    run dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db '' sql -q "show databases"
+    start_sql_server_with_args --host 0.0.0.0 --data-dir=db_dir
+    run dolt --port $PORT --host 0.0.0.0 --no-tls --use-db '' sql -q "show databases"
     [ $status -eq 0 ]
     [[ $output =~ "mysql" ]] || false
     [[ $output =~ "information_schema" ]] || false
@@ -1330,7 +1370,7 @@ END""")
     [ "$status" -eq 0 ]
     [[ "$output" =~ "new table a" ]] || false
 
-    run dolt --user=dolt sql -q "show tables"
+    run dolt sql -q "show tables"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "a" ]] || false
 
@@ -1339,7 +1379,7 @@ END""")
     [ "$status" -eq 0 ]
     [[ "$output" =~ "new table b" ]] || false
 
-    run dolt --user=dolt sql -q "show tables"
+    run dolt sql -q "show tables"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "b" ]] || false
 
@@ -1355,7 +1395,7 @@ END""")
     [[ $output =~ "test2" ]] || false
 }
 
-@test "sql-server: fetch uses database tempdir from different working directory" {
+@test "sql-server: fetch uses database data dir from different working directory" {
     skiponwindows "Missing dependencies"
 
     mkdir remote1
@@ -1386,7 +1426,7 @@ data_dir: $DATA_DIR
 
     start_sql_server_with_config repo1 server.yaml
 
-    dolt --port $PORT --host 0.0.0.0 --no-tls -u dolt --use-db repo1 sql -q "call dolt_fetch()"
+    dolt --port $PORT --host 0.0.0.0 --no-tls --use-db repo1 sql -q "call dolt_fetch()"
 }
 
 # bats test_tags=no_lambda
@@ -1412,7 +1452,7 @@ data_dir: $DATA_DIR
     dolt commit -am "create three tables"
 
     cd ..
-    start_sql_server_with_args --user dolt -ltrace --no-auto-commit
+    start_sql_server_with_args -ltrace --no-auto-commit
 
     run expect $BATS_TEST_DIRNAME/sql-server-mysql.expect $PORT repo1
     [ "$status" -eq 0 ]
@@ -1481,13 +1521,68 @@ data_dir: $DATA_DIR
     [ "$status" -eq 1 ]
 }
 
+# When the deprecated --user argument is specified to sql-server, we expect a helpful error message
+# to be displayed and for the sql-server command to fail.
+#
+# TODO: After six months or so (July 2025), completely remove support for the user/pass
+#       args, so that the sql-server will fail with an unknown args error instead.
+@test "sql-server: deprecated --user arg fails with a helpful error message" {
+    PORT=$( definePORT )
+    run dolt sql-server --port $PORT -u temp1
+    [ $status -ne 0 ]
+    [[ $output =~ "--user and --password have been removed from the sql-server command." ]] || false
+    [[ $output =~ "Create users explicitly with CREATE USER and GRANT statements instead." ]] || false
+
+    # Assert that there is no root user
+    run dolt sql -q "select user, host from mysql.user where user='root';"
+    [ $status -eq 0 ]
+    [[ $output =~ "root" ]] || false
+    ! [[ $output =~ "temp1" ]] || false
+}
+
+# When the deprecated user section is included in a config.yaml file, we expect the server to
+# start up, but emit a warning about the user section not being used anymore.
+#
+# TODO: After six months or so (July 2025), completely remove support for the user section
+#       so that server startup will fail instead.
+@test "sql-server: deprecated user section in config.yaml logs a warning message" {
+    cd repo1
+    PORT=$( definePORT )
+
+    echo "
+log_level: debug
+
+user:
+  name: dolt
+  password: pass123
+
+listener:
+  host: localhost
+  port: $PORT
+  max_connections: 10
+  socket: dolt.$PORT.sock
+
+behavior:
+  autocommit: true
+  dolt_transaction_commit: true" > server.yaml
+
+    dolt sql-server --config server.yaml > log.txt 2>&1 &
+    SERVER_PID=$!
+    sleep 3
+
+    run grep 'user and password are no longer supported in sql-server configuration files' log.txt
+    [ "$status" -eq 0 ]
+    run grep 'Use CREATE USER and GRANT statements to manage user accounts' log.txt
+    [ "$status" -eq 0 ]
+}
+
 @test "sql-server: start server without socket flag should set default socket path" {
     skiponwindows "unix socket is not available on Windows"
     cd repo2
     DEFAULT_DB="repo2"
     PORT=$( definePORT )
 
-    dolt sql-server --port $PORT --user dolt >> log.txt 2>&1 &
+    dolt sql-server --port $PORT >> log.txt 2>&1 &
     SERVER_PID=$!
     wait_for_connection $PORT 8500
 
@@ -1502,10 +1597,6 @@ data_dir: $DATA_DIR
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 1 ]
 
-    run dolt --user=dolt sql -q "select 1"
-    [ "$status" -eq 0 ]
-    [[ "$output" =~ "1" ]] || false
-
     run dolt sql -q "select 1"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "1" ]] || false
@@ -1517,7 +1608,7 @@ data_dir: $DATA_DIR
     DEFAULT_DB="repo2"
     PORT=$( definePORT )
 
-    dolt sql-server --port $PORT --user dolt --socket > log.txt 2>&1 &
+    dolt sql-server --port $PORT --socket > log.txt 2>&1 &
     SERVER_PID=$!
     wait_for_connection $PORT 8500
 
@@ -1540,7 +1631,7 @@ data_dir: $DATA_DIR
     REPO_NAME=$output
 
     secondPORT=$( definePORT )
-    dolt sql-server --port=$secondPORT --socket="$REPO_NAME/mysql.sock" --user dolt > log.txt 2>&1 &
+    dolt sql-server --port=$secondPORT --socket="$REPO_NAME/mysql.sock" > log.txt 2>&1 &
     SECOND_SERVER_PID=$!
     run wait_for_connection $secondPORT 8500
     [ "$status" -eq 0 ]
@@ -1564,9 +1655,6 @@ data_dir: $DATA_DIR
     echo "
 log_level: debug
 
-user:
-  name: dolt
-
 listener:
   host: localhost
   port: $PORT
@@ -1589,7 +1677,6 @@ behavior:
     run dolt sql -q "select @@dolt_transaction_commit"
     [ $status -eq 0 ]
     [[ $output =~ " 1 " ]] || false
-
 
     run grep "dolt.$PORT.sock" log.txt
     [ "$status" -eq 0 ]
@@ -1616,7 +1703,7 @@ behavior:
     dolt init
 
     PORT=$( definePORT )
-    dolt sql-server --host 0.0.0.0 --port=$PORT --user dolt --socket "dolt.$PORT.sock" &
+    dolt sql-server --host 0.0.0.0 --port=$PORT --socket "dolt.$PORT.sock" &
     SERVER_PID=$! # will get killed by teardown_common
     wait_for_connection $PORT 8500
 
@@ -1827,7 +1914,7 @@ behavior:
     start_sql_server
     dolt sql -q "SET character_set_results = utf8; CREATE TABLE mapping(branch_id binary(16) PRIMARY KEY, user_id binary(16) NOT NULL, company_id binary(16) NOT NULL);"
 
-    run dolt sql -q "EXPLAIN SELECT m.* FROM mapping m WHERE user_id = uuid_to_bin('1c4c4e33-8ad7-4421-8450-9d5182816ac3');"
+    run dolt sql -q "EXPLAIN PLAN SELECT m.* FROM mapping m WHERE user_id = uuid_to_bin('1c4c4e33-8ad7-4421-8450-9d5182816ac3');"
     [ $status -eq 0 ]
     [[ "$output" =~ "0x1C4C4E338AD7442184509D5182816AC3" ]] || false
 }
@@ -1839,7 +1926,7 @@ behavior:
     run dolt sql -q "call dolt_checkout('other'); call dolt_branch('-m', 'other', 'newOther'); select active_branch();"
     [ $status -eq 0 ]
     [[ "$output" =~ "newOther" ]] || false
-    run dolt --user dolt branch
+    run dolt branch
     [ $status -eq 0 ]
     [[ "$output" =~ "newOther" ]] || false
     [[ "$output" =~ "main" ]] || false
@@ -1960,4 +2047,235 @@ behavior:
     [ $status -ne 0 ]
     [[ "$output" =~ "Detected that a Dolt sql-server is running from this directory." ]] || false
     [[ "$output" =~ "Stop the sql-server before initializing this directory as a Dolt database." ]] || false
+}
+
+
+@test "sql-server: fail to start when multiple data dirs found" {
+    skiponwindows "Missing dependencies"
+
+    mkdir datadir1
+    mkdir datadir2
+
+    # This file is legit, and would work if there was no --data-dir on the cli.
+    cat > config.yml <<EOF
+listener:
+  host: "0.0.0.0"
+  port: 4444
+data_dir: ./datadir1
+EOF
+    run dolt --data-dir datadir2 sql-server --config ./config.yml
+    [ $status -eq 1 ]
+    [[ "$output" =~ "cannot specify both global --data-dir argument and --data-dir in sql-server config" ]] || false
+
+    run dolt sql-server --data-dir datadir2 --config ./config.yml
+    [ $status -eq 1 ]
+    [[ "$output" =~ "--data-dir specified in both config file and command line" ]] || false
+
+    run dolt --data-dir datadir1 sql-server --data-dir datadir2
+    [ $status -eq 1 ]
+    [[ "$output" =~ "cannot specify both global --data-dir argument and --data-dir in sql-server config" ]] || false
+}
+
+# This is really a test of the dolt_Branches system table, but due to needing a server with multiple dirty branches
+# it was easier to test it with a sql-server.
+@test "sql-server: dirty branches listed properly in dolt_branches table" {
+    skiponwindows "Missing dependencies"
+
+    cd repo1
+    dolt checkout main
+    dolt branch br1 # Will be a clean commit, ahead of main.
+    dolt branch br2 # will be a dirty branch, on main.
+    dolt branch br3 # will be a dirty branch, on br1
+    start_sql_server repo1
+
+    dolt --use-db "repo1" --branch br1 sql -q "CREATE TABLE tbl (i int primary key)"
+    dolt --use-db "repo1" --branch br1 sql -q "CALL DOLT_COMMIT('-Am', 'commit it')"
+
+    dolt --use-db "repo1" --branch br2 sql -q "CREATE TABLE tbl (j int primary key)"
+
+    # Fast forward br3 to br1, then make it dirty.
+    dolt --use-db "repo1" --branch br3 sql -q "CALL DOLT_MERGE('br1')"
+    dolt --use-db "repo1" --branch br3 sql -q "CREATE TABLE othertbl (k int primary key)"
+
+    stop_sql_server 1 && sleep 0.5
+
+    run dolt sql -q "SELECT name,dirty FROM dolt_branches"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "br1  | false" ]] || false
+    [[ "$output" =~ "br2  | true " ]] || false
+    [[ "$output" =~ "br3  | true" ]] || false
+    [[ "$output" =~ "main | false" ]] || false
+
+    # Verify that the dolt_branches table show the same output, regardless of the checked out branch.
+    dolt checkout br1
+    run dolt sql -q "SELECT name,dirty FROM dolt_branches"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "br1  | false" ]] || false
+    [[ "$output" =~ "br2  | true " ]] || false
+    [[ "$output" =~ "br3  | true" ]] || false
+    [[ "$output" =~ "main | false" ]] || false
+}
+
+@test "sql-server: test --max-connections and --back-log flags" {
+    cd repo1
+    # 3 connections allowed, everything else immediate failure.
+    start_sql_server_with_args --max-connections 3 --back-log 0
+
+    # Start 3 long running connections.
+    set +e # errors expected.
+    pids=()
+    for i in {1..3}; do
+      dolt sql &
+      pids+=($!)
+    done
+
+    # Give the first 3 connections time to start/connect
+    sleep 5
+
+    run dolt sql -q "select(1);"
+    [ $status -ne 0 ]
+    [[ "$output" =~ "bad connection" ]] || false
+
+    # Kill all the running shells
+    for pid in "${pids[@]}"; do
+      kill -9 "$pid"
+    done
+}
+
+@test "sql-server: test --max-connections 3 flag" {
+    cd repo1
+
+    dolt sql -q "CREATE TABLE test_table (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        str VARCHAR(20)
+    );"
+    dolt commit -A -m "create test_table"
+
+    # 3 connections allowed, default back-log (50).
+    start_sql_server_with_args --max-connections 3
+
+    set +e # errors expected.
+
+    # Start 3 long running connections.
+    pids=()
+    for i in {1..3}; do
+      dolt sql &
+      pids+=($!)
+    done
+
+    sleep 1 # give all connections a chance to start
+
+    # These jobs will wait until there is a connection available. verify
+    # by ensuring the inserts complete.
+    dolt sql -q "insert into test_table (str) values ('test4223');" &
+    second_to_last_pid=$!
+    dolt sql -q "insert into test_table (str) values ('test9119');" &
+    last_pid=$!
+
+    sleep 1
+
+    # Now have two jobs waiting for a connection.
+
+    # Kill all the running shells
+    for pid in "${pids[@]}"; do
+      kill -9 "$pid"
+    done
+
+    wait "$second_to_last_pid"
+    wait "$last_pid"
+
+    run dolt sql -q "select * from test_table;"
+    [ $status -eq 0 ]
+    [[ "$output" =~ "test4223" ]] || false
+    [[ "$output" =~ "test9119" ]] || false
+}
+
+@test "sql-server: test --max-connections 3 and --back-log 1 flags" {
+    cd repo1
+
+    dolt sql -q "CREATE TABLE test_table (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        str VARCHAR(20)
+    );"
+    dolt commit -A -m "create test_table"
+
+    # 3 connections allowed, 1 connection in back-log.
+    start_sql_server_with_args --max-connections 3 --back-log 1
+
+    set +e # errors expected.
+    # Start 3 long running connections.
+    pids=()
+    for i in {1..3}; do
+      dolt sql &
+      pids+=($!)
+    done
+
+    # This job will wait until there is a connection available. verify
+    # by ensuring the insert completes.
+    dolt sql -q "insert into test_table (str) values ('test4223');" &
+    last_pid=$!
+
+    sleep 1 # give all connections a chance to start
+
+    # This operation should fail immediately.
+    run dolt sql -q "insert into test_table (str) values ('testxxxx');"
+    [ "$status" -ne 0 ]
+    [[ "$stderr" =~ "bad connection" ]] || false
+
+    # Kill all the running shells
+    for pid in "${pids[@]}"; do
+      kill -9 "$pid"
+    done
+
+    wait "$last_pid"
+
+    run dolt sql -q "select * from test_table;"
+    [ $status -eq 0 ]
+    [[ "$output" =~ "test4223" ]] || false
+    [[ ! "$output" =~ "testxxxx" ]] || false
+}
+
+# bats test_tags=no_lambda
+@test "sql-server: test --max-connections-timeout 10s and --max-connections 3 flags" {
+    skiponwindows "mysql client required"
+
+    cd repo1
+
+    export PORT=$( definePORT )
+
+    # Default is 60s, but I don't want to extend the test time for this.
+    start_sql_server_with_args_no_port --max-connections-timeout=10s --max-connections=3 --port=$PORT
+
+    # For this test we use the mysql client, which doesn't retry connections, but also seems to exit early
+    # if we don't give it a query. So we use a sleep to hang the three connections. These will be killed, so
+    # they won't run the full 30s.
+    pids=()
+    for i in {1..3}; do
+      mysql -h 127.0.0.1 -P $PORT -u root -D repo1 -e "select sleep(30)" &
+      pids+=($!)
+    done
+
+    sleep 3
+
+    # Attempt to connect with a fourth connection - should fail after 10s. `run` caused a lot of variance in the test
+    # time, so we avoid using it here.
+    start_time=$(date +%s)
+    set +e
+    mysql -h 127.0.0.1 -P $PORT -u root > $BATS_TMPDIR/mysql.out
+    status=$?
+    end_time=$(date +%s)
+    [ $status -ne 0 ]
+
+    # There is a high amount of variance in the time it takes to fail, so we just check that it is within a range
+    # with a pretty high upper bound.
+    elapsed_time=$((end_time - start_time))
+    [[ $elapsed_time -lt 15 ]] || false
+    [[ $elapsed_time -gt 9 ]] || false
+
+    run cat $BATS_TMPDIR/mysql.out
+    [[ "$output" =~ "Lost connection to MySQL server at 'reading initial communication packet'" ]] || false
+
+    for pid in "${pids[@]}"; do
+      kill "$pid" 2>/dev/null
+    done
 }

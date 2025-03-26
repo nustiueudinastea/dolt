@@ -36,6 +36,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dfunctions"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dprocedures"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtablefunctions"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/resolve"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqlserver"
 	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
@@ -126,6 +127,11 @@ func NewDoltDatabaseProviderWithDatabases(defaultBranch string, fs filesys.Files
 		funcs[strings.ToLower(fn.FunctionName())] = fn
 	}
 
+	tableFuncs := make(map[string]sql.TableFunction, len(dtablefunctions.DoltTableFunctions))
+	for _, fn := range dtablefunctions.DoltTableFunctions {
+		tableFuncs[strings.ToLower(fn.Name())] = fn
+	}
+
 	externalProcedures := sql.NewExternalStoredProcedureRegistry()
 	for _, esp := range dprocedures.DoltProcedures {
 		externalProcedures.Register(esp)
@@ -142,12 +148,12 @@ func NewDoltDatabaseProviderWithDatabases(defaultBranch string, fs filesys.Files
 		dbLocations:            dbLocations,
 		databases:              dbs,
 		functions:              funcs,
+		tableFunctions:         tableFuncs,
 		externalProcedures:     externalProcedures,
 		mu:                     &sync.RWMutex{},
 		fs:                     fs,
 		defaultBranch:          defaultBranch,
 		dbFactoryUrl:           dbFactoryUrl,
-		InitDatabaseHooks:      []InitDatabaseHook{ConfigureReplicationDatabaseHook},
 		isStandby:              new(bool),
 		droppedDatabaseManager: newDroppedDatabaseManager(fs),
 	}, nil
@@ -162,6 +168,10 @@ func (p *DoltDatabaseProvider) WithFunctions(fns []sql.Function) *DoltDatabasePr
 	cp := *p
 	cp.functions = funcs
 	return &cp
+}
+
+func (p *DoltDatabaseProvider) RegisterProcedure(procedure sql.ExternalStoredProcedureDetails) {
+	p.externalProcedures.Register(procedure)
 }
 
 // WithDbFactoryUrl returns a copy of this provider with the DbFactoryUrl set as provided.
@@ -194,6 +204,19 @@ func (p *DoltDatabaseProvider) AddDropDatabaseHook(hook DropDatabaseHook) {
 
 func (p *DoltDatabaseProvider) FileSystem() filesys.Filesys {
 	return p.fs
+}
+
+// Installs an InitDatabaseHook which configures new databases--those
+// created with `CREATE DATABASE` and `call dolt_clone` for
+// example--for push replication. Pull-on-read replication is already
+// managed separately by wrapping the database instance in
+// `registerNewDatabase`.
+//
+// If the databases that are being managed by |DoltDatabaseProvider| have
+// been through |ApplyReplicationConfig|, then this hook should probably
+// also be installed.
+func (p *DoltDatabaseProvider) InstallReplicationInitDatabaseHook(bThreads *sql.BackgroundThreads, ctxF func(context.Context) (*sql.Context, error)) {
+	p.AddInitDatabaseHook(NewConfigureReplicationDatabaseHook(bThreads, ctxF))
 }
 
 // SetIsStandby sets whether this provider is set to standby |true|. Standbys return every dolt database as a read only
@@ -411,16 +434,54 @@ func (p *DoltDatabaseProvider) CreateDatabase(ctx *sql.Context, name string) err
 	return p.CreateCollatedDatabase(ctx, name, sql.Collation_Default)
 }
 
-func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name string, collation sql.CollationID) (err error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func commitTransaction(ctx *sql.Context, dSess *dsess.DoltSession, rsc *doltdb.ReplicationStatusController) error {
+	// there is no current transaction to commit; this happens in certain tests like
+	currentTx := ctx.GetTransaction()
+	if currentTx != nil {
+		err := dSess.CommitTransaction(ctx, currentTx)
+		if err != nil {
+			return err
+		}
+	}
 
+	newTx, err := dSess.StartTransaction(ctx, sql.ReadWrite)
+	if err != nil {
+		return err
+	}
+	ctx.SetTransaction(newTx)
+
+	if rsc != nil {
+		dsess.WaitForReplicationController(ctx, *rsc)
+	}
+
+	return nil
+}
+
+func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name string, collation sql.CollationID) (err error) {
 	exists, isDir := p.fs.Exists(name)
 	if exists && isDir {
 		return sql.ErrDatabaseExists.New(name)
 	} else if exists {
 		return fmt.Errorf("Cannot create DB, file exists at %s", name)
 	}
+
+	sess := dsess.DSessFromSess(ctx.Session)
+	var rsc doltdb.ReplicationStatusController
+
+	// before we create a new database, we need to implicitly commit any current transaction, because we'll begin a new
+	// one after we create the new DB
+	err = commitTransaction(ctx, sess, &rsc)
+	if err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	needUnlock := true
+	defer func() {
+		if needUnlock {
+			p.mu.Unlock()
+		}
+	}()
 
 	err = p.fs.MkDirs(name)
 	if err != nil {
@@ -440,7 +501,6 @@ func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name str
 	}
 
 	// TODO: fill in version appropriately
-	sess := dsess.DSessFromSess(ctx.Session)
 	newEnv := env.Load(ctx, env.GetCurrentUserHomeDir, newFs, p.dbFactoryUrl, "TODO")
 
 	newDbStorageFormat := types.Format_Default
@@ -448,6 +508,8 @@ func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name str
 	if err != nil {
 		return err
 	}
+
+	updatedCollation, updatedSchemas := false, false
 
 	// Set the collation
 	if collation != sql.Collation_Default {
@@ -466,6 +528,8 @@ func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name str
 		if err = newEnv.UpdateStagedRoot(ctx, newRoot); err != nil {
 			return err
 		}
+
+		updatedCollation = true
 	}
 
 	// If the search path is enabled, we need to create our initial schema object (public and pg_catalog are available
@@ -488,6 +552,12 @@ func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name str
 		if err != nil {
 			return err
 		}
+		workingRoot, err = workingRoot.CreateDatabaseSchema(ctx, schema.DatabaseSchema{
+			Name: doltdb.DoltNamespace,
+		})
+		if err != nil {
+			return err
+		}
 
 		if err = newEnv.UpdateWorkingRoot(ctx, workingRoot); err != nil {
 			return err
@@ -495,63 +565,122 @@ func (p *DoltDatabaseProvider) CreateCollatedDatabase(ctx *sql.Context, name str
 		if err = newEnv.UpdateStagedRoot(ctx, workingRoot); err != nil {
 			return err
 		}
+
+		updatedSchemas = true
 	}
 
-	return p.registerNewDatabase(ctx, name, newEnv)
+	err = p.registerNewDatabase(ctx, name, newEnv)
+	if err != nil {
+		return err
+	}
+
+	// Since we just created this database, we need to commit the current transaction so that the new database is
+	// usable in this session.
+
+	// We need to unlock the provider early to avoid a deadlock with the commit
+	needUnlock = false
+	p.mu.Unlock()
+
+	err = commitTransaction(ctx, sess, &rsc)
+	if err != nil {
+		return err
+	}
+
+	needsDoltCommit := updatedSchemas || updatedCollation
+	if needsDoltCommit {
+		// After making changes to the working set for the DB, create a new dolt commit so that any newly created
+		// branches have those changes
+		// TODO: it would be better if there weren't a commit for this database where these changes didn't exist, but
+		//  we always create an empty commit as part of initializing a repo right now, and you cannot amend the initial
+		//  commit
+		roots, ok := sess.GetRoots(ctx, name)
+		if !ok {
+			return fmt.Errorf("unable to get roots for database %s", name)
+		}
+
+		t := ctx.QueryTime()
+		userName := ctx.Client().User
+		userEmail := fmt.Sprintf("%s@%s", ctx.Client().User, ctx.Client().Address)
+
+		pendingCommit, err := sess.NewPendingCommit(ctx, name, roots, actions.CommitStagedProps{
+			Message: "CREATE DATABASE",
+			Date:    t,
+			Name:    userName,
+			Email:   userEmail,
+		})
+		if err != nil {
+			return err
+		}
+
+		_, err = sess.DoltCommit(ctx, name, sess.GetTransaction(), pendingCommit)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 type InitDatabaseHook func(ctx *sql.Context, pro *DoltDatabaseProvider, name string, env *env.DoltEnv, db dsess.SqlDatabase) error
 type DropDatabaseHook func(ctx *sql.Context, name string)
 
-// ConfigureReplicationDatabaseHook sets up the hooks to push to a remote to replicate a newly created database.
-// TODO: consider the replication heads / all heads setting
-func ConfigureReplicationDatabaseHook(ctx *sql.Context, p *DoltDatabaseProvider, name string, newEnv *env.DoltEnv, _ dsess.SqlDatabase) error {
-	_, replicationRemoteName, _ := sql.SystemVariables.GetGlobal(dsess.ReplicateToRemote)
-	if replicationRemoteName == "" {
-		return nil
+// NewConfigureReplicationDatabaseHook sets up the hooks to push to a remote to replicate a newly created database.
+//
+// For a new database, this hook
+// 1) creates a new remote based on dsess.ReplicationRemoteURLTemplate
+// 2) Installed push-on-write replication hooks based on existing sql.SystemVariables on the *DoltDB
+// 3) Triggers the push-on-write hook for the default branch.
+func NewConfigureReplicationDatabaseHook(bThreads *sql.BackgroundThreads, ctxF func(context.Context) (*sql.Context, error)) InitDatabaseHook {
+	return func(ctx *sql.Context, p *DoltDatabaseProvider, name string, newEnv *env.DoltEnv, _ dsess.SqlDatabase) error {
+		_, replicationRemoteName, _ := sql.SystemVariables.GetGlobal(dsess.ReplicateToRemote)
+		if replicationRemoteName == "" {
+			return nil
+		}
+
+		remoteName, ok := replicationRemoteName.(string)
+		if !ok {
+			return nil
+		}
+
+		_, remoteUrlTemplate, _ := sql.SystemVariables.GetGlobal(dsess.ReplicationRemoteURLTemplate)
+		if remoteUrlTemplate == "" {
+			return nil
+		}
+
+		urlTemplate, ok := remoteUrlTemplate.(string)
+		if !ok {
+			return nil
+		}
+
+		// TODO: url sanitize name
+		remoteUrl := strings.Replace(urlTemplate, dsess.URLTemplateDatabasePlaceholder, name, -1)
+
+		// TODO: params for AWS, others that need them
+		r := env.NewRemote(remoteName, remoteUrl, nil)
+		err := r.Prepare(ctx, newEnv.DoltDB(ctx).Format(), p.remoteDialer)
+		if err != nil {
+			return err
+		}
+
+		err = newEnv.AddRemote(r)
+		if err != env.ErrRemoteAlreadyExists && err != nil {
+			return err
+		}
+
+		commitHooks, startAsyncThreads, err := GetCommitHooks(ctx, newEnv, cli.CliErr)
+		if err != nil {
+			return err
+		}
+		if startAsyncThreads != nil {
+			startAsyncThreads(bThreads, ctxF)
+		}
+
+		newEnv.DoltDB(ctx).PrependCommitHooks(ctx, commitHooks...)
+
+		// After setting hooks on the newly created DB, we need to do the first push manually
+		branchRef := ref.NewBranchRef(p.defaultBranch)
+		return newEnv.DoltDB(ctx).ExecuteCommitHooks(ctx, branchRef.String())
 	}
-
-	remoteName, ok := replicationRemoteName.(string)
-	if !ok {
-		return nil
-	}
-
-	_, remoteUrlTemplate, _ := sql.SystemVariables.GetGlobal(dsess.ReplicationRemoteURLTemplate)
-	if remoteUrlTemplate == "" {
-		return nil
-	}
-
-	urlTemplate, ok := remoteUrlTemplate.(string)
-	if !ok {
-		return nil
-	}
-
-	// TODO: url sanitize name
-	remoteUrl := strings.Replace(urlTemplate, dsess.URLTemplateDatabasePlaceholder, name, -1)
-
-	// TODO: params for AWS, others that need them
-	r := env.NewRemote(remoteName, remoteUrl, nil)
-	err := r.Prepare(ctx, newEnv.DoltDB.Format(), p.remoteDialer)
-	if err != nil {
-		return err
-	}
-
-	err = newEnv.AddRemote(r)
-	if err != env.ErrRemoteAlreadyExists && err != nil {
-		return err
-	}
-
-	// TODO: get background threads from the engine
-	commitHooks, err := GetCommitHooks(ctx, sql.NewBackgroundThreads(), newEnv, cli.CliErr)
-	if err != nil {
-		return err
-	}
-
-	newEnv.DoltDB.SetCommitHooks(ctx, commitHooks)
-
-	// After setting hooks on the newly created DB, we need to do the first push manually
-	branchRef := ref.NewBranchRef(p.defaultBranch)
-	return newEnv.DoltDB.ExecuteCommitHooks(ctx, branchRef.String())
 }
 
 // CloneDatabaseFromRemote implements DoltDatabaseProvider interface
@@ -579,7 +708,8 @@ func (p *DoltDatabaseProvider) CloneDatabaseFromRemote(
 		if exists {
 			deleteErr := p.fs.Delete(dbName, true)
 			if deleteErr != nil {
-				err = fmt.Errorf("%s: unable to clean up failed clone in directory '%s'", err.Error(), dbName)
+				err = fmt.Errorf("%s: unable to clean up failed clone in directory '%s': %s",
+					err.Error(), dbName, deleteErr.Error())
 			}
 		}
 		return err
@@ -745,18 +875,18 @@ func (p *DoltDatabaseProvider) registerNewDatabase(ctx *sql.Context, name string
 	}
 
 	opts := editor.Options{
-		Deaf: newEnv.DbEaFactory(),
+		Deaf: newEnv.DbEaFactory(ctx),
 		// TODO: this doesn't seem right, why is this getting set in the constructor to the DB
 		ForeignKeyChecksDisabled: fkChecks.(int8) == 0,
 	}
 
-	db, err := NewDatabase(ctx, name, newEnv.DbData(), opts)
+	db, err := NewDatabase(ctx, name, newEnv.DbData(ctx), opts)
 	if err != nil {
 		return err
 	}
 
 	// If we have any initialization hooks, invoke them, until any error is returned.
-	// By default, this will be ConfigureReplicationDatabaseHook, which will set up
+	// By default, this will be NewConfigureReplicationDatabaseHook, which will set up
 	// replication for the new database if a remote url template is set.
 	for _, initHook := range p.InitDatabaseHooks {
 		err = initHook(ctx, p, name, newEnv, db)
@@ -765,17 +895,16 @@ func (p *DoltDatabaseProvider) registerNewDatabase(ctx *sql.Context, name string
 		}
 	}
 
-	mrEnv, err := env.MultiEnvForSingleEnv(ctx, newEnv)
-	if err != nil {
-		return err
-	}
-	dbs, err := ApplyReplicationConfig(ctx, sql.NewBackgroundThreads(), mrEnv, cli.CliErr, db)
+	// Push replication is configured by InitDatabaseHooks, but pull-on-read
+	// replication is a special type of wrapper database, |ReadReplicaDatabase|.
+	// Transform the |db| into the replicating one if we need to.
+	sdb, err := applyReadReplicationConfigToDatabase(ctx, newEnv, db)
 	if err != nil {
 		return err
 	}
 
 	formattedName := formatDbMapKeyName(db.Name())
-	p.databases[formattedName] = dbs[0]
+	p.databases[formattedName] = sdb
 	p.dbLocations[formattedName] = newEnv.FS
 	return nil
 }
@@ -856,7 +985,7 @@ func (p *DoltDatabaseProvider) databaseForRevision(ctx *sql.Context, revisionQua
 			}
 		}
 
-		db, err := revisionDbForBranch(ctx, srcDb, resolvedRevSpec, requestedName)
+		db, err := RevisionDbForBranch(ctx, srcDb, resolvedRevSpec, requestedName)
 		// preserve original user case in the case of not found
 		if sql.ErrDatabaseNotFound.Is(err) {
 			return nil, false, sql.ErrDatabaseNotFound.New(revisionQualifiedName)
@@ -1312,32 +1441,11 @@ func (p *DoltDatabaseProvider) ExternalStoredProcedures(_ *sql.Context, name str
 }
 
 // TableFunction implements the sql.TableFunctionProvider interface
-func (p *DoltDatabaseProvider) TableFunction(_ *sql.Context, name string) (sql.TableFunction, error) {
-	// TODO: Clean this up and store table functions in a map, similar to regular functions.
-	switch strings.ToLower(name) {
-	case "dolt_diff":
-		return &DiffTableFunction{}, nil
-	case "dolt_diff_stat":
-		return &DiffStatTableFunction{}, nil
-	case "dolt_diff_summary":
-		return &DiffSummaryTableFunction{}, nil
-	case "dolt_log":
-		return &LogTableFunction{}, nil
-	case "dolt_patch":
-		return &PatchTableFunction{}, nil
-	case "dolt_schema_diff":
-		return &SchemaDiffTableFunction{}, nil
-	case "dolt_reflog":
-		return &ReflogTableFunction{}, nil
-	case "dolt_query_diff":
-		return &QueryDiffTableFunction{}, nil
+func (p *DoltDatabaseProvider) TableFunction(_ *sql.Context, name string) (sql.TableFunction, bool) {
+	if fun, ok := p.tableFunctions[strings.ToLower(name)]; ok {
+		return fun, true
 	}
-
-	if fun, ok := p.tableFunctions[name]; ok {
-		return fun, nil
-	}
-
-	return nil, sql.ErrTableFunctionNotFound.New(name)
+	return nil, false
 }
 
 // ensureReplicaHeadExists tries to pull the latest version of a remote branch. Will fail if the branch
@@ -1418,8 +1526,8 @@ func isTag(ctx context.Context, db dsess.SqlDatabase, tagName string) (string, b
 	return "", false, nil
 }
 
-// revisionDbForBranch returns a new database that is tied to the branch named by revSpec
-func revisionDbForBranch(ctx context.Context, srcDb dsess.SqlDatabase, revSpec string, requestedName string) (dsess.SqlDatabase, error) {
+// RevisionDbForBranch returns a new database that is tied to the branch named by revSpec
+func RevisionDbForBranch(ctx context.Context, srcDb dsess.SqlDatabase, revSpec string, requestedName string) (dsess.SqlDatabase, error) {
 	static := staticRepoState{
 		branch:          ref.NewBranchRef(revSpec),
 		RepoStateWriter: srcDb.DbData().Rsw,
@@ -1452,8 +1560,10 @@ func initialStateForBranchDb(ctx *sql.Context, srcDb dsess.SqlDatabase) (dsess.I
 		return dsess.InitialDbState{}, err
 	}
 
+	// Working set may not exist. Upstream code which calls here must
+	// handle the WorkingSet field being nil.q
 	ws, err := srcDb.DbData().Ddb.ResolveWorkingSetAtRoot(ctx, wsRef, rootHash)
-	if err != nil {
+	if err != nil && err != doltdb.ErrWorkingSetNotFound {
 		return dsess.InitialDbState{}, err
 	}
 

@@ -159,7 +159,7 @@ func agreeToTerms(scanner *bufio.Scanner) bool {
 
 	scanner.Scan()
 	input := strings.TrimSpace(scanner.Text())
-	if strings.ToLower(input) == "y" {
+	if strings.EqualFold(input, "y") {
 		cli.Println(wordWrap("# ", "You can disable this check in the future by setting the DOLT_ASSIST_AGREE "+
 			"environment variable."))
 		return true
@@ -252,7 +252,7 @@ func extractJsonResponse(content string) map[string]interface{} {
 }
 
 func sqlQuery(ctx context.Context, query string) (string, bool, error) {
-	cli.Println(fmt.Sprintf("Runnning query \"%s\"...", query))
+	cli.Println(fmt.Sprintf("Running query \"%s\"...", query))
 
 	output, _, err := doltExec(ctx, fmt.Sprintf("dolt sql -q \"%s\"", query), false)
 	if err != nil {

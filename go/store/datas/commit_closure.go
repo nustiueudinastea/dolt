@@ -45,9 +45,12 @@ func NewParentsClosure(ctx context.Context, c *Commit, sv types.SerialMessage, v
 	if types.IsNull(v) {
 		return prolly.CommitClosure{}, fmt.Errorf("internal error or data loss: dangling commit parent closure for addr %s or commit %s", addr.String(), c.Addr().String())
 	}
-	node, err := tree.NodeFromBytes(v.(types.SerialMessage))
+	node, fileId, err := tree.NodeFromBytes(v.(types.SerialMessage))
 	if err != nil {
 		return prolly.CommitClosure{}, err
+	}
+	if fileId != serial.CommitClosureFileID {
+		return prolly.CommitClosure{}, fmt.Errorf("unexpected file ID for commit closure, expected %s, found %s", serial.CommitClosureFileID, fileId)
 	}
 	return prolly.NewCommitClosure(node, ns)
 }
@@ -248,7 +251,7 @@ func (i *fbParentsClosureIterator) Next(ctx context.Context) bool {
 
 func (i *fbParentsClosureIterator) Less(ctx context.Context, nbf *types.NomsBinFormat, otherI parentsClosureIter) bool {
 	other := otherI.(*fbParentsClosureIterator)
-	return i.curr.Less(other.curr)
+	return i.curr.Less(ctx, other.curr)
 }
 
 func writeTypesCommitParentClosure(ctx context.Context, vrw types.ValueReadWriter, parentRefsL types.List) (types.Ref, bool, error) {
@@ -408,9 +411,12 @@ func writeFbCommitParentClosure(ctx context.Context, cs chunks.ChunkStore, vrw t
 	closures := make([]prolly.CommitClosure, len(parents))
 	for i := range addrs {
 		if !types.IsNull(vs[i]) {
-			node, err := tree.NodeFromBytes(vs[i].(types.SerialMessage))
+			node, fileId, err := tree.NodeFromBytes(vs[i].(types.SerialMessage))
 			if err != nil {
 				return hash.Hash{}, err
+			}
+			if fileId != serial.CommitClosureFileID {
+				return hash.Hash{}, fmt.Errorf("unexpected file ID for commit closure, expected %s, found %s", serial.CommitClosureFileID, fileId)
 			}
 			closures[i], err = prolly.NewCommitClosure(node, ns)
 			if err != nil {

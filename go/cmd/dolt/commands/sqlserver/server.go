@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,7 @@ import (
 	"github.com/dolthub/dolt/go/cmd/dolt/commands/engine"
 	eventsapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
 	remotesapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	"github.com/dolthub/dolt/go/libraries/doltcore/remotesrv"
@@ -56,6 +58,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqlserver"
 	"github.com/dolthub/dolt/go/libraries/events"
 	"github.com/dolthub/dolt/go/libraries/utils/config"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 	"github.com/dolthub/dolt/go/libraries/utils/svcs"
 )
 
@@ -73,38 +76,42 @@ var ExternalDisableUsers bool = false
 
 var ErrCouldNotLockDatabase = goerrors.NewKind("database \"%s\" is locked by another dolt process; either clone the database to run a second server, or stop the dolt process which currently holds an exclusive write lock on the database")
 
+type Config struct {
+	ServerConfig            servercfg.ServerConfig
+	DoltEnv                 *env.DoltEnv
+	SkipRootUserInit        bool
+	Version                 string
+	Controller              *svcs.Controller
+	ProtocolListenerFactory server.ProtocolListenerFunc
+}
+
 // Serve starts a MySQL-compatible server. Returns any errors that were encountered.
 func Serve(
 	ctx context.Context,
-	version string,
-	serverConfig servercfg.ServerConfig,
-	controller *svcs.Controller,
-	dEnv *env.DoltEnv,
+	cfg *Config,
 ) (startError error, closeError error) {
 	// Code is easier to work through if we assume that serverController is never nil
-	if controller == nil {
-		controller = svcs.NewController()
+	if cfg.Controller == nil {
+		cfg.Controller = svcs.NewController()
 	}
 
-	ConfigureServices(serverConfig, controller, version, dEnv)
+	ConfigureServices(cfg)
 
-	go controller.Start(ctx)
-	err := controller.WaitForStart()
+	go cfg.Controller.Start(ctx)
+	err := cfg.Controller.WaitForStart()
 	if err != nil {
 		return err, nil
 	}
-	return nil, controller.WaitForStop()
+	return nil, cfg.Controller.WaitForStop()
 }
 
 func ConfigureServices(
-	serverConfig servercfg.ServerConfig,
-	controller *svcs.Controller,
-	version string,
-	dEnv *env.DoltEnv,
+	cfg *Config,
 ) {
+	controller := cfg.Controller
 	ValidateConfigStep := &svcs.AnonService{
 		InitF: func(context.Context) error {
-			return servercfg.ValidateConfig(serverConfig)
+			return servercfg.ValidateConfig(cfg.ServerConfig)
 		},
 	}
 	controller.Register(ValidateConfigStep)
@@ -113,11 +120,19 @@ func ConfigureServices(
 	lgr.SetOutput(cli.CliErr)
 	InitLogging := &svcs.AnonService{
 		InitF: func(context.Context) error {
-			level, err := logrus.ParseLevel(serverConfig.LogLevel().String())
+			level, err := logrus.ParseLevel(cfg.ServerConfig.LogLevel().String())
 			if err != nil {
 				return err
 			}
 			logrus.SetLevel(level)
+			switch strings.ToLower(string(cfg.ServerConfig.LogFormat())) {
+			case string(servercfg.LogFormat_JSON):
+				logrus.SetFormatter(&logrus.JSONFormatter{})
+			case string(servercfg.LogFormat_Text):
+				logrus.SetFormatter(&logrus.TextFormatter{})
+			default:
+				return fmt.Errorf("unknown log format: %s", cfg.ServerConfig.LogFormat())
+			}
 
 			sql.SystemVariables.AddSystemVariables([]sql.SystemVariable{
 				&sql.MysqlSystemVariable{
@@ -151,38 +166,21 @@ func ConfigureServices(
 	}
 	controller.Register(InitLogging)
 
-	controller.Register(newHeartbeatService(version, dEnv))
+	controller.Register(newHeartbeatService(cfg.Version, cfg.DoltEnv))
 
-	fs := dEnv.FS
-	InitDataDir := &svcs.AnonService{
+	fs := cfg.DoltEnv.FS
+	InitFailsafes := &svcs.AnonService{
 		InitF: func(ctx context.Context) (err error) {
-			if len(serverConfig.DataDir()) > 0 && serverConfig.DataDir() != "." {
-				fs, err = dEnv.FS.WithWorkingDir(serverConfig.DataDir())
-				if err != nil {
-					return err
-				}
-				// If datadir has changed, then reload the DoltEnv to ensure its local
-				// configuration store gets configured correctly
-				dEnv.FS = fs
-				dEnv = env.Load(ctx, dEnv.GetUserHomeDir, fs, doltdb.LocalDirDoltDB, dEnv.Version)
-
-				// If the datadir has changed, then we need to load any persisted global variables
-				// from the new datadir's local configuration store
-				err = dsess.InitPersistedSystemVars(dEnv)
-				if err != nil {
-					logrus.Errorf("failed to load persisted global variables: %s\n", err.Error())
-				}
-			}
-			dEnv.Config.SetFailsafes(env.DefaultFailsafeConfig)
+			cfg.DoltEnv.Config.SetFailsafes(env.DefaultFailsafeConfig)
 			return nil
 		},
 	}
-	controller.Register(InitDataDir)
+	controller.Register(InitFailsafes)
 
 	var mrEnv *env.MultiRepoEnv
 	InitMultiEnv := &svcs.AnonService{
 		InitF: func(ctx context.Context) (err error) {
-			mrEnv, err = env.MultiEnvForDirectory(ctx, dEnv.Config.WriteableConfig(), fs, dEnv.Version, dEnv)
+			mrEnv, err = env.MultiEnvForDirectory(ctx, cfg.DoltEnv.Config.WriteableConfig(), fs, cfg.DoltEnv.Version, cfg.DoltEnv)
 			return err
 		},
 	}
@@ -191,7 +189,7 @@ func ConfigureServices(
 	AssertNoDatabasesInAccessModeReadOnly := &svcs.AnonService{
 		InitF: func(ctx context.Context) (err error) {
 			return mrEnv.Iter(func(name string, dEnv *env.DoltEnv) (stop bool, err error) {
-				if dEnv.IsAccessModeReadOnly() {
+				if dEnv.IsAccessModeReadOnly(ctx) {
 					return true, ErrCouldNotLockDatabase.New(name)
 				}
 				return false, nil
@@ -203,11 +201,11 @@ func ConfigureServices(
 	var localCreds *LocalCreds
 	InitServerLocalCreds := &svcs.AnonService{
 		InitF: func(context.Context) (err error) {
-			localCreds, err = persistServerLocalCreds(serverConfig.Port(), dEnv)
+			localCreds, err = persistServerLocalCreds(cfg.ServerConfig.Port(), cfg.DoltEnv)
 			return err
 		},
 		StopF: func() error {
-			RemoveLocalCreds(dEnv.FS)
+			RemoveLocalCreds(cfg.DoltEnv.FS)
 			return nil
 		},
 	}
@@ -216,7 +214,7 @@ func ConfigureServices(
 	var clusterController *cluster.Controller
 	InitClusterController := &svcs.AnonService{
 		InitF: func(context.Context) (err error) {
-			clusterController, err = cluster.NewController(lgr, serverConfig.ClusterConfig(), mrEnv.Config())
+			clusterController, err = cluster.NewController(lgr, cfg.ServerConfig.ClusterConfig(), mrEnv.Config())
 			return err
 		},
 	}
@@ -225,7 +223,7 @@ func ConfigureServices(
 	var serverConf server.Config
 	LoadServerConfig := &svcs.AnonService{
 		InitF: func(context.Context) (err error) {
-			serverConf, err = getConfigFromServerConfig(serverConfig)
+			serverConf, err = getConfigFromServerConfig(cfg.ServerConfig, cfg.ProtocolListenerFactory)
 			return err
 		},
 	}
@@ -236,19 +234,20 @@ func ConfigureServices(
 	InitSqlEngineConfig := &svcs.AnonService{
 		InitF: func(context.Context) error {
 			config = &engine.SqlEngineConfig{
-				IsReadOnly:              serverConfig.ReadOnly(),
-				PrivFilePath:            serverConfig.PrivilegeFilePath(),
-				BranchCtrlFilePath:      serverConfig.BranchControlFilePath(),
-				DoltCfgDirPath:          serverConfig.CfgDir(),
-				ServerUser:              serverConfig.User(),
-				ServerPass:              serverConfig.Password(),
-				ServerHost:              serverConfig.Host(),
-				Autocommit:              serverConfig.AutoCommit(),
-				DoltTransactionCommit:   serverConfig.DoltTransactionCommit(),
-				JwksConfig:              serverConfig.JwksConfig(),
-				SystemVariables:         serverConfig.SystemVars(),
-				ClusterController:       clusterController,
-				BinlogReplicaController: binlogreplication.DoltBinlogReplicaController,
+				IsReadOnly:                 cfg.ServerConfig.ReadOnly(),
+				PrivFilePath:               cfg.ServerConfig.PrivilegeFilePath(),
+				BranchCtrlFilePath:         cfg.ServerConfig.BranchControlFilePath(),
+				DoltCfgDirPath:             cfg.ServerConfig.CfgDir(),
+				ServerUser:                 cfg.ServerConfig.User(),
+				ServerPass:                 cfg.ServerConfig.Password(),
+				ServerHost:                 cfg.ServerConfig.Host(),
+				Autocommit:                 cfg.ServerConfig.AutoCommit(),
+				DoltTransactionCommit:      cfg.ServerConfig.DoltTransactionCommit(),
+				JwksConfig:                 cfg.ServerConfig.JwksConfig(),
+				SystemVariables:            cfg.ServerConfig.SystemVars(),
+				ClusterController:          clusterController,
+				BinlogReplicaController:    binlogreplication.DoltBinlogReplicaController,
+				SkipRootUserInitialization: cfg.SkipRootUserInit,
 			}
 			return nil
 		},
@@ -258,7 +257,7 @@ func ConfigureServices(
 	var esStatus eventscheduler.SchedulerStatus
 	InitEventSchedulerStatus := &svcs.AnonService{
 		InitF: func(context.Context) (err error) {
-			esStatus, err = getEventSchedulerStatus(serverConfig.EventSchedulerStatus())
+			esStatus, err = getEventSchedulerStatus(cfg.ServerConfig.EventSchedulerStatus())
 			if err != nil {
 				return err
 			}
@@ -268,12 +267,45 @@ func ConfigureServices(
 	}
 	controller.Register(InitEventSchedulerStatus)
 
+	InitAutoGCController := &svcs.AnonService{
+		InitF: func(context.Context) error {
+			if cfg.ServerConfig.AutoGCBehavior() != nil &&
+				cfg.ServerConfig.AutoGCBehavior().Enable() {
+				config.AutoGCController = sqle.NewAutoGCController(lgr)
+			}
+			return nil
+		},
+	}
+	controller.Register(InitAutoGCController)
+
+	// mySQLServer is going to be populated down below once further services
+	// are initialized. However, we want to block Controller shutdown on all
+	// connections being fully drained from the Server. Stopping the
+	// SQL server itself only stops the connection listener, and inflight
+	// work is shutdown by other services, which can stop things like
+	// replication threads, listeners for other services, etc.
+	//
+	// On the shutdown path, we block for connection draining
+	// right after we have stopped the sql engine itself, which
+	// was responsible for canceling the contexts associated with
+	// all inflight queries.
+	var mySQLServer *server.Server
+	DrainClientConnectionsOnShutdown := &svcs.AnonService{
+		StopF: func() error {
+			if mySQLServer != nil {
+				mySQLServer.SessionManager().WaitForClosedConnections()
+			}
+			return nil
+		},
+	}
+	controller.Register(DrainClientConnectionsOnShutdown)
+
 	var sqlEngine *engine.SqlEngine
 	InitSqlEngine := &svcs.AnonService{
 		InitF: func(ctx context.Context) (err error) {
-			if _, err := mrEnv.Config().GetString(env.SqlServerGlobalsPrefix + "." + dsess.DoltStatsBootstrapEnabled); err != nil {
-				// unless otherwise specified by config, enable server bootstrapping
-				sql.SystemVariables.SetGlobal(dsess.DoltStatsBootstrapEnabled, 1)
+			if _, err := mrEnv.Config().GetString(env.SqlServerGlobalsPrefix + "." + dsess.DoltStatsPaused); err != nil {
+				// unless otherwise specified, run stats writer alongside server
+				sql.SystemVariables.SetGlobal(dsess.DoltStatsPaused, 0)
 			}
 			sqlEngine, err = engine.NewSqlEngine(
 				ctx,
@@ -289,12 +321,32 @@ func ConfigureServices(
 	}
 	controller.Register(InitSqlEngine)
 
+	// Closing the connections on shutdown attempts to prevent
+	// them from creating new work after we cancel their running
+	// queries up above. GMS should ideally avoid creating new
+	// process list queries or operations for these connections
+	// after they are killed, but it is not currently set up that
+	// way.
+	CloseClientConnectionsOnShutdown := &svcs.AnonService{
+		StopF: func() error {
+			if mySQLServer != nil {
+				sm := mySQLServer.SessionManager()
+				return sm.Iter(func(s sql.Session) (bool, error) {
+					sm.KillConnection(s.ID())
+					return false, nil
+				})
+			}
+			return nil
+		},
+	}
+	controller.Register(CloseClientConnectionsOnShutdown)
+
 	// Persist any system variables that have a non-deterministic default value (i.e. @@server_uuid)
 	// We only do this on sql-server startup initially since we want to keep the persisted server_uuid
 	// in the configuration files for a sql-server, and not global for the whole host.
 	PersistNondeterministicSystemVarDefaults := &svcs.AnonService{
 		InitF: func(ctx context.Context) error {
-			err := dsess.PersistSystemVarDefaults(dEnv)
+			err := dsess.PersistSystemVarDefaults(cfg.DoltEnv)
 			if err != nil {
 				logrus.Errorf("unable to persist system variable defaults: %v", err)
 			}
@@ -304,6 +356,13 @@ func ConfigureServices(
 		},
 	}
 	controller.Register(PersistNondeterministicSystemVarDefaults)
+
+	InitStatsController := &svcs.AnonService{
+		InitF: func(ctx context.Context) error {
+			return sqlEngine.InitStats(ctx)
+		},
+	}
+	controller.Register(InitStatsController)
 
 	InitBinlogging := &svcs.AnonService{
 		InitF: func(context.Context) error {
@@ -346,7 +405,7 @@ func ConfigureServices(
 
 			if logBin == 1 {
 				logrus.Infof("Enabling binary logging for branch %s", logBinBranch)
-				binlogProducer, err := binlogreplication.NewBinlogProducer(dEnv.FS)
+				binlogProducer, err := binlogreplication.NewBinlogProducer(cfg.DoltEnv.FS)
 				if err != nil {
 					return err
 				}
@@ -372,36 +431,74 @@ func ConfigureServices(
 	}
 	controller.Register(InitBinlogging)
 
-	// Add superuser if specified user exists; add root superuser if no user specified and no existing privileges
-	InitSuperUser := &svcs.AnonService{
-		InitF: func(context.Context) error {
-			userSpecified := config.ServerUser != ""
+	// MySQL creates a root superuser when the mysql install is first initialized. Depending on the options
+	// specified, the root superuser is created without a password, or with a random password. This varies
+	// slightly in some OS-specific installers. Dolt initializes the root superuser the first time a
+	// sql-server is started and initializes its privileges database. We do this on sql-server initialization,
+	// instead of dolt db initialization, because we only want to create the privileges database when it's
+	// used for a server, and because we want the same root initialization logic when a sql-server is started
+	// for a clone. More details: https://dev.mysql.com/doc/mysql-security-excerpt/8.0/en/default-privileges.html
+	InitImplicitRootSuperUser := &svcs.AnonService{
+		InitF: func(ctx context.Context) error {
+			// If privileges.db has already been initialized, indicating that this is NOT the
+			// first time sql-server has been launched, then don't initialize the root superuser.
+			if permissionDbExists, err := doesPrivilegesDbExist(cfg.DoltEnv, cfg.ServerConfig.PrivilegeFilePath()); err != nil {
+				return err
+			} else if permissionDbExists {
+				logrus.Debug("privileges.db already exists, not creating root superuser")
+				return nil
+			}
 
+			// We always persist the privileges.db file, to signal that the privileges system has been initialized
 			mysqlDb := sqlEngine.GetUnderlyingEngine().Analyzer.Catalog.MySQLDb
 			ed := mysqlDb.Editor()
-			var numUsers int
-			ed.VisitUsers(func(*mysql_db.User) { numUsers += 1 })
-			privsExist := numUsers != 0
-			if userSpecified {
-				superuser := mysqlDb.GetUser(ed, config.ServerUser, "%", false)
-				if userSpecified && superuser == nil {
-					mysqlDb.AddSuperUser(ed, config.ServerUser, "%", config.ServerPass)
-				}
-			} else if !privsExist {
-				mysqlDb.AddSuperUser(ed, servercfg.DefaultUser, "%", servercfg.DefaultPass)
-			}
-			ed.Close()
+			defer ed.Close()
 
-			return nil
+			// Create the root@localhost superuser, unless --skip-root-user-initialization was specified
+			if !config.SkipRootUserInitialization {
+				// Allow the user to override the default root host (localhost) and password ("").
+				// This is particularly useful in a Docker container, where you need to connect
+				// to the sql-server from outside the container and can't rely on localhost.
+				rootHost := "localhost"
+				doltRootHost := os.Getenv(dconfig.EnvDoltRootHost)
+				if doltRootHost != "" {
+					logrus.Infof("Overriding root user host with value from DOLT_ROOT_HOST: %s", doltRootHost)
+					rootHost = doltRootHost
+				}
+
+				rootPassword := servercfg.DefaultPass
+				doltRootPassword := os.Getenv(dconfig.EnvDoltRootPassword)
+				if doltRootPassword != "" {
+					logrus.Info("Overriding root user password with value from DOLT_ROOT_PASSWORD")
+					rootPassword = doltRootPassword
+				}
+
+				logrus.Infof("Creating root@%s superuser", rootHost)
+				mysqlDb.AddSuperUser(ed, servercfg.DefaultUser, rootHost, rootPassword)
+			}
+
+			// TODO: The in-memory filesystem doesn't work with the GMS API
+			//       for persisting the privileges database. The filesys API
+			//       is in the Dolt layer, so when the file path is passed to
+			//       GMS, it expects it to be a path on disk, and errors out.
+			if _, isInMemFs := cfg.DoltEnv.FS.(*filesys.InMemFS); isInMemFs {
+				return nil
+			} else {
+				sqlCtx, err := sqlEngine.NewDefaultContext(context.Background())
+				if err != nil {
+					return err
+				}
+				return mysqlDb.Persist(sqlCtx, ed)
+			}
 		},
 	}
-	controller.Register(InitSuperUser)
+	controller.Register(InitImplicitRootSuperUser)
 
 	var metListener *metricsListener
 	InitMetricsListener := &svcs.AnonService{
 		InitF: func(context.Context) (err error) {
-			labels := serverConfig.MetricsLabels()
-			metListener, err = newMetricsListener(labels, version, clusterController)
+			labels := cfg.ServerConfig.MetricsLabels()
+			metListener, err = newMetricsListener(labels, cfg.Version, clusterController)
 			return err
 		},
 		StopF: func() error {
@@ -415,7 +512,7 @@ func ConfigureServices(
 		InitF: func(context.Context) error {
 			mysqlDb := sqlEngine.GetUnderlyingEngine().Analyzer.Catalog.MySQLDb
 			ed := mysqlDb.Editor()
-			mysqlDb.AddSuperUser(ed, LocalConnectionUser, "localhost", localCreds.Secret)
+			mysqlDb.AddEphemeralSuperUser(ed, LocalConnectionUser, "localhost", localCreds.Secret)
 			ed.Close()
 			return nil
 		},
@@ -443,10 +540,10 @@ func ConfigureServices(
 
 	RunMetricsServer := &svcs.AnonService{
 		InitF: func(context.Context) (err error) {
-			if serverConfig.MetricsHost() != "" && serverConfig.MetricsPort() > 0 {
+			if cfg.ServerConfig.MetricsHost() != "" && cfg.ServerConfig.MetricsPort() > 0 {
 				metSrv.state.Swap(svcs.ServiceState_Init)
 
-				addr := fmt.Sprintf("%s:%d", serverConfig.MetricsHost(), serverConfig.MetricsPort())
+				addr := fmt.Sprintf("%s:%d", cfg.ServerConfig.MetricsHost(), cfg.ServerConfig.MetricsPort())
 				metSrv.lis, err = net.Listen("tcp", addr)
 				if err != nil {
 					return err
@@ -487,34 +584,40 @@ func ConfigureServices(
 	var remoteSrv RemoteSrvService
 	RunRemoteSrv := &svcs.AnonService{
 		InitF: func(ctx context.Context) error {
-			if serverConfig.RemotesapiPort() == nil {
+			if cfg.ServerConfig.RemotesapiPort() == nil {
 				return nil
 			}
 			remoteSrv.state.Swap(svcs.ServiceState_Init)
 
-			port := *serverConfig.RemotesapiPort()
+			port := *cfg.ServerConfig.RemotesapiPort()
 
 			apiReadOnly := false
-			if serverConfig.RemotesapiReadOnly() != nil {
-				apiReadOnly = *serverConfig.RemotesapiReadOnly()
+			if cfg.ServerConfig.RemotesapiReadOnly() != nil {
+				apiReadOnly = *cfg.ServerConfig.RemotesapiReadOnly()
 			}
 
 			listenaddr := fmt.Sprintf(":%d", port)
+			sqlContextInterceptor := sqle.SqlContextServerInterceptor{
+				Factory: sqlEngine.NewDefaultContext,
+			}
 			args := remotesrv.ServerArgs{
 				Logger:             logrus.NewEntry(lgr),
-				ReadOnly:           apiReadOnly || serverConfig.ReadOnly(),
+				ReadOnly:           apiReadOnly || cfg.ServerConfig.ReadOnly(),
 				HttpListenAddr:     listenaddr,
 				GrpcListenAddr:     listenaddr,
 				ConcurrencyControl: remotesapi.PushConcurrencyControl_PUSH_CONCURRENCY_CONTROL_ASSERT_WORKING_SET,
+				Options:            sqlContextInterceptor.Options(),
+				HttpInterceptor:    sqlContextInterceptor.HTTP(nil),
 			}
 			var err error
-			args.FS, args.DBCache, err = sqle.RemoteSrvFSAndDBCache(sqlEngine.NewDefaultContext, sqle.DoNotCreateUnknownDatabases)
+			args.FS = sqlEngine.FileSystem()
+			args.DBCache, err = sqle.RemoteSrvDBCache(sqle.GetInterceptorSqlContext, sqle.DoNotCreateUnknownDatabases)
 			if err != nil {
 				lgr.Errorf("error creating SQL engine context for remotesapi server: %v", err)
 				return err
 			}
 
-			authenticator := newAccessController(sqlEngine.NewDefaultContext, sqlEngine.GetUnderlyingEngine().Analyzer.Catalog.MySQLDb)
+			authenticator := newAccessController(sqle.GetInterceptorSqlContext, sqlEngine.GetUnderlyingEngine().Analyzer.Catalog.MySQLDb)
 			args = sqle.WithUserPasswordAuth(args, authenticator)
 			args.TLSConfig = serverConf.TLSConfig
 
@@ -562,8 +665,9 @@ func ConfigureServices(
 				lgr.Errorf("error creating SQL engine context for remotesapi server: %v", err)
 				return err
 			}
+			args.FS = sqlEngine.FileSystem()
 
-			clusterRemoteSrvTLSConfig, err := LoadClusterTLSConfig(serverConfig.ClusterConfig())
+			clusterRemoteSrvTLSConfig, err := LoadClusterTLSConfig(cfg.ServerConfig.ClusterConfig())
 			if err != nil {
 				lgr.Errorf("error starting remotesapi server for cluster config, could not load tls config: %v", err)
 				return err
@@ -572,10 +676,10 @@ func ConfigureServices(
 
 			clusterRemoteSrv.srv, err = remotesrv.NewServer(args)
 			if err != nil {
-				lgr.Errorf("error creating remotesapi server on port %d: %v", *serverConfig.RemotesapiPort(), err)
+				lgr.Errorf("error creating remotesapi server on port %d: %v", *cfg.ServerConfig.RemotesapiPort(), err)
 				return err
 			}
-			clusterController.RegisterGrpcServices(sqlEngine.NewDefaultContext, clusterRemoteSrv.srv.GrpcServer())
+			clusterController.RegisterGrpcServices(sqle.GetInterceptorSqlContext, clusterRemoteSrv.srv.GrpcServer())
 
 			clusterRemoteSrv.lis, err = clusterRemoteSrv.srv.Listeners()
 			if err != nil {
@@ -610,15 +714,15 @@ func ConfigureServices(
 	// already been Closed.
 
 	var sqlServerClosed bool
-	var mySQLServer *server.Server
 	InitSQLServer := &svcs.AnonService{
 		InitF: func(context.Context) (err error) {
-			v, ok := serverConfig.(servercfg.ValidatingServerConfig)
+			v, ok := cfg.ServerConfig.(servercfg.ValidatingServerConfig)
 			if ok && v.GoldenMysqlConnectionString() != "" {
 				mySQLServer, err = server.NewServerWithHandler(
 					serverConf,
 					sqlEngine.GetUnderlyingEngine(),
-					newSessionBuilder(sqlEngine, serverConfig),
+					sql.NewContext,
+					newSessionBuilder(sqlEngine, cfg.ServerConfig),
 					metListener,
 					func(h mysql.Handler) (mysql.Handler, error) {
 						return golden.NewValidatingHandler(h, v.GoldenMysqlConnectionString(), logrus.StandardLogger())
@@ -628,7 +732,8 @@ func ConfigureServices(
 				mySQLServer, err = server.NewServer(
 					serverConf,
 					sqlEngine.GetUnderlyingEngine(),
-					newSessionBuilder(sqlEngine, serverConfig),
+					sql.NewContext,
+					newSessionBuilder(sqlEngine, cfg.ServerConfig),
 					metListener,
 				)
 			}
@@ -652,7 +757,13 @@ func ConfigureServices(
 	AutoStartBinlogReplica := &svcs.AnonService{
 		InitF: func(ctx context.Context) error {
 			// If we're unable to restart replication, log an error, but don't prevent the server from starting up
-			if err := binlogreplication.DoltBinlogReplicaController.AutoStart(ctx); err != nil {
+			sqlCtx, err := sqlEngine.NewDefaultContext(ctx)
+			if err != nil {
+				logrus.Errorf("unable to restart replication, could not create session: %s", err.Error())
+				return nil
+			}
+			defer sql.SessionEnd(sqlCtx.Session)
+			if err := binlogreplication.DoltBinlogReplicaController.AutoStart(sqlCtx); err != nil {
 				logrus.Errorf("unable to restart replication: %s", err.Error())
 			}
 			return nil
@@ -771,6 +882,7 @@ func (h *heartbeatService) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			t := events.NowTimestamp()
+			logrus.Debugf("sending heartbeat event to %s:%s", events.DefaultMetricsHost, events.DefaultMetricsPort)
 			err := h.eventEmitter.LogEvents(ctx, h.version, []*eventsapi.ClientEvent{
 				{
 					Id:        uuid.New().String(),
@@ -800,7 +912,7 @@ func persistServerLocalCreds(port int, dEnv *env.DoltEnv) (*LocalCreds, error) {
 
 // remotesapiAuth facilitates the implementation remotesrv.AccessControl for the remotesapi server.
 type remotesapiAuth struct {
-	// ctxFactory is a function that returns a new sql.Context. This will create a new conext every time it is called,
+	// ctxFactory is a function that returns a new sql.Context. This will create a new context every time it is called,
 	// so it should be called once per API request.
 	ctxFactory func(context.Context) (*sql.Context, error)
 	rawDb      *mysql_db.MySQLDb
@@ -827,7 +939,7 @@ func (r *remotesapiAuth) ApiAuthenticate(ctx context.Context) (context.Context, 
 	if strings.Index(address, ":") > 0 {
 		address, _, err = net.SplitHostPort(creds.Address)
 		if err != nil {
-			return nil, fmt.Errorf("Invlaid Host string for authentication: %s", creds.Address)
+			return nil, fmt.Errorf("Invalid Host string for authentication: %s", creds.Address)
 		}
 	}
 
@@ -867,6 +979,29 @@ func (r *remotesapiAuth) ApiAuthorize(ctx context.Context, superUserRequired boo
 	return true, nil
 }
 
+// doesPrivilegesDbExist looks for an existing privileges database as the specified |privilegeFilePath|. If
+// |privilegeFilePath| is an absolute path, it is used directly. If it is a relative path, then it is resolved
+// relative to the root of the specified |dEnv|.
+func doesPrivilegesDbExist(dEnv *env.DoltEnv, privilegeFilePath string) (exists bool, err error) {
+	if !filepath.IsAbs(privilegeFilePath) {
+		privilegeFilePath, err = dEnv.FS.Abs(privilegeFilePath)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	_, err = os.Stat(privilegeFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		} else {
+			return false, err
+		}
+	}
+
+	return true, nil
+}
+
 func LoadClusterTLSConfig(cfg servercfg.ClusterConfig) (*tls.Config, error) {
 	rcfg := cfg.RemotesAPIConfig()
 	if rcfg.TLSKey() == "" && rcfg.TLSCert() == "" {
@@ -894,7 +1029,7 @@ func portInUse(hostPort string) bool {
 }
 
 func newSessionBuilder(se *engine.SqlEngine, config servercfg.ServerConfig) server.SessionBuilder {
-	userToSessionVars := make(map[string]map[string]string)
+	userToSessionVars := make(map[string]map[string]interface{})
 	userVars := config.UserVars()
 	for _, curr := range userVars {
 		userToSessionVars[curr.Name] = curr.Vars
@@ -931,7 +1066,7 @@ func newSessionBuilder(se *engine.SqlEngine, config servercfg.ServerConfig) serv
 }
 
 // getConfigFromServerConfig processes ServerConfig and returns server.Config for sql-server.
-func getConfigFromServerConfig(serverConfig servercfg.ServerConfig) (server.Config, error) {
+func getConfigFromServerConfig(serverConfig servercfg.ServerConfig, plf server.ProtocolListenerFunc) (server.Config, error) {
 	serverConf, err := handleProtocolAndAddress(serverConfig)
 	if err != nil {
 		return server.Config{}, err
@@ -947,18 +1082,9 @@ func getConfigFromServerConfig(serverConfig servercfg.ServerConfig) (server.Conf
 		return server.Config{}, err
 	}
 
-	// if persist is 'load' we use currently set persisted global variable,
-	// else if 'ignore' we set persisted global variable to current value from serverConfig
-	if serverConfig.PersistenceBehavior() == servercfg.LoadPerisistentGlobals {
-		serverConf, err = serverConf.NewConfig()
-		if err != nil {
-			return server.Config{}, err
-		}
-	} else {
-		err = sql.SystemVariables.SetGlobal("max_connections", serverConfig.MaxConnections())
-		if err != nil {
-			return server.Config{}, err
-		}
+	serverConf, err = serverConf.NewConfig()
+	if err != nil {
+		return server.Config{}, err
 	}
 
 	// Do not set the value of Version.  Let it default to what go-mysql-server uses.  This should be equivalent
@@ -966,10 +1092,13 @@ func getConfigFromServerConfig(serverConfig servercfg.ServerConfig) (server.Conf
 	serverConf.ConnReadTimeout = readTimeout
 	serverConf.ConnWriteTimeout = writeTimeout
 	serverConf.MaxConnections = serverConfig.MaxConnections()
+	serverConf.MaxWaitConnections = serverConfig.MaxWaitConnections()
+	serverConf.MaxWaitConnectionsTimeout = serverConfig.MaxWaitConnectionsTimeout()
 	serverConf.TLSConfig = tlsConfig
 	serverConf.RequireSecureTransport = serverConfig.RequireSecureTransport()
 	serverConf.MaxLoggedQueryLen = serverConfig.MaxLoggedQueryLen()
 	serverConf.EncodeLoggedQuery = serverConfig.ShouldEncodeLoggedQuery()
+	serverConf.ProtocolListenerFactory = plf
 
 	return serverConf, nil
 }

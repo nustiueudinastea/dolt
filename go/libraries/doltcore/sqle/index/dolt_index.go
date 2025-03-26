@@ -23,6 +23,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/expression"
+	"github.com/dolthub/go-mysql-server/sql/expression/function/vector"
 	"github.com/dolthub/go-mysql-server/sql/fulltext"
 	sqltypes "github.com/dolthub/go-mysql-server/sql/types"
 
@@ -75,13 +76,22 @@ type CommitIndex struct {
 	*doltIndex
 }
 
+// CanSupportOrderBy implements the interface sql.Index.
+func (p *CommitIndex) CanSupportOrderBy(_ sql.Expression) bool {
+	return false
+}
+
 func (p *CommitIndex) CanSupport(ranges ...sql.Range) bool {
 	var selects []string
 	for _, r := range ranges {
-		if len(r) != 1 {
+		mysqlRange, ok := r.(sql.MySQLRange)
+		if !ok {
 			return false
 		}
-		lb, ok := r[0].LowerBound.(sql.Below)
+		if len(mysqlRange) != 1 {
+			return false
+		}
+		lb, ok := mysqlRange[0].LowerBound.(sql.Below)
 		if !ok {
 			return false
 		}
@@ -89,7 +99,7 @@ func (p *CommitIndex) CanSupport(ranges ...sql.Range) bool {
 		if !ok {
 			return false
 		}
-		ub, ok := r[0].UpperBound.(sql.Above)
+		ub, ok := mysqlRange[0].UpperBound.(sql.Above)
 		if !ok {
 			return false
 		}
@@ -132,18 +142,19 @@ func DoltDiffIndexesFromTable(ctx context.Context, db, tbl string, t *doltdb.Tab
 
 	// to_ columns
 	toIndex := doltIndex{
-		id:                            "PRIMARY",
-		tblName:                       doltdb.DoltDiffTablePrefix + tbl,
-		dbName:                        db,
-		columns:                       toCols,
-		indexSch:                      sch,
-		tableSch:                      sch,
-		unique:                        true,
-		comment:                       "",
-		vrw:                           t.ValueReadWriter(),
-		ns:                            t.NodeStore(),
-		keyBld:                        keyBld,
-		order:                         sql.IndexOrderAsc,
+		id:       "PRIMARY",
+		tblName:  doltdb.DoltDiffTablePrefix + tbl,
+		dbName:   db,
+		columns:  toCols,
+		indexSch: sch,
+		tableSch: sch,
+		unique:   true,
+		comment:  "",
+		vrw:      t.ValueReadWriter(),
+		ns:       t.NodeStore(),
+		keyBld:   keyBld,
+		// only ordered on PK within a diff partition
+		order:                         sql.IndexOrderNone,
 		constrainedToLookupExpression: false,
 	}
 
@@ -384,6 +395,7 @@ func getSecondaryIndex(ctx context.Context, db, tbl string, t *doltdb.Table, sch
 		unique:                        idx.IsUnique(),
 		spatial:                       idx.IsSpatial(),
 		fulltext:                      idx.IsFullText(),
+		vector:                        idx.IsVector(),
 		isPk:                          false,
 		comment:                       idx.Comment(),
 		vrw:                           vrw,
@@ -394,6 +406,7 @@ func getSecondaryIndex(ctx context.Context, db, tbl string, t *doltdb.Table, sch
 		doltBinFormat:                 types.IsFormat_DOLT(vrw.Format()),
 		prefixLengths:                 idx.PrefixLengths(),
 		fullTextProps:                 idx.FullTextProperties(),
+		vectorProps:                   idx.VectorProperties(),
 	}, nil
 }
 
@@ -415,6 +428,7 @@ func ConvertFullTextToSql(ctx context.Context, db, tbl string, sch schema.Schema
 		unique:                        idx.IsUnique(),
 		spatial:                       idx.IsSpatial(),
 		fulltext:                      idx.IsFullText(),
+		vector:                        idx.IsVector(),
 		isPk:                          false,
 		comment:                       idx.Comment(),
 		vrw:                           nil,
@@ -425,6 +439,7 @@ func ConvertFullTextToSql(ctx context.Context, db, tbl string, sch schema.Schema
 		doltBinFormat:                 true,
 		prefixLengths:                 idx.PrefixLengths(),
 		fullTextProps:                 idx.FullTextProperties(),
+		vectorProps:                   idx.VectorProperties(),
 	}, nil
 }
 
@@ -546,6 +561,7 @@ type doltIndex struct {
 	unique   bool
 	spatial  bool
 	fulltext bool
+	vector   bool
 	isPk     bool
 	comment  string
 	order    sql.IndexOrder
@@ -561,6 +577,7 @@ type doltIndex struct {
 
 	prefixLengths []uint16
 	fullTextProps schema.FullTextProperties
+	vectorProps   schema.VectorProperties
 }
 
 type LookupMeta struct {
@@ -606,6 +623,15 @@ var _ sql.ExtendedIndex = (*doltIndex)(nil)
 // CanSupport implements sql.Index
 func (di *doltIndex) CanSupport(...sql.Range) bool {
 	return true
+}
+
+// CanSupportOrderBy implements the interface sql.Index.
+func (di *doltIndex) CanSupportOrderBy(expr sql.Expression) bool {
+	distance, ok := expr.(*vector.Distance)
+	if !ok {
+		return false
+	}
+	return di.vector && di.vectorProps.DistanceType.CanEval(distance.DistanceType)
 }
 
 // ColumnExpressionTypes implements the interface sql.Index.
@@ -685,7 +711,7 @@ func (di *doltIndex) getDurableState(ctx *sql.Context, ti DoltTableable) (*durab
 	return ret, nil
 }
 
-func (di *doltIndex) prollyRanges(ctx *sql.Context, ns tree.NodeStore, ranges ...sql.Range) ([]prolly.Range, error) {
+func (di *doltIndex) prollyRanges(ctx *sql.Context, ns tree.NodeStore, ranges ...sql.MySQLRange) ([]prolly.Range, error) {
 	//todo(max): it is important that *doltIndexLookup maintains a reference
 	// to empty sqlRanges, otherwise the analyzer will dismiss the index and
 	// chose a less optimal lookup index. This is a GMS concern, so GMS should
@@ -704,12 +730,12 @@ func (di *doltIndex) prollyRanges(ctx *sql.Context, ns tree.NodeStore, ranges ..
 	return pranges, nil
 }
 
-func (di *doltIndex) nomsRanges(ctx *sql.Context, iranges ...sql.Range) ([]*noms.ReadRange, error) {
+func (di *doltIndex) nomsRanges(ctx *sql.Context, iranges ...sql.MySQLRange) ([]*noms.ReadRange, error) {
 	// This might remain nil if the given nomsRanges each contain an EmptyRange for one of the columns. This will just
 	// cause the lookup to return no rows, which is the desired behavior.
 	var readRanges []*noms.ReadRange
 
-	ranges := make([]sql.Range, len(iranges))
+	ranges := make([]sql.MySQLRange, len(iranges))
 
 	for i := range iranges {
 		ranges[i] = DropTrailingAllColumnExprs(iranges[i])
@@ -729,7 +755,7 @@ RangeLoop:
 		var lowerKeys []interface{}
 		for _, rangeColumnExpr := range rang {
 			if rangeColumnExpr.HasLowerBound() {
-				lowerKeys = append(lowerKeys, sql.GetRangeCutKey(rangeColumnExpr.LowerBound))
+				lowerKeys = append(lowerKeys, sql.GetMySQLRangeCutKey(rangeColumnExpr.LowerBound))
 			} else {
 				break
 			}
@@ -753,7 +779,7 @@ RangeLoop:
 			// We promote each type as the value has already been validated against the type
 			promotedType := di.columns[i].TypeInfo.Promote()
 			if rangeColumnExpr.HasLowerBound() {
-				key := sql.GetRangeCutKey(rangeColumnExpr.LowerBound)
+				key := sql.GetMySQLRangeCutKey(rangeColumnExpr.LowerBound)
 				val, err := promotedType.ConvertValueToNomsValue(ctx, di.vrw, key)
 				if err != nil {
 					return nil, err
@@ -770,7 +796,7 @@ RangeLoop:
 				cb.boundsCase = boundsCase_infinity_infinity
 			}
 			if rangeColumnExpr.HasUpperBound() {
-				key := sql.GetRangeCutKey(rangeColumnExpr.UpperBound)
+				key := sql.GetMySQLRangeCutKey(rangeColumnExpr.UpperBound)
 				val, err := promotedType.ConvertValueToNomsValue(ctx, di.vrw, key)
 				if err != nil {
 					return nil, err
@@ -977,6 +1003,11 @@ func (di *doltIndex) IsFullText() bool {
 	return di.fulltext
 }
 
+// IsVector implements sql.Index
+func (di *doltIndex) IsVector() bool {
+	return di.vector
+}
+
 // IsPrimaryKey implements DoltIndex.
 func (di *doltIndex) IsPrimaryKey() bool {
 	return di.isPk
@@ -1076,14 +1107,14 @@ var sharePool = pool.NewBuffPool()
 
 func maybeGetKeyBuilder(idx durable.Index) *val.TupleBuilder {
 	if types.IsFormat_DOLT(idx.Format()) {
-		kd, _ := durable.ProllyMapFromIndex(idx).Descriptors()
+		kd, _ := durable.MapFromIndex(idx).Descriptors()
 		return val.NewTupleBuilder(kd)
 	}
 	return nil
 }
 
-func pruneEmptyRanges(sqlRanges []sql.Range) (pruned []sql.Range, err error) {
-	pruned = make([]sql.Range, 0, len(sqlRanges))
+func pruneEmptyRanges(sqlRanges []sql.MySQLRange) (pruned []sql.MySQLRange, err error) {
+	pruned = make([]sql.MySQLRange, 0, len(sqlRanges))
 	for _, sr := range sqlRanges {
 		empty := false
 		for _, colExpr := range sr {
@@ -1137,10 +1168,10 @@ func (di *doltIndex) valueReadWriter() types.ValueReadWriter {
 	return di.vrw
 }
 
-func (di *doltIndex) prollySpatialRanges(ranges []sql.Range) ([]prolly.Range, error) {
+func (di *doltIndex) prollySpatialRanges(ranges []sql.MySQLRange) ([]prolly.Range, error) {
 	// should be exactly one range
 	rng := ranges[0][0]
-	lower, upper := sql.GetRangeCutKey(rng.LowerBound), sql.GetRangeCutKey(rng.UpperBound)
+	lower, upper := sql.GetMySQLRangeCutKey(rng.LowerBound), sql.GetMySQLRangeCutKey(rng.UpperBound)
 
 	minPoint, ok := lower.(sqltypes.Point)
 	if !ok {
@@ -1190,7 +1221,7 @@ func (di *doltIndex) prollySpatialRanges(ranges []sql.Range) ([]prolly.Range, er
 	return pRanges, nil
 }
 
-func (di *doltIndex) prollyRangesFromSqlRanges(ctx context.Context, ns tree.NodeStore, ranges []sql.Range, tb *val.TupleBuilder) ([]prolly.Range, error) {
+func (di *doltIndex) prollyRangesFromSqlRanges(ctx context.Context, ns tree.NodeStore, ranges []sql.MySQLRange, tb *val.TupleBuilder) ([]prolly.Range, error) {
 	var err error
 	if !di.spatial {
 		ranges, err = pruneEmptyRanges(ranges)
@@ -1206,7 +1237,14 @@ func (di *doltIndex) prollyRangesFromSqlRanges(ctx context.Context, ns tree.Node
 	pranges := make([]prolly.Range, len(ranges))
 	for k, rng := range ranges {
 		fields := make([]prolly.RangeField, len(rng))
+		skipRangeMatchCallback := true
 		for j, expr := range rng {
+			if !sqltypes.IsInteger(expr.Typ) {
+				// String, decimal, float, datetime ranges can return
+				// false positive prefix matches. More precise range.Matches
+				// comparison is required.
+				skipRangeMatchCallback = false
+			}
 			if rangeCutIsBinding(expr.LowerBound) {
 				// accumulate bound values in |tb|
 				v, err := getRangeCutValue(expr.LowerBound, rng[j].Typ)
@@ -1266,10 +1304,12 @@ func (di *doltIndex) prollyRangesFromSqlRanges(ctx context.Context, ns tree.Node
 		}
 
 		order := di.keyBld.Desc.Comparator()
+		var foundDiscontinuity bool
+		var isContiguous bool = true
 		for i, field := range fields {
 			// lookups on non-unique indexes can't be point lookups
 			typ := di.keyBld.Desc.Types[i]
-			cmp := order.CompareValues(i, field.Hi.Value, field.Lo.Value, typ)
+			cmp := order.CompareValues(ctx, i, field.Hi.Value, field.Lo.Value, typ)
 			fields[i].BoundsAreEqual = cmp == 0
 
 			if !di.unique {
@@ -1279,17 +1319,28 @@ func (di *doltIndex) prollyRangesFromSqlRanges(ctx context.Context, ns tree.Node
 				// infinity bound
 				fields[i].BoundsAreEqual = false
 			}
+
+			nilBound := field.Lo.Value == nil && field.Hi.Value == nil
+			if foundDiscontinuity || nilBound {
+				// A discontinous variable followed by any restriction
+				// can partition the key space.
+				isContiguous = false
+			}
+			foundDiscontinuity = foundDiscontinuity || !fields[i].BoundsAreEqual || nilBound
+
 		}
 		pranges[k] = prolly.Range{
-			Fields: fields,
-			Desc:   di.keyBld.Desc,
-			Tup:    tup,
+			Fields:                 fields,
+			Desc:                   di.keyBld.Desc,
+			Tup:                    tup,
+			SkipRangeMatchCallback: skipRangeMatchCallback,
+			IsContiguous:           isContiguous,
 		}
 	}
 	return pranges, nil
 }
 
-func rangeCutIsBinding(c sql.RangeCut) bool {
+func rangeCutIsBinding(c sql.MySQLRangeCut) bool {
 	switch c.(type) {
 	case sql.Below, sql.Above, sql.AboveNull:
 		return true
@@ -1300,11 +1351,11 @@ func rangeCutIsBinding(c sql.RangeCut) bool {
 	}
 }
 
-func getRangeCutValue(cut sql.RangeCut, typ sql.Type) (interface{}, error) {
+func getRangeCutValue(cut sql.MySQLRangeCut, typ sql.Type) (interface{}, error) {
 	if _, ok := cut.(sql.AboveNull); ok {
 		return nil, nil
 	}
-	ret, oob, err := typ.Convert(sql.GetRangeCutKey(cut))
+	ret, oob, err := typ.Convert(sql.GetMySQLRangeCutKey(cut))
 	if oob == sql.OutOfRange {
 		return ret, nil
 	}
@@ -1315,7 +1366,7 @@ func getRangeCutValue(cut sql.RangeCut, typ sql.Type) (interface{}, error) {
 //
 // Sometimes when we construct read ranges against laid out index structures,
 // we want to ignore these trailing clauses.
-func DropTrailingAllColumnExprs(r sql.Range) sql.Range {
+func DropTrailingAllColumnExprs(r sql.MySQLRange) sql.MySQLRange {
 	i := len(r)
 	for i > 0 {
 		if r[i-1].Type() != sql.RangeType_All {
@@ -1332,8 +1383,8 @@ func DropTrailingAllColumnExprs(r sql.Range) sql.Range {
 //
 // This is for building physical scans against storage which does not store
 // NULL contiguous and ordered < non-NULL values.
-func SplitNullsFromRange(r sql.Range) ([]sql.Range, error) {
-	res := []sql.Range{{}}
+func SplitNullsFromRange(r sql.MySQLRange) ([]sql.MySQLRange, error) {
+	res := []sql.MySQLRange{{}}
 
 	for _, rce := range r {
 		if _, ok := rce.LowerBound.(sql.BelowNull); ok {
@@ -1375,8 +1426,8 @@ func SplitNullsFromRange(r sql.Range) ([]sql.Range, error) {
 }
 
 // SplitNullsFromRanges splits nulls from ranges.
-func SplitNullsFromRanges(rs []sql.Range) ([]sql.Range, error) {
-	var ret []sql.Range
+func SplitNullsFromRanges(rs []sql.MySQLRange) ([]sql.MySQLRange, error) {
+	var ret []sql.MySQLRange
 	for _, r := range rs {
 		nr, err := SplitNullsFromRange(r)
 		if err != nil {
@@ -1392,7 +1443,11 @@ func SplitNullsFromRanges(rs []sql.Range) ([]sql.Range, error) {
 // to convert.
 func LookupToPointSelectStr(lookup sql.IndexLookup) ([]string, bool) {
 	var selects []string
-	for _, r := range lookup.Ranges {
+	mysqlRanges, ok := lookup.Ranges.(sql.MySQLRangeCollection)
+	if !ok {
+		return nil, false
+	}
+	for _, r := range mysqlRanges {
 		if len(r) != 1 {
 			return nil, false
 		}

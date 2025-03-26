@@ -33,6 +33,7 @@ func PrepareCreateTableStmt(ctx context.Context, sqlDb dsess.SqlDatabase) (*sql.
 	if err != nil {
 		return nil, nil, nil
 	}
+
 	engine := sqle.NewDefault(pro)
 
 	sess := dsess.DefaultSession(pro, writer.NewWriteSession)

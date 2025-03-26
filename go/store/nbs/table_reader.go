@@ -38,6 +38,13 @@ import (
 // Do not read more than 128MB at a time.
 const maxReadSize = 128 * 1024 * 1024
 
+type ToChunker interface {
+	Hash() hash.Hash
+	ToChunk() (chunks.Chunk, error)
+	IsEmpty() bool
+	IsGhost() bool
+}
+
 // CompressedChunk represents a chunk of data in a table file which is still compressed via snappy.
 type CompressedChunk struct {
 	// H is the hash of the chunk
@@ -48,7 +55,12 @@ type CompressedChunk struct {
 
 	// CompressedData is just the snappy encoded byte buffer that stores the chunk data
 	CompressedData []byte
+
+	// true if the chunk is a ghost chunk.
+	ghost bool
 }
+
+var _ ToChunker = CompressedChunk{}
 
 // NewCompressedChunk creates a CompressedChunk
 func NewCompressedChunk(h hash.Hash, buff []byte) (CompressedChunk, error) {
@@ -64,14 +76,20 @@ func NewCompressedChunk(h hash.Hash, buff []byte) (CompressedChunk, error) {
 	return CompressedChunk{H: h, FullCompressedChunk: buff, CompressedData: compressedData}, nil
 }
 
+func NewGhostCompressedChunk(h hash.Hash) CompressedChunk {
+	return CompressedChunk{H: h, ghost: true}
+}
+
 // ToChunk snappy decodes the compressed data and returns a chunks.Chunk
 func (cmp CompressedChunk) ToChunk() (chunks.Chunk, error) {
-	data, err := snappy.Decode(nil, cmp.CompressedData)
+	if cmp.IsGhost() {
+		return *chunks.NewGhostChunk(cmp.H), nil
+	}
 
+	data, err := snappy.Decode(nil, cmp.CompressedData)
 	if err != nil {
 		return chunks.Chunk{}, err
 	}
-
 	return chunks.NewChunkWithHash(cmp.H, data), nil
 }
 
@@ -94,6 +112,10 @@ func (cmp CompressedChunk) Hash() hash.Hash {
 // IsEmpty returns true if the chunk contains no data.
 func (cmp CompressedChunk) IsEmpty() bool {
 	return len(cmp.CompressedData) == 0 || (len(cmp.CompressedData) == 1 && cmp.CompressedData[0] == 0)
+}
+
+func (cmp CompressedChunk) IsGhost() bool {
+	return cmp.ghost
 }
 
 // CompressedSize returns the size of this CompressedChunk.
@@ -129,8 +151,12 @@ func (ir indexResult) Length() uint32 {
 	return ir.length
 }
 
-type tableReaderAt interface {
+type ReaderAtWithStats interface {
 	ReadAtWithStats(ctx context.Context, p []byte, off int64, stats *Stats) (n int, err error)
+}
+
+type tableReaderAt interface {
+	ReaderAtWithStats
 	Reader(ctx context.Context) (io.ReadCloser, error)
 	Close() error
 	clone() (tableReaderAt, error)
@@ -165,7 +191,7 @@ func newTableReader(index tableIndex, r tableReaderAt, blockSize uint64) (tableR
 }
 
 // Scan across (logically) two ordered slices of address prefixes.
-func (tr tableReader) hasMany(addrs []hasRecord) (bool, error) {
+func (tr tableReader) hasMany(addrs []hasRecord, keeper keeperF) (bool, gcBehavior, error) {
 	filterIdx := uint32(0)
 	filterLen := uint32(tr.idx.chunkCount())
 
@@ -193,7 +219,7 @@ func (tr tableReader) hasMany(addrs []hasRecord) (bool, error) {
 		}
 
 		if filterIdx >= filterLen {
-			return true, nil
+			return true, gcBehavior_Continue, nil
 		}
 
 		if addr.prefix != tr.prefixes[filterIdx] {
@@ -205,9 +231,12 @@ func (tr tableReader) hasMany(addrs []hasRecord) (bool, error) {
 		for j := filterIdx; j < filterLen && addr.prefix == tr.prefixes[j]; j++ {
 			m, err := tr.idx.entrySuffixMatches(j, addr.a)
 			if err != nil {
-				return false, err
+				return false, gcBehavior_Continue, err
 			}
 			if m {
+				if keeper != nil && keeper(*addr.a) {
+					return true, gcBehavior_Block, nil
+				}
 				addrs[i].has = true
 				break
 			}
@@ -218,7 +247,7 @@ func (tr tableReader) hasMany(addrs []hasRecord) (bool, error) {
 		}
 	}
 
-	return remaining, nil
+	return remaining, gcBehavior_Continue, nil
 }
 
 func (tr tableReader) count() (uint32, error) {
@@ -234,20 +263,27 @@ func (tr tableReader) index() (tableIndex, error) {
 }
 
 // returns true iff |h| can be found in this table.
-func (tr tableReader) has(h hash.Hash) (bool, error) {
+func (tr tableReader) has(h hash.Hash, keeper keeperF) (bool, gcBehavior, error) {
 	_, ok, err := tr.idx.lookup(&h)
-	return ok, err
+	if ok && keeper != nil && keeper(h) {
+		return false, gcBehavior_Block, nil
+	}
+	return ok, gcBehavior_Continue, err
 }
 
 // returns the storage associated with |h|, iff present. Returns nil if absent. On success,
 // the returned byte slice directly references the underlying storage.
-func (tr tableReader) get(ctx context.Context, h hash.Hash, stats *Stats) ([]byte, error) {
+func (tr tableReader) get(ctx context.Context, h hash.Hash, keeper keeperF, stats *Stats) ([]byte, gcBehavior, error) {
 	e, found, err := tr.idx.lookup(&h)
 	if err != nil {
-		return nil, err
+		return nil, gcBehavior_Continue, err
 	}
 	if !found {
-		return nil, nil
+		return nil, gcBehavior_Continue, nil
+	}
+
+	if keeper != nil && keeper(h) {
+		return nil, gcBehavior_Block, nil
 	}
 
 	offset := e.Offset()
@@ -257,30 +293,30 @@ func (tr tableReader) get(ctx context.Context, h hash.Hash, stats *Stats) ([]byt
 	n, err := tr.r.ReadAtWithStats(ctx, buff, int64(offset), stats)
 
 	if err != nil {
-		return nil, err
+		return nil, gcBehavior_Continue, err
 	}
 
 	if n != int(length) {
-		return nil, errors.New("failed to read all data")
+		return nil, gcBehavior_Continue, errors.New("failed to read all data")
 	}
 
 	cmp, err := NewCompressedChunk(h, buff)
 
 	if err != nil {
-		return nil, err
+		return nil, gcBehavior_Continue, err
 	}
 
 	if len(cmp.CompressedData) == 0 {
-		return nil, errors.New("failed to get data")
+		return nil, gcBehavior_Continue, errors.New("failed to get data")
 	}
 
 	chnk, err := cmp.ToChunk()
 
 	if err != nil {
-		return nil, err
+		return nil, gcBehavior_Continue, err
 	}
 
-	return chnk.Data(), nil
+	return chnk.Data(), gcBehavior_Continue, nil
 }
 
 type offsetRec struct {
@@ -300,10 +336,10 @@ var _ chunkReader = tableReader{}
 func (tr tableReader) readCompressedAtOffsets(
 	ctx context.Context,
 	rb readBatch,
-	found func(context.Context, CompressedChunk),
+	found func(context.Context, ToChunker),
 	stats *Stats,
 ) error {
-	return tr.readAtOffsetsWithCB(ctx, rb, stats, func(ctx context.Context, cmp CompressedChunk) error {
+	return tr.readAtOffsetsWithCB(ctx, rb, stats, func(ctx context.Context, cmp ToChunker) error {
 		found(ctx, cmp)
 		return nil
 	})
@@ -315,7 +351,7 @@ func (tr tableReader) readAtOffsets(
 	found func(context.Context, *chunks.Chunk),
 	stats *Stats,
 ) error {
-	return tr.readAtOffsetsWithCB(ctx, rb, stats, func(ctx context.Context, cmp CompressedChunk) error {
+	return tr.readAtOffsetsWithCB(ctx, rb, stats, func(ctx context.Context, cmp ToChunker) error {
 		chk, err := cmp.ToChunk()
 
 		if err != nil {
@@ -331,7 +367,7 @@ func (tr tableReader) readAtOffsetsWithCB(
 	ctx context.Context,
 	rb readBatch,
 	stats *Stats,
-	cb func(ctx context.Context, cmp CompressedChunk) error,
+	cb func(ctx context.Context, cmp ToChunker) error,
 ) error {
 	readLength := rb.End() - rb.Start()
 	buff := make([]byte, readLength)
@@ -367,29 +403,36 @@ func (tr tableReader) getMany(
 	eg *errgroup.Group,
 	reqs []getRecord,
 	found func(context.Context, *chunks.Chunk),
-	stats *Stats) (bool, error) {
+	keeper keeperF,
+	stats *Stats) (bool, gcBehavior, error) {
 
 	// Pass #1: Iterate over |reqs| and |tr.prefixes| (both sorted by address) and build the set
 	// of table locations which must be read in order to satisfy the getMany operation.
-	offsetRecords, remaining, err := tr.findOffsets(reqs)
+	offsetRecords, remaining, gcb, err := tr.findOffsets(reqs, keeper)
 	if err != nil {
-		return false, err
+		return false, gcBehavior_Continue, err
+	}
+	if gcb != gcBehavior_Continue {
+		return remaining, gcb, nil
 	}
 	err = tr.getManyAtOffsets(ctx, eg, offsetRecords, found, stats)
-	return remaining, err
+	return remaining, gcBehavior_Continue, err
 }
-func (tr tableReader) getManyCompressed(ctx context.Context, eg *errgroup.Group, reqs []getRecord, found func(context.Context, CompressedChunk), stats *Stats) (bool, error) {
+func (tr tableReader) getManyCompressed(ctx context.Context, eg *errgroup.Group, reqs []getRecord, found func(context.Context, ToChunker), keeper keeperF, stats *Stats) (bool, gcBehavior, error) {
 	// Pass #1: Iterate over |reqs| and |tr.prefixes| (both sorted by address) and build the set
 	// of table locations which must be read in order to satisfy the getMany operation.
-	offsetRecords, remaining, err := tr.findOffsets(reqs)
+	offsetRecords, remaining, gcb, err := tr.findOffsets(reqs, keeper)
 	if err != nil {
-		return false, err
+		return false, gcb, err
+	}
+	if gcb != gcBehavior_Continue {
+		return remaining, gcb, nil
 	}
 	err = tr.getManyCompressedAtOffsets(ctx, eg, offsetRecords, found, stats)
-	return remaining, err
+	return remaining, gcBehavior_Continue, err
 }
 
-func (tr tableReader) getManyCompressedAtOffsets(ctx context.Context, eg *errgroup.Group, offsetRecords offsetRecSlice, found func(context.Context, CompressedChunk), stats *Stats) error {
+func (tr tableReader) getManyCompressedAtOffsets(ctx context.Context, eg *errgroup.Group, offsetRecords offsetRecSlice, found func(context.Context, ToChunker), stats *Stats) error {
 	return tr.getManyAtOffsetsWithReadFunc(ctx, eg, offsetRecords, stats, func(
 		ctx context.Context,
 		rb readBatch,
@@ -485,7 +528,7 @@ func (tr tableReader) getManyAtOffsetsWithReadFunc(
 // chunks remaining will be set to false upon return. If some are not here,
 // then remaining will be true. The result offsetRecSlice is sorted in offset
 // order.
-func (tr tableReader) findOffsets(reqs []getRecord) (ors offsetRecSlice, remaining bool, err error) {
+func (tr tableReader) findOffsets(reqs []getRecord, keeper keeperF) (ors offsetRecSlice, remaining bool, gcb gcBehavior, err error) {
 	filterIdx := uint32(0)
 	filterLen := uint32(len(tr.prefixes))
 	ors = make(offsetRecSlice, 0, len(reqs))
@@ -528,13 +571,16 @@ func (tr tableReader) findOffsets(reqs []getRecord) (ors offsetRecSlice, remaini
 		for j := filterIdx; j < filterLen && req.prefix == tr.prefixes[j]; j++ {
 			m, err := tr.idx.entrySuffixMatches(j, req.a)
 			if err != nil {
-				return nil, false, err
+				return nil, false, gcBehavior_Continue, err
 			}
 			if m {
+				if keeper != nil && keeper(*req.a) {
+					return nil, false, gcBehavior_Block, nil
+				}
 				reqs[i].found = true
 				entry, err := tr.idx.indexEntry(j, nil)
 				if err != nil {
-					return nil, false, err
+					return nil, false, gcBehavior_Continue, err
 				}
 				ors = append(ors, offsetRec{req.a, entry.Offset(), entry.Length()})
 				break
@@ -547,7 +593,7 @@ func (tr tableReader) findOffsets(reqs []getRecord) (ors offsetRecSlice, remaini
 	}
 
 	sort.Sort(ors)
-	return ors, remaining, nil
+	return ors, remaining, gcBehavior_Continue, nil
 }
 
 func canReadAhead(fRec offsetRec, curStart, curEnd, blockSize uint64) (newEnd uint64, canRead bool) {
@@ -571,12 +617,15 @@ func canReadAhead(fRec offsetRec, curStart, curEnd, blockSize uint64) (newEnd ui
 	return fRec.offset + uint64(fRec.length), true
 }
 
-func (tr tableReader) calcReads(reqs []getRecord, blockSize uint64) (reads int, remaining bool, err error) {
+func (tr tableReader) calcReads(reqs []getRecord, blockSize uint64, keeper keeperF) (int, bool, gcBehavior, error) {
 	var offsetRecords offsetRecSlice
 	// Pass #1: Build the set of table locations which must be read in order to find all the elements of |reqs| which are present in this table.
-	offsetRecords, remaining, err = tr.findOffsets(reqs)
+	offsetRecords, remaining, gcb, err := tr.findOffsets(reqs, keeper)
 	if err != nil {
-		return 0, false, err
+		return 0, false, gcb, err
+	}
+	if gcb != gcBehavior_Continue {
+		return 0, false, gcb, nil
 	}
 
 	// Now |offsetRecords| contains all locations within the table which must
@@ -584,6 +633,7 @@ func (tr tableReader) calcReads(reqs []getRecord, blockSize uint64) (reads int, 
 	// location). Scan forward, grouping sequences of reads into large physical
 	// reads.
 
+	var reads int
 	var readStart, readEnd uint64
 	readStarted := false
 
@@ -609,7 +659,7 @@ func (tr tableReader) calcReads(reqs []getRecord, blockSize uint64) (reads int, 
 		readStarted = false
 	}
 
-	return
+	return reads, remaining, gcBehavior_Continue, err
 }
 
 func (tr tableReader) extract(ctx context.Context, chunks chan<- extractRecord) error {
@@ -668,11 +718,14 @@ func (tr tableReader) reader(ctx context.Context) (io.ReadCloser, uint64, error)
 	return r, sz, nil
 }
 
-func (tr tableReader) getRecordRanges(ctx context.Context, requests []getRecord) (map[hash.Hash]Range, error) {
+func (tr tableReader) getRecordRanges(ctx context.Context, requests []getRecord, keeper keeperF) (map[hash.Hash]Range, gcBehavior, error) {
 	// findOffsets sets getRecord.found
-	recs, _, err := tr.findOffsets(requests)
+	recs, _, gcb, err := tr.findOffsets(requests, keeper)
 	if err != nil {
-		return nil, err
+		return nil, gcb, err
+	}
+	if gcb != gcBehavior_Continue {
+		return nil, gcb, nil
 	}
 	ranges := make(map[hash.Hash]Range, len(recs))
 	for _, r := range recs {
@@ -681,7 +734,7 @@ func (tr tableReader) getRecordRanges(ctx context.Context, requests []getRecord)
 			Length: r.length,
 		}
 	}
-	return ranges, nil
+	return ranges, gcBehavior_Continue, nil
 }
 
 func (tr tableReader) currentSize() uint64 {
@@ -713,4 +766,40 @@ func (tr tableReader) clone() (tableReader, error) {
 		r:         r,
 		blockSize: tr.blockSize,
 	}, nil
+}
+
+func (tr tableReader) iterateAllChunks(ctx context.Context, cb func(chunk chunks.Chunk), stats *Stats) error {
+	count := tr.idx.chunkCount()
+	for i := uint32(0); i < count; i++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		var h hash.Hash
+		ie, err := tr.idx.indexEntry(i, &h)
+		if err != nil {
+			return err
+		}
+
+		res := make([]byte, ie.Length())
+		n, err := tr.r.ReadAtWithStats(ctx, res, int64(ie.Offset()), stats)
+		if err != nil {
+			return err
+		}
+		if uint32(n) != ie.Length() {
+			return errors.New("failed to read all data")
+		}
+
+		cchk, err := NewCompressedChunk(h, res)
+		if err != nil {
+			return err
+		}
+		chk, err := cchk.ToChunk()
+		if err != nil {
+			return err
+		}
+
+		cb(chk)
+	}
+	return nil
 }

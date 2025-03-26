@@ -110,9 +110,10 @@ func (cmd BranchCmd) Exec(ctx context.Context, commandStr string, args []string,
 		return status
 	}
 
+	errorBuilder := errhand.BuildDError("error: failed to create query engine")
 	queryEngine, sqlCtx, closeFunc, err := cliCtx.QueryEngine(ctx)
 	if err != nil {
-		return HandleVErrAndExitCode(errhand.BuildDError("error: failed to create query engine").AddCause(err).Build(), nil)
+		return HandleVErrAndExitCode(errorBuilder.AddCause(err).Build(), nil)
 	}
 
 	if closeFunc != nil {
@@ -138,7 +139,7 @@ func (cmd BranchCmd) Exec(ctx context.Context, commandStr string, args []string,
 	case apr.Contains(showCurrentFlag):
 		return printCurrentBranch(sqlCtx, queryEngine)
 	case apr.Contains(datasetsFlag):
-		return printAllDatasets(ctx, dEnv)
+		return printAllDatasets(sqlCtx, dEnv)
 	case apr.NArg() > 0:
 		return createBranch(sqlCtx, queryEngine, apr, args, usage)
 	default:
@@ -259,7 +260,7 @@ func printCurrentBranch(sqlCtx *sql.Context, queryEngine cli.Queryist) int {
 }
 
 func printAllDatasets(ctx context.Context, dEnv *env.DoltEnv) int {
-	refs, err := dEnv.DoltDB.GetHeadRefs(ctx)
+	refs, err := dEnv.DoltDB(ctx).GetHeadRefs(ctx)
 	if err != nil {
 		return HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), nil)
 	}
@@ -270,7 +271,7 @@ func printAllDatasets(ctx context.Context, dEnv *env.DoltEnv) int {
 		cli.Println("  " + r.String())
 	}
 
-	branches, err := dEnv.DoltDB.GetBranches(ctx)
+	branches, err := dEnv.DoltDB(ctx).GetBranches(ctx)
 	if err != nil {
 		return HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), nil)
 	}
@@ -284,7 +285,7 @@ func printAllDatasets(ctx context.Context, dEnv *env.DoltEnv) int {
 			return HandleVErrAndExitCode(errhand.VerboseErrorFromError(err), nil)
 		}
 
-		_, err = dEnv.DoltDB.ResolveWorkingSet(ctx, w)
+		_, err = dEnv.DoltDB(ctx).ResolveWorkingSet(ctx, w)
 		if errors.Is(err, doltdb.ErrWorkingSetNotFound) {
 			continue
 		} else if err != nil {
@@ -479,7 +480,7 @@ func generateForceDeleteMessage(args []string) string {
 	return newArgs
 }
 
-// callStoredProcedure generates and exectures the SQL query for calling the DOLT_BRANCH stored procedure.
+// callStoredProcedure generates and executes the SQL query for calling the DOLT_BRANCH stored procedure.
 // All actions that modify branches delegate to this after they validate their arguments.
 // Actions that don't modify branches, such as `dolt branch --list` and `dolt branch --show-current`, don't call
 // this method.
@@ -492,7 +493,7 @@ func callStoredProcedure(sqlCtx *sql.Context, queryEngine cli.Queryist, args []s
 	if err != nil {
 		if strings.Contains(err.Error(), "is not fully merged") {
 			newErrorMessage := fmt.Sprintf("%s. If you are sure you want to delete it, run 'dolt branch -D%s'", err.Error(), generateForceDeleteMessage(args))
-			return HandleVErrAndExitCode(errhand.BuildDError(newErrorMessage).Build(), nil)
+			return HandleVErrAndExitCode(errhand.BuildDError("%s", newErrorMessage).Build(), nil)
 		}
 		return HandleVErrAndExitCode(errhand.VerboseErrorFromError(fmt.Errorf("error: %s", err.Error())), nil)
 	}
@@ -506,5 +507,5 @@ func callStoredProcedure(sqlCtx *sql.Context, queryEngine cli.Queryist, args []s
 
 // BuildVerrAndExit is a shortcut for building a verbose error and calling HandleVerrAndExitCode with it
 func BuildVerrAndExit(errMsg string, cause error) int {
-	return HandleVErrAndExitCode(errhand.BuildDError(errMsg).AddCause(cause).Build(), nil)
+	return HandleVErrAndExitCode(errhand.BuildDError("%s", errMsg).AddCause(cause).Build(), nil)
 }

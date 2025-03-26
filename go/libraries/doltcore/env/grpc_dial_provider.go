@@ -22,6 +22,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 	"unicode"
 
 	"google.golang.org/grpc"
@@ -32,6 +33,26 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
 	"github.com/dolthub/dolt/go/libraries/doltcore/grpcendpoint"
 )
+
+var defaultDialer = &net.Dialer{
+	Timeout:   30 * time.Second,
+	KeepAlive: 30 * time.Second,
+}
+
+var defaultTransport = &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           defaultDialer.DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          1024,
+	MaxIdleConnsPerHost:   256,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+}
+
+var defaultHttpFetcher grpcendpoint.HTTPFetcher = &http.Client{
+	Transport: defaultTransport,
+}
 
 // GRPCDialProvider implements dbfactory.GRPCDialProvider. By default, it is not able to use custom user credentials, but
 // if it is initialized with a DoltEnv, it will load custom user credentials from it.
@@ -66,18 +87,26 @@ func (p GRPCDialProvider) GetGRPCDialParams(config grpcendpoint.Config) (dbfacto
 		}
 	}
 
-	var httpfetcher grpcendpoint.HTTPFetcher = http.DefaultClient
+	var httpfetcher grpcendpoint.HTTPFetcher = defaultHttpFetcher
 
 	var opts []grpc.DialOption
 	if config.TLSConfig != nil {
 		tc := credentials.NewTLS(config.TLSConfig)
 		opts = append(opts, grpc.WithTransportCredentials(tc))
 
+		transport := &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           defaultDialer.DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          1024,
+			MaxIdleConnsPerHost:   256,
+			IdleConnTimeout:       90 * time.Second,
+			TLSClientConfig:       config.TLSConfig,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
 		httpfetcher = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig:   config.TLSConfig,
-				ForceAttemptHTTP2: true,
-			},
+			Transport: transport,
 		}
 	} else if config.Insecure {
 		opts = append(opts, grpc.WithInsecure())
@@ -109,6 +138,7 @@ func (p GRPCDialProvider) GetGRPCDialParams(config grpcendpoint.Config) (dbfacto
 			opts = append(opts, grpc.WithPerRPCCredentials(rpcCreds))
 		}
 	}
+
 	return dbfactory.GRPCRemoteConfig{
 		Endpoint:    endpoint,
 		DialOptions: opts,
@@ -134,6 +164,18 @@ func (p GRPCDialProvider) getRPCCredsFromOSEnv(username string) (credentials.Per
 	return c.RPCCreds(), nil
 }
 
+// Used for local development and testing, setting this makes Dolt
+// sign outgoing authentication JWTs to remotesapi with its value,
+// instead of a value derived from the hostname in the authority:
+// which the call is going to.
+//
+// Note that this is a process-wide override, and applies to all
+// remotesapi remotes accessed as backups or remotes. It does not
+// apply to remotesapi endpoints accessed for cluster
+// replication. This feature is undocumented, unsupported, and should
+// only used for development and testing.
+var OverrideGRPCJWTAudience = os.Getenv("DOLT_OVERRIDE_GRPC_JWT_AUDIENCE")
+
 // getRPCCreds returns any RPC credentials available to this dial provider. If a DoltEnv has been configured
 // in this dial provider, it will be used to load custom user credentials, otherwise nil will be returned.
 func (p GRPCDialProvider) getRPCCreds(endpoint string) (credentials.PerRPCCredentials, error) {
@@ -153,7 +195,11 @@ func (p GRPCDialProvider) getRPCCreds(endpoint string) (credentials.PerRPCCreden
 		return nil, nil
 	}
 
-	return dCreds.RPCCreds(getHostFromEndpoint(endpoint)), nil
+	if OverrideGRPCJWTAudience != "" {
+		return dCreds.RPCCreds(OverrideGRPCJWTAudience), nil
+	} else {
+		return dCreds.RPCCreds(getHostFromEndpoint(endpoint)), nil
+	}
 }
 
 func getHostFromEndpoint(endpoint string) string {

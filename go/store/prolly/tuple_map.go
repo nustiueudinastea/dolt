@@ -159,7 +159,7 @@ func makeDiffCallBack(from, to Map, innerCb tree.DiffFn) tree.DiffFn {
 		// Skip diffs produced by non-canonical tuples. A canonical-tuple is a
 		// tuple where any null suffixes have been trimmed.
 		if diff.Type == tree.ModifiedDiff &&
-			from.valDesc.Compare(val.Tuple(diff.From), val.Tuple(diff.To)) == 0 {
+			from.valDesc.Compare(ctx, val.Tuple(diff.From), val.Tuple(diff.To)) == 0 {
 			return nil
 		}
 		return innerCb(ctx, diff)
@@ -210,6 +210,11 @@ func (m Map) KeyDesc() val.TupleDesc {
 
 // Mutate makes a MutableMap from a Map.
 func (m Map) Mutate() *MutableMap {
+	return newMutableMap(m)
+}
+
+// MutateInterface makes a MutableMap from a Map.
+func (m Map) MutateInterface() MutableMapInterface {
 	return newMutableMap(m)
 }
 
@@ -308,13 +313,21 @@ func (m Map) HasPrefix(ctx context.Context, preKey val.Tuple, preDesc val.TupleD
 
 // IterRange returns a mutableMapIter that iterates over a Range.
 func (m Map) IterRange(ctx context.Context, rng Range) (iter MapIter, err error) {
-	stop, ok := rng.KeyRangeLookup(m.Pool())
+	stop, ok := rng.KeyRangeLookup(ctx, m.Pool())
 	if ok {
 		iter, err = m.IterKeyRange(ctx, rng.Tup, stop)
 	} else {
 		iter, err = treeIterFromRange(ctx, m.tuples.Root, m.tuples.NodeStore, rng)
 	}
-	return filteredIter{iter: iter, rng: rng}, nil
+	if err != nil {
+		return nil, err
+	}
+	if !rng.SkipRangeMatchCallback || !rng.IsContiguous {
+		// range.Matches check is required if a type is imprecise
+		// or a key range is non-contiguous on disk
+		iter = filteredIter{iter: iter, rng: rng}
+	}
+	return iter, nil
 }
 
 // IterRangeReverse returns a mutableMapIter that iterates over a Range backwards.
@@ -354,8 +367,8 @@ func (m Map) Pool() pool.BuffPool {
 	return m.tuples.NodeStore.Pool()
 }
 
-func (m Map) CompareItems(left, right tree.Item) int {
-	return m.keyDesc.Compare(val.Tuple(left), val.Tuple(right))
+func (m Map) CompareItems(ctx context.Context, left, right tree.Item) int {
+	return m.keyDesc.Compare(ctx, val.Tuple(left), val.Tuple(right))
 }
 
 func treeIterFromRange(
@@ -424,33 +437,24 @@ func DebugFormat(ctx context.Context, m Map) (string, error) {
 		}
 
 		sb.WriteString("\t")
-		sb.WriteString(kd.Format(k))
+		sb.WriteString(kd.Format(ctx, k))
 		sb.WriteString(": ")
-		sb.WriteString(vd.Format(v))
+		sb.WriteString(vd.Format(ctx, v))
 		sb.WriteString(",\n")
 	}
 	sb.WriteString("}")
 	return sb.String(), nil
 }
 
-// ConvertToSecondaryKeylessIndex converts the given map to a keyless index map.
-func ConvertToSecondaryKeylessIndex(m Map) Map {
-	keyDesc, valDesc := m.Descriptors()
+func AddHashToSchema(keyDesc val.TupleDesc) val.TupleDesc {
 	newTypes := make([]val.Type, len(keyDesc.Types)+1)
 	handlers := make([]val.TupleTypeHandler, len(keyDesc.Types)+1)
 	copy(newTypes, keyDesc.Types)
 	copy(handlers, keyDesc.Handlers)
 	newTypes[len(newTypes)-1] = val.Type{Enc: val.Hash128Enc}
 	handlers[len(handlers)-1] = nil
-	newKeyDesc := val.NewTupleDescriptorWithArgs(val.TupleDescriptorArgs{
+	return val.NewTupleDescriptorWithArgs(val.TupleDescriptorArgs{
 		Comparator: keyDesc.Comparator(),
 		Handlers:   handlers,
 	}, newTypes...)
-	newTuples := m.tuples
-	newTuples.Order = newKeyDesc
-	return Map{
-		tuples:  newTuples,
-		keyDesc: newKeyDesc,
-		valDesc: valDesc,
-	}
 }

@@ -59,16 +59,23 @@ func newProllyIndexIter(
 	projections []uint64,
 	dprimary, dsecondary durable.Index,
 ) (prollyIndexIter, error) {
-	secondary := durable.ProllyMapFromIndex(dsecondary)
+	secondary, err := durable.ProllyMapFromIndex(dsecondary)
+	if err != nil {
+		return prollyIndexIter{}, err
+	}
+
 	indexIter, err := secondary.IterRange(ctx, rng)
 	if err != nil {
 		return prollyIndexIter{}, err
 	}
 
-	primary := durable.ProllyMapFromIndex(dprimary)
+	primary, err := durable.ProllyMapFromIndex(dprimary)
+	if err != nil {
+		return prollyIndexIter{}, err
+	}
 	kd, _ := primary.Descriptors()
 	pkBld := val.NewTupleBuilder(kd)
-	pkMap := ordinalMappingFromIndex(idx)
+	pkMap := OrdinalMappingFromIndex(idx)
 	keyProj, valProj, ordProj := projectionMappings(idx.Schema(), projections)
 
 	iter := prollyIndexIter{
@@ -135,7 +142,7 @@ func (p prollyIndexIter) Close(*sql.Context) error {
 	return nil
 }
 
-func ordinalMappingFromIndex(idx DoltIndex) (m val.OrdinalMapping) {
+func OrdinalMappingFromIndex(idx DoltIndex) (m val.OrdinalMapping) {
 	def := idx.Schema().Indexes().GetByName(idx.ID())
 	pks := def.PrimaryKeyTags()
 	if len(pks) == 0 { // keyless index
@@ -183,7 +190,10 @@ func newProllyCoveringIndexIter(
 	projections []uint64,
 	indexdata durable.Index,
 ) (prollyCoveringIndexIter, error) {
-	secondary := durable.ProllyMapFromIndex(indexdata)
+	secondary, err := durable.ProllyMapFromIndex(indexdata)
+	if err != nil {
+		return prollyCoveringIndexIter{}, err
+	}
 	indexIter, err := secondary.IterRange(ctx, rng)
 	if err != nil {
 		return prollyCoveringIndexIter{}, err
@@ -292,23 +302,34 @@ type prollyKeylessIndexIter struct {
 
 var _ sql.RowIter = prollyKeylessIndexIter{}
 
-func newProllyKeylessIndexIter(
-	ctx *sql.Context,
-	idx DoltIndex,
-	rng prolly.Range,
-	pkSch sql.PrimaryKeySchema,
-	projections []uint64,
-	rows, dsecondary durable.Index,
-) (prollyKeylessIndexIter, error) {
-	secondary := durable.ProllyMapFromIndex(dsecondary)
-	indexIter, err := secondary.IterRange(ctx, rng)
+func newProllyKeylessIndexIter(ctx *sql.Context, idx DoltIndex, rng prolly.Range, doltgresRange *DoltgresRange, pkSch sql.PrimaryKeySchema, projections []uint64, rows, dsecondary durable.Index, reverse bool) (prollyKeylessIndexIter, error) {
+	secondary, err := durable.ProllyMapFromIndex(dsecondary)
 	if err != nil {
 		return prollyKeylessIndexIter{}, err
 	}
+	var indexIter prolly.MapIter
+	if doltgresRange == nil {
+		if reverse {
+			indexIter, err = secondary.IterRangeReverse(ctx, rng)
+		} else {
+			indexIter, err = secondary.IterRange(ctx, rng)
+		}
+		if err != nil {
+			return prollyKeylessIndexIter{}, err
+		}
+	} else {
+		indexIter, err = doltgresProllyMapIterator(ctx, secondary.KeyDesc(), secondary.NodeStore(), secondary.Tuples().Root, *doltgresRange)
+		if err != nil {
+			return prollyKeylessIndexIter{}, err
+		}
+	}
 
-	clustered := durable.ProllyMapFromIndex(rows)
+	clustered, err := durable.ProllyMapFromIndex(rows)
+	if err != nil {
+		return prollyKeylessIndexIter{}, err
+	}
 	keyDesc, valDesc := clustered.Descriptors()
-	indexMap := ordinalMappingFromIndex(idx)
+	indexMap := OrdinalMappingFromIndex(idx)
 	keyBld := val.NewTupleBuilder(keyDesc)
 	sch := idx.Schema()
 	_, vm, om := projectionMappings(sch, projections)

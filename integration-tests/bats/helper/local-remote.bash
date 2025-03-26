@@ -139,6 +139,7 @@ SKIP_SERVER_TESTS=$(cat <<-EOM
 ~rebase.bats~
 ~shallow-clone.bats~
 ~archive.bats~
+~fsck.bats~
 EOM
 )
 
@@ -163,5 +164,12 @@ teardown_remote_server() {
   if [ "$SQL_ENGINE" = "remote-engine" ];
   then
     stop_sql_server
+  fi
+}
+
+skip_if_remote() {
+  if [ "$SQL_ENGINE" = "remote-engine" ];
+  then
+    skip
   fi
 }

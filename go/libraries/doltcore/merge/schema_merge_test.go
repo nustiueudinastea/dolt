@@ -656,7 +656,7 @@ var collationTests = []schemaMergeTest{
 				ancestor: singleRow(1, 1, 1, "foo", decimal.New(100, 0)),
 				left:     singleRow(1, 1, 2, "FOO", decimal.New(100, 0)),
 				right:    singleRow(1, 2, 1, "foo", decimal.New(100, 0)),
-				merged:   singleRow(1, 2, 2, "FOO", decimal.New(100, 0)),
+				merged:   singleRow(1, 2, 2, "foo", decimal.New(100, 0)),
 			},
 			{
 				name:         "conflict removal and replace varchar with equal replacement",
@@ -1631,9 +1631,10 @@ func testSchemaMergeHelper(t *testing.T, tests []schemaMergeTest, flipSides bool
 
 		t.Run(test.name, func(t *testing.T) {
 			runTest := func(t *testing.T, test schemaMergeTest, expectDataConflict bool, expConstraintViolations []constraintViolation) {
-				a, l, r, m := setupSchemaMergeTest(t, test)
-
 				ctx := context.Background()
+				a, l, r, m := setupSchemaMergeTest(ctx, t, test)
+				ns := a.NodeStore()
+
 				var mo merge.MergeOpts
 				var eo editor.Options
 				eo = eo.WithDeaf(editor.NewInMemDeaf(a.VRW()))
@@ -1658,7 +1659,7 @@ func testSchemaMergeHelper(t *testing.T, tests []schemaMergeTest, flipSides bool
 						for name, _ := range exp {
 							_, ok := act[name]
 							assert.True(t, ok)
-							actTbl, _, err := result.Root.GetTable(ctx, doltdb.TableName{Name: name})
+							actTbl, _, err := result.Root.GetTable(ctx, name)
 							require.NoError(t, err)
 							hasConflict, err := actTbl.HasConflicts(ctx)
 							require.NoError(t, err)
@@ -1666,10 +1667,10 @@ func testSchemaMergeHelper(t *testing.T, tests []schemaMergeTest, flipSides bool
 						}
 						if !assert.True(t, foundDataConflict, "Expected data conflict, but didn't find one.") {
 							for name, _ := range exp {
-								table, _, err := result.Root.GetTable(ctx, doltdb.TableName{Name: name})
+								table, _, err := result.Root.GetTable(ctx, name)
 								require.NoError(t, err)
 								t.Logf("table %s:", name)
-								t.Log(table.DebugString(ctx, m.NodeStore()))
+								t.Log(table.DebugString(ctx, ns))
 							}
 
 						}
@@ -1678,7 +1679,7 @@ func testSchemaMergeHelper(t *testing.T, tests []schemaMergeTest, flipSides bool
 							a, ok := act[name]
 							assert.True(t, ok)
 
-							actTbl, _, err := result.Root.GetTable(ctx, doltdb.TableName{Name: name})
+							actTbl, _, err := result.Root.GetTable(ctx, name)
 							require.NoError(t, err)
 							hasConflict, err := actTbl.HasConflicts(ctx)
 							require.NoError(t, err)
@@ -1690,7 +1691,8 @@ func testSchemaMergeHelper(t *testing.T, tests []schemaMergeTest, flipSides bool
 
 							sch, err := actTbl.GetSchema(ctx)
 							require.NoError(t, err)
-							kd, vd := sch.GetMapDescriptors()
+
+							kd, vd := sch.GetMapDescriptors(m.NodeStore())
 
 							if len(expConstraintViolations) > 0 {
 								artifacts, err := actTbl.GetArtifacts(ctx)
@@ -1712,7 +1714,7 @@ func testSchemaMergeHelper(t *testing.T, tests []schemaMergeTest, flipSides bool
 								}
 							} else {
 								if addr != a {
-									expTbl, _, err := m.GetTable(ctx, doltdb.TableName{Name: name})
+									expTbl, _, err := m.GetTable(ctx, name)
 									require.NoError(t, err)
 									expSchema, err := expTbl.GetSchema(ctx)
 									require.NoError(t, err)
@@ -1720,10 +1722,10 @@ func testSchemaMergeHelper(t *testing.T, tests []schemaMergeTest, flipSides bool
 									require.NoError(t, err)
 									actRowDataHash, err := actTbl.GetRowDataHash(ctx)
 									require.NoError(t, err)
-									if !expSchema.GetKeyDescriptor().Equals(kd) {
+									if !expSchema.GetKeyDescriptor(ns).Equals(kd) {
 										t.Fatal("Primary key descriptors unequal")
 									}
-									if !expSchema.GetValueDescriptor().Equals(vd) {
+									if !expSchema.GetValueDescriptor(ns).Equals(vd) {
 										t.Fatal("Value descriptors unequal")
 									}
 									if expRowDataHash != actRowDataHash {
@@ -1785,26 +1787,26 @@ func testSchemaMergeHelper(t *testing.T, tests []schemaMergeTest, flipSides bool
 	}
 }
 
-func setupSchemaMergeTest(t *testing.T, test schemaMergeTest) (anc, left, right, merged doltdb.RootValue) {
+func setupSchemaMergeTest(ctx context.Context, t *testing.T, test schemaMergeTest) (anc, left, right, merged doltdb.RootValue) {
 	denv := dtestutils.CreateTestEnv()
 	var eo editor.Options
-	eo = eo.WithDeaf(editor.NewInMemDeaf(denv.DoltDB.ValueReadWriter()))
-	anc = makeRootWithTable(t, denv.DoltDB, eo, test.ancestor)
+	eo = eo.WithDeaf(editor.NewInMemDeaf(denv.DoltDB(ctx).ValueReadWriter()))
+	anc = makeRootWithTable(t, denv.DoltDB(ctx), eo, test.ancestor)
 	assert.NotNil(t, anc)
 	if test.left != nil {
-		left = makeRootWithTable(t, denv.DoltDB, eo, *test.left)
+		left = makeRootWithTable(t, denv.DoltDB(ctx), eo, *test.left)
 		assert.NotNil(t, left)
 	} else {
-		left = makeEmptyRoot(t, denv.DoltDB, eo)
+		left = makeEmptyRoot(t, denv.DoltDB(ctx), eo)
 	}
 	if test.right != nil {
-		right = makeRootWithTable(t, denv.DoltDB, eo, *test.right)
+		right = makeRootWithTable(t, denv.DoltDB(ctx), eo, *test.right)
 		assert.NotNil(t, right)
 	} else {
-		right = makeEmptyRoot(t, denv.DoltDB, eo)
+		right = makeEmptyRoot(t, denv.DoltDB(ctx), eo)
 	}
 	if !test.conflict {
-		merged = makeRootWithTable(t, denv.DoltDB, eo, test.merged)
+		merged = makeRootWithTable(t, denv.DoltDB(ctx), eo, test.merged)
 		assert.NotNil(t, merged)
 	}
 	return
@@ -1827,10 +1829,10 @@ func tbl(ns namedSchema, rows ...sql.Row) *table {
 }
 
 func sch(definition string) namedSchema {
-	denv := dtestutils.CreateTestEnv()
-	vrw := denv.DoltDB.ValueReadWriter()
-	ns := denv.DoltDB.NodeStore()
 	ctx := context.Background()
+	denv := dtestutils.CreateTestEnv()
+	vrw := denv.DoltDB(ctx).ValueReadWriter()
+	ns := denv.DoltDB(ctx).NodeStore()
 	root, _ := doltdb.EmptyRootValue(ctx, vrw, ns)
 	eng, dbName, _ := engine.NewSqlEngineForEnv(ctx, denv)
 	sqlCtx, _ := eng.NewDefaultContext(ctx)
@@ -1882,7 +1884,7 @@ func makeRootWithTable(t *testing.T, ddb *doltdb.DoltDB, eo editor.Options, tbl 
 	require.NoError(t, err)
 	noop := func(ctx *sql.Context, dbName string, root doltdb.RootValue) (err error) { return }
 	sess := writer.NewWriteSession(ddb.Format(), ws, gst, eo)
-	wr, err := sess.GetTableWriter(sql.NewContext(ctx), doltdb.TableName{Name: tbl.ns.name}, "test", noop)
+	wr, err := sess.GetTableWriter(sql.NewContext(ctx), doltdb.TableName{Name: tbl.ns.name}, "test", noop, false)
 	require.NoError(t, err)
 
 	sctx := sql.NewEmptyContext()

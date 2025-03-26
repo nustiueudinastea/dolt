@@ -72,6 +72,24 @@ type DoltCliConfig struct {
 
 var _ config.ReadableConfig = &DoltCliConfig{}
 
+func NewTestDoltCliConfig(gcfg, lcfg config.ReadWriteConfig, fs filesys.Filesys) *DoltCliConfig {
+	cfgHierarchy := config.NewConfigHierarchy()
+
+	if gcfg != nil {
+		cfgHierarchy.AddConfig(globalConfigName, gcfg)
+	}
+
+	if lcfg != nil {
+		cfgHierarchy.AddConfig(localConfigName, lcfg)
+	}
+
+	return &DoltCliConfig{cfgHierarchy, cfgHierarchy, fs}
+}
+
+func NewTestDoltCliConfigFromHierarchy(ch *config.ConfigHierarchy, fs filesys.Filesys) *DoltCliConfig {
+	return &DoltCliConfig{ch, ch, fs}
+}
+
 func LoadDoltCliConfig(hdp HomeDirProvider, fs filesys.ReadWriteFS) (*DoltCliConfig, error) {
 	ch := config.NewConfigHierarchy()
 
@@ -127,8 +145,11 @@ func (dcc *DoltCliConfig) createLocalConfigAt(dir string, vals map[string]string
 	}
 
 	path := filepath.Join(dir, getLocalConfigPath())
-	cfg, err := config.NewFileConfig(path, dcc.fs, vals)
+	if exists, _ := dcc.fs.Exists(path); exists {
+		return nil
+	}
 
+	cfg, err := config.NewFileConfig(path, dcc.fs, vals)
 	if err != nil {
 		return err
 	}

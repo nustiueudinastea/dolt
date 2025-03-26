@@ -22,7 +22,8 @@ setup() {
   # creation is done here. We may want to move this to helper/query-server-common.bash later.
   PORT=$( definePORT )
   DOLT_CLI_PASSWORD="d01t"
-  dolt sql-server --host 0.0.0.0 --port=$PORT --user="dolt" --password=$DOLT_CLI_PASSWORD --socket "dolt.$PORT.sock" &
+  dolt sql -q "create user dolt@'%' identified by '$DOLT_CLI_PASSWORD'; grant all on *.* to dolt@'%'"
+  dolt sql-server --host 0.0.0.0 --port=$PORT --socket "dolt.$PORT.sock" &
   SERVER_PID=$!
 
   # Also, wait_for_connection code is pulled in here and replaced with a use of `dolt sql` instead. This
@@ -33,7 +34,7 @@ setup() {
   end_time=$((SECONDS+($timeout/1000)))
 
   while [ $SECONDS -lt $end_time ]; do
-    run dolt --no-tls --host localhost --port $PORT -u "dolt" sql -q "SELECT 1;"
+    run dolt --no-tls --host localhost --port $PORT sql -q "SELECT 1;"
     if [ $status -eq 0 ]; then
       echo "Connected successfully!"
       break
@@ -89,7 +90,7 @@ teardown() {
 @test "cli-hosted: bogus user rejected" {
   run dolt $TLS --host $HST --port $PRT --user bogus sql -q "create database bats_test_cli_hosted"
   [ "$status" -eq 1 ]
-  [[ $output =~ "User not found 'bogus'" ]] || false
+  [[ $output =~ "No authentication" ]] || false
 }
 
 # This test will not work if you change DOLT_CLI_USER above. Be aware if you run against a hosted instance.

@@ -35,27 +35,21 @@ type Serializer interface {
 	Serialize(keys, values [][]byte, subtrees []uint64, level int) serial.Message
 }
 
-func UnpackFields(msg serial.Message) (keys, values ItemAccess, level, count uint16, err error) {
-	switch serial.GetFileID(msg) {
+func UnpackFields(msg serial.Message) (fileId string, keys, values ItemAccess, level, count uint16, err error) {
+	fileId = serial.GetFileID(msg)
+	switch fileId {
 	case serial.ProllyTreeNodeFileID:
-		return getProllyMapKeysAndValues(msg)
+		keys, values, level, count, err = getProllyMapKeysAndValues(msg)
+		return
+	case serial.VectorIndexNodeFileID:
+		keys, values, level, count, err = getVectorIndexKeysAndValues(msg)
+		return
 	case serial.AddressMapFileID:
-		keys, err = getAddressMapKeys(msg)
-		if err != nil {
-			return
-		}
-		values, err = getAddressMapValues(msg)
-		if err != nil {
-			return
-		}
-		level, err = getAddressMapTreeLevel(msg)
-		if err != nil {
-			return
-		}
-		count, err = getAddressMapCount(msg)
+		keys, values, level, count, err = getAddressMapKeysAndValues(msg)
 		return
 	case serial.MergeArtifactsFileID:
-		return getArtifactMapKeysAndValues(msg)
+		keys, values, level, count, err = getArtifactMapKeysAndValues(msg)
+		return
 	case serial.CommitClosureFileID:
 		keys, err = getCommitClosureKeys(msg)
 		if err != nil {
@@ -72,19 +66,7 @@ func UnpackFields(msg serial.Message) (keys, values ItemAccess, level, count uin
 		count, err = getCommitClosureCount(msg)
 		return
 	case serial.BlobFileID:
-		keys, err = getBlobKeys(msg)
-		if err != nil {
-			return
-		}
-		values, err = getBlobValues(msg)
-		if err != nil {
-			return
-		}
-		level, err = getBlobTreeLevel(msg)
-		if err != nil {
-			return
-		}
-		count, err = getBlobCount(msg)
+		keys, values, level, count, err = getBlobKeysAndValues(msg)
 		return
 	default:
 		panic(fmt.Sprintf("unknown message id %s", serial.GetFileID(msg)))
@@ -96,6 +78,8 @@ func WalkAddresses(ctx context.Context, msg serial.Message, cb func(ctx context.
 	switch id {
 	case serial.ProllyTreeNodeFileID:
 		return walkProllyMapAddresses(ctx, msg, cb)
+	case serial.VectorIndexNodeFileID:
+		return walkVectorIndexAddresses(ctx, msg, cb)
 	case serial.AddressMapFileID:
 		return walkAddressMapAddresses(ctx, msg, cb)
 	case serial.MergeArtifactsFileID:
@@ -114,6 +98,8 @@ func GetTreeCount(msg serial.Message) (int, error) {
 	switch id {
 	case serial.ProllyTreeNodeFileID:
 		return getProllyMapTreeCount(msg)
+	case serial.VectorIndexNodeFileID:
+		return getVectorIndexTreeCount(msg)
 	case serial.AddressMapFileID:
 		return getAddressMapTreeCount(msg)
 	case serial.MergeArtifactsFileID:
@@ -145,11 +131,11 @@ func GetSubtrees(msg serial.Message) ([]uint64, error) {
 	}
 }
 
-func lookupVectorOffset(vo fb.VOffsetT, tab fb.Table) uint16 {
+func lookupVectorOffset(vo fb.VOffsetT, tab fb.Table) uint32 {
 	off := fb.UOffsetT(tab.Offset(vo)) + tab.Pos
 	off += fb.GetUOffsetT(tab.Bytes[off:])
 	// data starts after metadata containing the vector length
-	return uint16(off + fb.UOffsetT(fb.SizeUOffsetT))
+	return uint32(off + fb.UOffsetT(fb.SizeUOffsetT))
 }
 
 func assertTrue(b bool, msg string) {

@@ -26,6 +26,7 @@ import (
 
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typecompatibility"
 	"github.com/dolthub/dolt/go/store/prolly/tree"
 	storetypes "github.com/dolthub/dolt/go/store/types"
 )
@@ -48,7 +49,7 @@ var ErrUnmergeableNewColumn = errorkinds.NewKind("Unable to merge new column `%s
 var ErrDefaultCollationConflict = errorkinds.NewKind("Unable to merge table '%s', because its default collation setting has changed on both sides of the merge. Manually change the table's default collation setting on one of the sides of the merge and retry this merge.")
 
 type SchemaConflict struct {
-	TableName            string
+	TableName            doltdb.TableName
 	ColConflicts         []ColConflict
 	IdxConflicts         []IdxConflict
 	ChkConflicts         []ChkConflict
@@ -164,10 +165,20 @@ var ErrMergeWithDifferentPksFromAncestor = errorkinds.NewKind("error: cannot mer
 // SchemaMerge performs a three-way merge of |ourSch|, |theirSch|, and |ancSch|, and returns: the merged schema,
 // any schema conflicts identified, whether moving to the new schema requires a full table rewrite, and any
 // unexpected error encountered while merging the schemas.
-func SchemaMerge(ctx context.Context, format *storetypes.NomsBinFormat, ourSch, theirSch, ancSch schema.Schema, tblName string) (sch schema.Schema, sc SchemaConflict, mergeInfo MergeInfo, diffInfo tree.ThreeWayDiffInfo, err error) {
+func SchemaMerge(
+	ctx context.Context,
+	format *storetypes.NomsBinFormat,
+	ourSch, theirSch, ancSch schema.Schema,
+	tblName doltdb.TableName,
+) (sch schema.Schema, sc SchemaConflict, mergeInfo MergeInfo, diffInfo tree.ThreeWayDiffInfo, err error) {
 	// (sch - ancSch) ∪ (mergeSch - ancSch) ∪ (sch ∩ mergeSch)
 	sc = SchemaConflict{
 		TableName: tblName,
+	}
+
+	if schema.SchemasAreEqual(ancSch, ourSch) && schema.SchemasAreEqual(ancSch, theirSch) {
+		// All schemas are identical, so no merge is needed.
+		return ourSch, sc, mergeInfo, diffInfo, nil
 	}
 
 	// TODO: We'll remove this once it's possible to get diff and merge on different primary key sets
@@ -180,7 +191,7 @@ func SchemaMerge(ctx context.Context, format *storetypes.NomsBinFormat, ourSch, 
 	}
 
 	var mergedCC *schema.ColCollection
-	mergedCC, sc.ColConflicts, mergeInfo, diffInfo, err = mergeColumns(tblName, format, ourSch.GetAllCols(), theirSch.GetAllCols(), ancSch.GetAllCols())
+	mergedCC, sc.ColConflicts, mergeInfo, diffInfo, err = mergeColumns(tblName.Name, format, ourSch.GetAllCols(), theirSch.GetAllCols(), ancSch.GetAllCols())
 	if err != nil {
 		return nil, SchemaConflict{}, mergeInfo, diffInfo, err
 	}
@@ -199,7 +210,7 @@ func SchemaMerge(ctx context.Context, format *storetypes.NomsBinFormat, ourSch, 
 		return nil, sc, mergeInfo, diffInfo, err
 	}
 
-	sch, err = mergeTableCollation(ctx, tblName, ancSch, ourSch, theirSch, sch)
+	sch, err = mergeTableCollation(ctx, tblName.Name, ancSch, ourSch, theirSch, sch)
 	if err != nil {
 		return nil, sc, mergeInfo, diffInfo, err
 	}
@@ -285,7 +296,7 @@ func ForeignKeysMerge(ctx context.Context, mergedRoot, ourRoot, theirRoot, ancRo
 	}
 
 	// check for conflicts between foreign keys added on each branch since the ancestor
-	//TODO: figure out the best way to handle unresolved foreign keys here if one branch added an unresolved one and
+	// TODO: figure out the best way to handle unresolved foreign keys here if one branch added an unresolved one and
 	// another branch added the same one but resolved
 	_ = ourNewFKs.Iter(func(ourFK doltdb.ForeignKey) (stop bool, err error) {
 		theirFK, ok := theirNewFKs.GetByTags(ourFK.TableColumns, ourFK.ReferencedTableColumns)
@@ -405,7 +416,7 @@ func mergeColumns(tblName string, format *storetypes.NomsBinFormat, ourCC, their
 		return nil, nil, mergeInfo, diffInfo, err
 	}
 
-	compatChecker := newTypeCompatabilityCheckerForStorageFormat(format)
+	compatChecker := typecompatibility.NewTypeCompatabilityCheckerForStorageFormat(format)
 
 	// After we've checked for schema conflicts, merge the columns together
 	// TODO: We don't currently preserve all column position changes; the returned merged columns are always based on
@@ -465,14 +476,14 @@ func mergeColumns(tblName string, format *storetypes.NomsBinFormat, ourCC, their
 					// In this case, only theirsChanged, so we need to check if moving from ours->theirs
 					// is valid, otherwise it's a conflict
 					compatibilityInfo := compatChecker.IsTypeChangeCompatible(ours.TypeInfo, theirs.TypeInfo)
-					if compatibilityInfo.invalidateSecondaryIndexes {
+					if compatibilityInfo.InvalidateSecondaryIndexes {
 						mergeInfo.InvalidateSecondaryIndexes = true
 					}
-					if compatibilityInfo.rewriteRows {
+					if compatibilityInfo.RewriteRows {
 						mergeInfo.LeftNeedsRewrite = true
 						diffInfo.RightSchemaChange = true
 					}
-					if compatibilityInfo.compatible {
+					if compatibilityInfo.Compatible {
 						mergedColumns = append(mergedColumns, *theirs)
 					} else {
 						conflicts = append(conflicts, ColConflict{
@@ -487,14 +498,14 @@ func mergeColumns(tblName string, format *storetypes.NomsBinFormat, ourCC, their
 					// is valid, otherwise it's a conflict
 					mergeInfo.RightNeedsRewrite = true
 					compatibilityInfo := compatChecker.IsTypeChangeCompatible(theirs.TypeInfo, ours.TypeInfo)
-					if compatibilityInfo.invalidateSecondaryIndexes {
+					if compatibilityInfo.InvalidateSecondaryIndexes {
 						mergeInfo.InvalidateSecondaryIndexes = true
 					}
-					if compatibilityInfo.rewriteRows {
+					if compatibilityInfo.RewriteRows {
 						mergeInfo.RightNeedsRewrite = true
 						diffInfo.LeftSchemaChange = true
 					}
-					if compatibilityInfo.compatible {
+					if compatibilityInfo.Compatible {
 						mergedColumns = append(mergedColumns, *ours)
 					} else {
 						conflicts = append(conflicts, ColConflict{
@@ -905,7 +916,10 @@ func indexCollSetDifference(left, right schema.IndexCollection, cc *schema.ColCo
 	return d
 }
 
-func foreignKeysInCommon(ourFKs, theirFKs, ancFKs *doltdb.ForeignKeyCollection, ancSchs map[string]schema.Schema) (common *doltdb.ForeignKeyCollection, conflicts []FKConflict, err error) {
+func foreignKeysInCommon(
+	ourFKs, theirFKs, ancFKs *doltdb.ForeignKeyCollection,
+	ancSchs map[doltdb.TableName]schema.Schema,
+) (common *doltdb.ForeignKeyCollection, conflicts []FKConflict, err error) {
 	common, _ = doltdb.NewForeignKeyCollection()
 	err = ourFKs.Iter(func(ours doltdb.ForeignKey) (stop bool, err error) {
 
@@ -982,7 +996,10 @@ func foreignKeysInCommon(ourFKs, theirFKs, ancFKs *doltdb.ForeignKeyCollection, 
 // fkCollSetDifference returns a collection of all foreign keys that are in the given collection but not the ancestor
 // collection. This is specifically for finding differences between a descendant and an ancestor, and therefore should
 // not be used in the general case.
-func fkCollSetDifference(fkColl, ancestorFkColl *doltdb.ForeignKeyCollection, ancSchs map[string]schema.Schema) (d *doltdb.ForeignKeyCollection, err error) {
+func fkCollSetDifference(
+	fkColl, ancestorFkColl *doltdb.ForeignKeyCollection,
+	ancSchs map[doltdb.TableName]schema.Schema,
+) (d *doltdb.ForeignKeyCollection, err error) {
 	d, _ = doltdb.NewForeignKeyCollection()
 	err = fkColl.Iter(func(fk doltdb.ForeignKey) (stop bool, err error) {
 		_, ok := ancestorFkColl.GetMatchingKey(fk, ancSchs, false)
@@ -1003,7 +1020,7 @@ func fkCollSetDifference(fkColl, ancestorFkColl *doltdb.ForeignKeyCollection, an
 func pruneInvalidForeignKeys(ctx context.Context, fkColl *doltdb.ForeignKeyCollection, mergedRoot doltdb.RootValue) (pruned *doltdb.ForeignKeyCollection, err error) {
 	pruned, _ = doltdb.NewForeignKeyCollection()
 	err = fkColl.Iter(func(fk doltdb.ForeignKey) (stop bool, err error) {
-		parentTbl, ok, err := mergedRoot.GetTable(ctx, doltdb.TableName{Name: fk.ReferencedTableName})
+		parentTbl, ok, err := mergedRoot.GetTable(ctx, fk.ReferencedTableName)
 		if err != nil || !ok {
 			return false, err
 		}
@@ -1017,7 +1034,7 @@ func pruneInvalidForeignKeys(ctx context.Context, fkColl *doltdb.ForeignKeyColle
 			}
 		}
 
-		childTbl, ok, err := mergedRoot.GetTable(ctx, doltdb.TableName{Name: fk.TableName})
+		childTbl, ok, err := mergedRoot.GetTable(ctx, fk.TableName)
 		if err != nil || !ok {
 			return false, err
 		}

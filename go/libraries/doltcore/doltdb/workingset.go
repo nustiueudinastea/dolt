@@ -66,6 +66,15 @@ type RebaseState struct {
 
 	// emptyCommitHandling specifies how to handle empty commits that contain no changes.
 	emptyCommitHandling EmptyCommitHandling
+
+	// lastAttemptedStep records the last rebase plan step that was attempted, whether it completed successfully, or
+	// resulted in conflicts for the user to manually resolve. This field is not valid unless rebasingStarted is set
+	// to true.
+	lastAttemptedStep float32
+
+	// rebasingStarted is true once the rebase plan has been started to execute. Once rebasingStarted is true, the
+	// value in lastAttemptedStep has been initialized and is valid to read.
+	rebasingStarted bool
 }
 
 // Branch returns the name of the branch being actively rebased. This is the branch that will be updated to point
@@ -93,14 +102,32 @@ func (rs RebaseState) CommitBecomesEmptyHandling() EmptyCommitHandling {
 	return rs.commitBecomesEmptyHandling
 }
 
+func (rs RebaseState) LastAttemptedStep() float32 {
+	return rs.lastAttemptedStep
+}
+
+func (rs RebaseState) WithLastAttemptedStep(step float32) *RebaseState {
+	rs.lastAttemptedStep = step
+	return &rs
+}
+
+func (rs RebaseState) RebasingStarted() bool {
+	return rs.rebasingStarted
+}
+
+func (rs RebaseState) WithRebasingStarted(rebasingStarted bool) *RebaseState {
+	rs.rebasingStarted = rebasingStarted
+	return &rs
+}
+
 type MergeState struct {
 	// the source commit
 	commit *Commit
 	// the spec string that was used to specify |commit|
 	commitSpecStr    string
 	preMergeWorking  RootValue
-	unmergableTables []string // TODO: need schema name here
-	mergedTables     []string // TODO: need schema name here
+	unmergableTables []TableName
+	mergedTables     []TableName
 	// isCherryPick is set to true when the in-progress merge is a cherry-pick. This is needed so that
 	// commit knows to NOT create a commit with multiple parents when creating a commit for a cherry-pick.
 	isCherryPick bool
@@ -110,8 +137,8 @@ type MergeState struct {
 type SchemaConflict struct {
 	ToSch, FromSch    schema.Schema
 	ToFks, FromFks    []ForeignKey
-	ToParentSchemas   map[string]schema.Schema
-	FromParentSchemas map[string]schema.Schema
+	ToParentSchemas   map[TableName]schema.Schema
+	FromParentSchemas map[TableName]schema.Schema
 	toTbl, fromTbl    *Table
 }
 
@@ -154,17 +181,17 @@ func (m MergeState) PreMergeWorkingRoot() RootValue {
 	return m.preMergeWorking
 }
 
-type SchemaConflictFn func(table string, conflict SchemaConflict) error
+type SchemaConflictFn func(table TableName, conflict SchemaConflict) error
 
 func (m MergeState) HasSchemaConflicts() bool {
 	return len(m.unmergableTables) > 0
 }
 
-func (m MergeState) TablesWithSchemaConflicts() []string {
+func (m MergeState) TablesWithSchemaConflicts() []TableName {
 	return m.unmergableTables
 }
 
-func (m MergeState) MergedTables() []string {
+func (m MergeState) MergedTables() []TableName {
 	return m.mergedTables
 }
 
@@ -197,7 +224,7 @@ func (m MergeState) IterSchemaConflicts(ctx context.Context, ddb *DoltDB, cb Sch
 	for _, name := range m.unmergableTables {
 		var sc SchemaConflict
 		var hasToTable bool
-		if sc.toTbl, hasToTable, err = to.GetTable(ctx, TableName{Name: name}); err != nil {
+		if sc.toTbl, hasToTable, err = to.GetTable(ctx, name); err != nil {
 			return err
 		}
 		if hasToTable {
@@ -208,7 +235,7 @@ func (m MergeState) IterSchemaConflicts(ctx context.Context, ddb *DoltDB, cb Sch
 
 		var hasFromTable bool
 		// todo: handle schema conflicts for renamed tables
-		if sc.fromTbl, hasFromTable, err = from.GetTable(ctx, TableName{Name: name}); err != nil {
+		if sc.fromTbl, hasFromTable, err = from.GetTable(ctx, name); err != nil {
 			return err
 		}
 		if hasFromTable {
@@ -217,10 +244,10 @@ func (m MergeState) IterSchemaConflicts(ctx context.Context, ddb *DoltDB, cb Sch
 			}
 		}
 
-		sc.ToFks, _ = toFKs.KeysForTable(TableName{Name: name})
+		sc.ToFks, _ = toFKs.KeysForTable(name)
 		sc.ToParentSchemas = toSchemas
 
-		sc.FromFks, _ = fromFKs.KeysForTable(TableName{Name: name})
+		sc.FromFks, _ = fromFKs.KeysForTable(name)
 		sc.FromParentSchemas = fromSchemas
 
 		if err = cb(name, sc); err != nil {
@@ -269,12 +296,12 @@ func (ws WorkingSet) WithRebaseState(rebaseState *RebaseState) *WorkingSet {
 	return &ws
 }
 
-func (ws WorkingSet) WithUnmergableTables(tables []string) *WorkingSet {
+func (ws WorkingSet) WithUnmergableTables(tables []TableName) *WorkingSet {
 	ws.mergeState.unmergableTables = tables
 	return &ws
 }
 
-func (ws WorkingSet) WithMergedTables(tables []string) *WorkingSet {
+func (ws WorkingSet) WithMergedTables(tables []TableName) *WorkingSet {
 	ws.mergeState.mergedTables = tables
 	return &ws
 }
@@ -475,11 +502,13 @@ func newWorkingSet(ctx context.Context, name string, vrw types.ValueReadWriter, 
 			return nil, err
 		}
 
+		unmergableTableNames := ToTableNames(unmergableTables, DefaultSchemaName)
+
 		mergeState = &MergeState{
 			commit:           commit,
 			commitSpecStr:    commitSpec,
 			preMergeWorking:  preMergeWorkingRoot,
-			unmergableTables: unmergableTables,
+			unmergableTables: unmergableTableNames,
 			isCherryPick:     isCherryPick,
 		}
 	}
@@ -517,6 +546,8 @@ func newWorkingSet(ctx context.Context, name string, vrw types.ValueReadWriter, 
 			branch:                     dsws.RebaseState.Branch(ctx),
 			commitBecomesEmptyHandling: EmptyCommitHandling(dsws.RebaseState.CommitBecomesEmptyHandling(ctx)),
 			emptyCommitHandling:        EmptyCommitHandling(dsws.RebaseState.EmptyCommitHandling(ctx)),
+			lastAttemptedStep:          dsws.RebaseState.LastAttemptedStep(ctx),
+			rebasingStarted:            dsws.RebaseState.RebasingStarted(ctx),
 		}
 	}
 
@@ -559,7 +590,6 @@ func (ws *WorkingSet) writeValues(ctx context.Context, db *DoltDB, meta *datas.W
 		return nil, fmt.Errorf("StagedRoot and workingRoot must be set. This is a bug.")
 	}
 
-	var r RootValue
 	r, workingRoot, err := db.writeRootValue(ctx, ws.workingRoot)
 	if err != nil {
 		return nil, err
@@ -589,7 +619,8 @@ func (ws *WorkingSet) writeValues(ctx context.Context, db *DoltDB, meta *datas.W
 			return nil, err
 		}
 
-		mergeState, err = datas.NewMergeState(ctx, db.vrw, preMergeWorking, dCommit, ws.mergeState.commitSpecStr, ws.mergeState.unmergableTables, ws.mergeState.isCherryPick)
+		// TODO: Serialize the full TableName
+		mergeState, err = datas.NewMergeState(ctx, db.vrw, preMergeWorking, dCommit, ws.mergeState.commitSpecStr, FlattenTableNames(ws.mergeState.unmergableTables), ws.mergeState.isCherryPick)
 		if err != nil {
 			return nil, err
 		}
@@ -613,7 +644,8 @@ func (ws *WorkingSet) writeValues(ctx context.Context, db *DoltDB, meta *datas.W
 		}
 
 		rebaseState = datas.NewRebaseState(preRebaseWorking.TargetHash(), dCommit.Addr(), ws.rebaseState.branch,
-			uint8(ws.rebaseState.commitBecomesEmptyHandling), uint8(ws.rebaseState.emptyCommitHandling))
+			uint8(ws.rebaseState.commitBecomesEmptyHandling), uint8(ws.rebaseState.emptyCommitHandling),
+			ws.rebaseState.lastAttemptedStep, ws.rebaseState.rebasingStarted)
 	}
 
 	return &datas.WorkingSetSpec{

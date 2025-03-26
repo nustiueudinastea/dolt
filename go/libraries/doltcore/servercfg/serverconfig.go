@@ -22,7 +22,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
+
+var DefaultUnixSocketFilePath = DefaultMySQLUnixSocketFilePath
 
 // LogLevel defines the available levels of logging for the server.
 type LogLevel string
@@ -34,36 +37,41 @@ const (
 	LogLevel_Warning LogLevel = "warning"
 	LogLevel_Error   LogLevel = "error"
 	LogLevel_Fatal   LogLevel = "fatal"
+	LogLevel_Panic   LogLevel = "panic"
+)
+
+type LogFormat string
+
+const (
+	LogFormat_Text LogFormat = "text"
+	LogFormat_JSON LogFormat = "json"
 )
 
 const (
-	DefaultHost                    = "localhost"
-	DefaultPort                    = 3306
-	DefaultUser                    = "root"
-	DefaultPass                    = ""
-	DefaultTimeout                 = 8 * 60 * 60 * 1000 // 8 hours, same as MySQL
-	DefaultReadOnly                = false
-	DefaultLogLevel                = LogLevel_Info
-	DefaultAutoCommit              = true
-	DefaultDoltTransactionCommit   = false
-	DefaultMaxConnections          = 100
-	DefaultQueryParallelism        = 0
-	DefaultPersistenceBahavior     = LoadPerisistentGlobals
-	DefaultDataDir                 = "."
-	DefaultCfgDir                  = ".doltcfg"
-	DefaultPrivilegeFilePath       = "privileges.db"
-	DefaultBranchControlFilePath   = "branch_control.db"
-	DefaultMetricsHost             = ""
-	DefaultMetricsPort             = -1
-	DefaultAllowCleartextPasswords = false
-	DefaultUnixSocketFilePath      = "/tmp/mysql.sock"
-	DefaultMaxLoggedQueryLen       = 0
-	DefaultEncodeLoggedQuery       = false
-)
-
-const (
-	IgnorePeristentGlobals = "ignore"
-	LoadPerisistentGlobals = "load"
+	DefaultHost                      = "localhost"
+	DefaultPort                      = 3306
+	DefaultUser                      = "root"
+	DefaultPass                      = ""
+	DefaultTimeout                   = 8 * 60 * 60 * 1000 // 8 hours, same as MySQL
+	DefaultReadOnly                  = false
+	DefaultLogLevel                  = LogLevel_Info
+	DefaultLogFormat                 = LogFormat_Text
+	DefaultAutoCommit                = true
+	DefaultAutoGCBehaviorEnable      = false
+	DefaultDoltTransactionCommit     = false
+	DefaultMaxConnections            = 1000
+	DefaultMaxWaitConnections        = 50
+	DefaultMaxWaitConnectionsTimeout = 60 * time.Second
+	DefaultDataDir                   = "."
+	DefaultCfgDir                    = ".doltcfg"
+	DefaultPrivilegeFilePath         = "privileges.db"
+	DefaultBranchControlFilePath     = "branch_control.db"
+	DefaultMetricsHost               = ""
+	DefaultMetricsPort               = -1
+	DefaultAllowCleartextPasswords   = false
+	DefaultMySQLUnixSocketFilePath   = "/tmp/mysql.sock"
+	DefaultMaxLoggedQueryLen         = 0
+	DefaultEncodeLoggedQuery         = false
 )
 
 func ptr[T any](t T) *T {
@@ -84,6 +92,8 @@ func (level LogLevel) String() string {
 	case LogLevel_Error:
 		fallthrough
 	case LogLevel_Fatal:
+		fallthrough
+	case LogLevel_Panic:
 		return string(level)
 	default:
 		return "unknown"
@@ -127,6 +137,8 @@ type ServerConfig interface {
 	Port() int
 	// User returns the username that connecting clients must use.
 	User() string
+	// UserIsSpecified returns true if a user was explicitly provided in the configuration.
+	UserIsSpecified() bool
 	// Password returns the password that connecting clients must use.
 	Password() string
 	// ReadTimeout returns the read timeout in milliseconds
@@ -137,6 +149,8 @@ type ServerConfig interface {
 	ReadOnly() bool
 	// LogLevel returns the level of logging that the server will use.
 	LogLevel() LogLevel
+	// LogFormat returns the format of logging that the server will use.
+	LogFormat() LogFormat
 	// Autocommit defines the value of the @@autocommit session variable used on every connection
 	AutoCommit() bool
 	// DoltTransactionCommit defines the value of the @@dolt_transaction_commit session variable that enables Dolt
@@ -148,8 +162,11 @@ type ServerConfig interface {
 	CfgDir() string
 	// MaxConnections returns the maximum number of simultaneous connections the server will allow.  The default is 1
 	MaxConnections() uint64
-	// QueryParallelism returns the parallelism that should be used by the go-mysql-server analyzer
-	QueryParallelism() int
+	// MaxWaitConnections returns the maximum number of simultaneous connections that the server will allow to block waiting
+	// for a connection before new connections result in immediate rejection
+	MaxWaitConnections() uint32
+	// MaxWaitConnectionsTimeout returns the maximum amount of time that a connection will block waiting for a connection
+	MaxWaitConnectionsTimeout() time.Duration
 	// TLSKey returns a path to the servers PEM-encoded private TLS key. "" if there is none.
 	TLSKey() string
 	// TLSCert returns a path to the servers PEM-encoded TLS certificate chain. "" if there is none.
@@ -164,8 +181,6 @@ type ServerConfig interface {
 	// If true, queries will be logged as base64 encoded strings.
 	// If false (default behavior), queries will be logged as strings, but newlines and tabs will be replaced with spaces.
 	ShouldEncodeLoggedQuery() bool
-	// PersistenceBehavior is "load" if we include persisted system globals on server init
-	PersistenceBehavior() string
 	// DisableClientMultiStatements is true if we want the server to not
 	// process incoming ComQuery packets as if they had multiple queries in
 	// them, even if the client advertises support for MULTI_STATEMENTS.
@@ -202,19 +217,28 @@ type ServerConfig interface {
 	EventSchedulerStatus() string
 	// ValueSet returns whether the value string provided was explicitly set in the config
 	ValueSet(value string) bool
+	// AutoGCBehavior defines parameters around how auto-GC works for the running server.
+	AutoGCBehavior() AutoGCBehavior
 }
 
 // DefaultServerConfig creates a `*ServerConfig` that has all of the options set to their default values.
 func DefaultServerConfig() ServerConfig {
+	return defaultServerConfigYAML()
+}
+
+func defaultServerConfigYAML() *YAMLConfig {
 	return &YAMLConfig{
 		LogLevelStr:       ptr(string(DefaultLogLevel)),
+		LogFormatStr:      ptr(string(DefaultLogFormat)),
 		MaxQueryLenInLogs: ptr(DefaultMaxLoggedQueryLen),
 		EncodeLoggedQuery: ptr(DefaultEncodeLoggedQuery),
 		BehaviorConfig: BehaviorYAMLConfig{
 			ReadOnly:              ptr(DefaultReadOnly),
 			AutoCommit:            ptr(DefaultAutoCommit),
-			PersistenceBehavior:   ptr(DefaultPersistenceBahavior),
 			DoltTransactionCommit: ptr(DefaultDoltTransactionCommit),
+			AutoGCBehavior: &AutoGCBehaviorYAMLConfig{
+				Enable_: ptr(DefaultAutoGCBehaviorEnable),
+			},
 		},
 		UserConfig: UserYAMLConfig{
 			Name:     ptr(""),
@@ -224,11 +248,12 @@ func DefaultServerConfig() ServerConfig {
 			HostStr:                 ptr(DefaultHost),
 			PortNumber:              ptr(DefaultPort),
 			MaxConnections:          ptr(uint64(DefaultMaxConnections)),
+			BackLog:                 ptr(uint32(DefaultMaxWaitConnections)),
+			MaxConnectionsTimeoutMs: ptr(uint64(DefaultMaxWaitConnectionsTimeout.Milliseconds())),
 			ReadTimeoutMillis:       ptr(uint64(DefaultTimeout)),
 			WriteTimeoutMillis:      ptr(uint64(DefaultTimeout)),
 			AllowCleartextPasswords: ptr(DefaultAllowCleartextPasswords),
 		},
-		PerformanceConfig: PerformanceYAMLConfig{QueryParallelism: ptr(DefaultQueryParallelism)},
 		DataDirStr:        ptr(DefaultDataDir),
 		CfgDirStr:         ptr(filepath.Join(DefaultDataDir, DefaultCfgDir)),
 		PrivilegeFile:     ptr(filepath.Join(DefaultDataDir, DefaultCfgDir, DefaultPrivilegeFilePath)),
@@ -266,6 +291,10 @@ func ValidateConfig(config ServerConfig) error {
 	if config.LogLevel().String() == "unknown" {
 		return fmt.Errorf("loglevel is invalid: %v\n", string(config.LogLevel()))
 	}
+	if strings.ToLower(fmt.Sprintf("%v", config.LogFormat())) != string(LogFormat_Text) &&
+		strings.ToLower(fmt.Sprintf("%v", config.LogFormat())) != string(LogFormat_JSON) {
+		return fmt.Errorf("logformat is invalid: %v\n", config.LogFormat())
+	}
 	if config.RequireSecureTransport() && config.TLSCert() == "" && config.TLSKey() == "" {
 		return fmt.Errorf("require_secure_transport can only be `true` when a tls_key and tls_cert are provided.")
 	}
@@ -273,10 +302,42 @@ func ValidateConfig(config ServerConfig) error {
 }
 
 const (
-	MaxConnectionsKey = "max_connections"
-	ReadTimeoutKey    = "net_read_timeout"
-	WriteTimeoutKey   = "net_write_timeout"
-	EventSchedulerKey = "event_scheduler"
+	HostKey                         = "host"
+	PortKey                         = "port"
+	UserKey                         = "user"
+	PasswordKey                     = "password"
+	ReadTimeoutKey                  = "net_read_timeout"
+	WriteTimeoutKey                 = "net_write_timeout"
+	ReadOnlyKey                     = "read_only"
+	LogLevelKey                     = "log_level"
+	LogFormatKey                    = "log_format"
+	AutoCommitKey                   = "autocommit"
+	DoltTransactionCommitKey        = "dolt_transaction_commit"
+	DataDirKey                      = "data_dir"
+	CfgDirKey                       = "cfg_dir"
+	MaxConnectionsKey               = "max_connections"
+	MaxWaitConnectionsKey           = "back_log"
+	MaxWaitConnectionsTimeoutKey    = "max_connections_timeout"
+	TLSKeyKey                       = "tls_key"
+	TLSCertKey                      = "tls_cert"
+	RequireSecureTransportKey       = "require_secure_transport"
+	MaxLoggedQueryLenKey            = "max_logged_query_len"
+	ShouldEncodeLoggedQueryKey      = "should_encode_logged_query"
+	DisableClientMultiStatementsKey = "disable_client_multi_statements"
+	MetricsLabelsKey                = "metrics_labels"
+	MetricsHostKey                  = "metrics_host"
+	MetricsPortKey                  = "metrics_port"
+	PrivilegeFilePathKey            = "privilege_file_path"
+	BranchControlFilePathKey        = "branch_control_file_path"
+	UserVarsKey                     = "user_vars"
+	SystemVarsKey                   = "system_vars"
+	JwksConfigKey                   = "jwks_config"
+	AllowCleartextPasswordsKey      = "allow_cleartext_passwords"
+	SocketKey                       = "socket"
+	RemotesapiPortKey               = "remotesapi_port"
+	RemotesapiReadOnlyKey           = "remotesapi_read_only"
+	ClusterConfigKey                = "cluster_config"
+	EventSchedulerKey               = "event_scheduler"
 )
 
 type SystemVariableTarget interface {
@@ -417,4 +478,8 @@ func CheckForUnixSocket(config ServerConfig) (string, bool, error) {
 	}
 
 	return "", false, nil
+}
+
+type AutoGCBehavior interface {
+	Enable() bool
 }

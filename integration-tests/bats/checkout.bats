@@ -87,7 +87,7 @@ SQL
     [ "$status" -eq 0 ]
     [[ "$output" =~ "new table" ]] || false
 
-    # Now check the table into main and make additonal changes
+    # Now check the table into main and make additional changes
     dolt add . && dolt commit -m "new table"
     dolt sql -q "insert into t2 values (2);"
 
@@ -247,6 +247,30 @@ SQL
     run dolt schema show z
     [ "$status" -eq 0 ]
     [[ "$output" =~ "foreign_key1" ]] || false
+}
+
+@test "checkout: dolt checkout table from another branch" {
+    dolt sql -q "create table t (c1 int primary key, c2 int, check(c2 > 0))"
+    dolt sql -q "create table z (c1 int primary key, c2 int)"
+    dolt sql -q "insert into t values (1,1)"
+    dolt sql -q "insert into z values (2,2);"
+    dolt commit -Am "new values in t"    
+    dolt branch b1
+    dolt sql -q "insert into t values (3,3);"
+    dolt sql -q "insert into z values (4,4);"
+    dolt checkout b1 -- t
+
+    dolt status
+    run dolt status
+    [[ "$output" =~ "On branch main" ]] || false
+    [[ "$output" =~ "modified:         z" ]] || false
+    [[ ! "$output" =~ "modified:         t" ]] || false
+
+    run dolt sql -q "select count(*) from t" -r csv
+    [[ "$output" =~ "1" ]] || false
+
+    run dolt sql -q "select count(*) from z" -r csv
+    [[ "$output" =~ "2" ]] || false
 }
 
 @test "checkout: with -f flag without conflict" {
@@ -420,7 +444,7 @@ SQL
   dolt checkout -b test-branch
   dolt sql -q 'insert into test (id, id2) values (0, 2);'
   dolt add .
-  dolt commit -m "conclicting commit message"
+  dolt commit -m "conflicting commit message"
 
   shaparent1=$(dolt log --oneline --decorate=no | head -n 1 | cut -d ' ' -f 1)
   # remove special characters (color)
@@ -454,7 +478,7 @@ SQL
   dolt checkout -b test-branch
   dolt sql -q 'insert into test (id, id2) values (0, 2);'
   dolt add .
-  dolt commit -m "conclicting commit message"
+  dolt commit -m "conflicting commit message"
 
   shaparent1=$(dolt log --oneline --decorate=no | head -n 1 | cut -d ' ' -f 1)
   # remove special characters (color)

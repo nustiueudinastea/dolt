@@ -17,10 +17,8 @@ package commands
 import (
 	"context"
 	"fmt"
-	"io"
 	"testing"
 
-	"github.com/dolthub/go-mysql-server/sql"
 	_ "github.com/dolthub/go-mysql-server/sql/variables"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -29,7 +27,6 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
 	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
 )
 
 var tableName = "people"
@@ -41,9 +38,9 @@ func TestSqlConsole(t *testing.T) {
 
 		dEnv, err := sqle.CreateEnvWithSeedData()
 		require.NoError(t, err)
-		defer dEnv.DoltDB.Close()
+		defer dEnv.DoltDB(ctx).Close()
 
-		cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+		cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 		require.NoError(t, err)
 
 		args := []string{}
@@ -74,9 +71,9 @@ func TestSqlBatchMode(t *testing.T) {
 
 			dEnv, err := sqle.CreateEnvWithSeedData()
 			require.NoError(t, err)
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-b", "-q", test.query}
@@ -117,9 +114,9 @@ func TestSqlSelect(t *testing.T) {
 			ctx := context.TODO()
 			dEnv, err := sqle.CreateEnvWithSeedData()
 			require.NoError(t, err)
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-q", test.query}
@@ -147,9 +144,9 @@ func TestSqlShow(t *testing.T) {
 			ctx := context.TODO()
 			dEnv, err := sqle.CreateEnvWithSeedData()
 			require.NoError(t, err)
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-q", test.query}
@@ -181,14 +178,14 @@ func TestCreateTable(t *testing.T) {
 			ctx := context.TODO()
 
 			dEnv := dtestutils.CreateTestEnv()
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 			working, err := dEnv.WorkingRoot(context.Background())
 			assert.Nil(t, err, "Unexpected error")
 			has, err := working.HasTable(context.Background(), doltdb.TableName{Name: tableName})
 			assert.NoError(t, err)
 			assert.False(t, has, "table exists before creating it")
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-q", test.query}
@@ -230,9 +227,9 @@ func TestShowTables(t *testing.T) {
 			ctx := context.TODO()
 			dEnv, err := sqle.CreateEnvWithSeedData()
 			require.NoError(t, err)
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-q", test.query}
@@ -266,9 +263,9 @@ func TestAlterTable(t *testing.T) {
 
 			dEnv, err := sqle.CreateEnvWithSeedData()
 			require.NoError(t, err)
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-q", test.query}
@@ -297,9 +294,9 @@ func TestDropTable(t *testing.T) {
 			ctx := context.TODO()
 			dEnv, err := sqle.CreateEnvWithSeedData()
 			require.NoError(t, err)
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-q", test.query}
@@ -418,9 +415,9 @@ func TestInsert(t *testing.T) {
 			ctx := context.Background()
 			dEnv, err := sqle.CreateEnvWithSeedData()
 			require.NoError(t, err)
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-q", test.query}
@@ -436,7 +433,7 @@ func TestInsert(t *testing.T) {
 				// Assert that all expected IDs exist after the insert
 				for _, expectedid := range test.expectedIds {
 					q := fmt.Sprintf("SELECT * FROM %s WHERE id = '%s'", tableName, expectedid.String())
-					rows, err := sqle.ExecuteSelect(dEnv, root, q)
+					rows, err := sqle.ExecuteSelect(ctx, dEnv, root, q)
 					assert.NoError(t, err)
 					assert.True(t, len(rows) > 0)
 				}
@@ -502,9 +499,9 @@ func TestUpdate(t *testing.T) {
 			ctx := context.Background()
 			dEnv, err := sqle.CreateEnvWithSeedData()
 			require.NoError(t, err)
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-q", test.query}
@@ -520,7 +517,7 @@ func TestUpdate(t *testing.T) {
 				// Assert that all rows have been updated
 				for i, expectedid := range test.expectedIds {
 					q := fmt.Sprintf("SELECT * FROM %s WHERE id = '%s'", tableName, expectedid.String())
-					rows, err := sqle.ExecuteSelect(dEnv, root, q)
+					rows, err := sqle.ExecuteSelect(ctx, dEnv, root, q)
 					assert.NoError(t, err)
 					assert.True(t, len(rows) > 0)
 					assert.Equal(t, uint32(test.expectedAges[i]), rows[0][2])
@@ -580,9 +577,9 @@ func TestDelete(t *testing.T) {
 			ctx := context.Background()
 			dEnv, err := sqle.CreateEnvWithSeedData()
 			require.NoError(t, err)
-			defer dEnv.DoltDB.Close()
+			defer dEnv.DoltDB(ctx).Close()
 
-			cliCtx, err := NewArgFreeCliContext(ctx, dEnv)
+			cliCtx, err := NewArgFreeCliContext(ctx, dEnv, dEnv.FS)
 			require.NoError(t, err)
 
 			args := []string{"-q", test.query}
@@ -598,30 +595,11 @@ func TestDelete(t *testing.T) {
 				// Assert that all rows have been deleted
 				for _, expectedid := range test.deletedIds {
 					q := fmt.Sprintf("SELECT * FROM %s WHERE id = '%s'", tableName, expectedid.String())
-					rows, err := sqle.ExecuteSelect(dEnv, root, q)
+					rows, err := sqle.ExecuteSelect(ctx, dEnv, root, q)
 					assert.NoError(t, err)
 					assert.True(t, len(rows) == 0)
 				}
 			}
 		})
-	}
-}
-
-func TestCommitHooksNoErrors(t *testing.T) {
-	dEnv, err := sqle.CreateEnvWithSeedData()
-	require.NoError(t, err)
-	defer dEnv.DoltDB.Close()
-
-	sql.SystemVariables.SetGlobal(dsess.ReplicateToRemote, "unknown")
-	hooks, err := sqle.GetCommitHooks(context.Background(), nil, dEnv, io.Discard)
-	assert.NoError(t, err)
-	if len(hooks) < 1 {
-		t.Error("failed to produce noop hook")
-	} else {
-		switch h := hooks[0].(type) {
-		case *doltdb.LogHook:
-		default:
-			t.Errorf("expected LogHook, found: %s", h)
-		}
 	}
 }

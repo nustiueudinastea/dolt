@@ -69,33 +69,44 @@ var _ tablePersister = &fsTablePersister{}
 var _ tableFilePersister = &fsTablePersister{}
 
 func (ftp *fsTablePersister) Open(ctx context.Context, name hash.Hash, chunkCount uint32, stats *Stats) (chunkSource, error) {
-	return newFileTableReader(ctx, ftp.dir, name, chunkCount, ftp.q)
+	return newFileTableReader(ctx, ftp.dir, name, chunkCount, ftp.q, stats)
 }
 
-func (ftp *fsTablePersister) Exists(ctx context.Context, name hash.Hash, chunkCount uint32, stats *Stats) (bool, error) {
+func (ftp *fsTablePersister) Exists(ctx context.Context, name string, chunkCount uint32, stats *Stats) (bool, error) {
 	ftp.removeMu.Lock()
 	defer ftp.removeMu.Unlock()
 	if ftp.toKeep != nil {
-		ftp.toKeep[filepath.Join(ftp.dir, name.String())] = struct{}{}
+		ftp.toKeep[filepath.Join(ftp.dir, name)] = struct{}{}
 	}
 
-	exists, err := tableFileExists(ctx, ftp.dir, name)
-	if exists || err != nil {
-		return exists, err
+	if h, ok := hash.MaybeParse(name); ok {
+		exists, err := tableFileExists(ctx, ftp.dir, h)
+		if exists || err != nil {
+			return exists, err
+		}
+
 	}
+
 	return archiveFileExists(ctx, ftp.dir, name)
 }
 
-func (ftp *fsTablePersister) Persist(ctx context.Context, mt *memTable, haver chunkReader, stats *Stats) (chunkSource, error) {
+func (ftp *fsTablePersister) Persist(ctx context.Context, mt *memTable, haver chunkReader, keeper keeperF, stats *Stats) (chunkSource, gcBehavior, error) {
 	t1 := time.Now()
 	defer stats.PersistLatency.SampleTimeSince(t1)
 
-	name, data, chunkCount, err := mt.write(haver, stats)
+	name, data, chunkCount, gcb, err := mt.write(haver, keeper, stats)
 	if err != nil {
-		return emptyChunkSource{}, err
+		return emptyChunkSource{}, gcBehavior_Continue, err
+	}
+	if gcb != gcBehavior_Continue {
+		return emptyChunkSource{}, gcb, nil
 	}
 
-	return ftp.persistTable(ctx, name, data, chunkCount, stats)
+	src, err := ftp.persistTable(ctx, name, data, chunkCount, stats)
+	if err != nil {
+		return emptyChunkSource{}, gcBehavior_Continue, err
+	}
+	return src, gcBehavior_Continue, nil
 }
 
 func (ftp *fsTablePersister) Path() string {

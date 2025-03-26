@@ -101,18 +101,31 @@ func NewPuller(
 		return nil, ErrIncompatibleSourceChunkStore
 	}
 
+	// walkAddrs can be used for getAddrs on the AddTableFile call as well.
+	getAddrs := func(c chunks.Chunk) chunks.GetAddrsCb {
+		return func(ctx context.Context, ins hash.HashSet, filter chunks.PendingRefExists) error {
+			return walkAddrs(c, func(h hash.Hash, _ bool) error {
+				if !filter(h) {
+					ins.Insert(h)
+				}
+				return nil
+			})
+		}
+	}
+
 	wr := NewPullTableFileWriter(ctx, PullTableFileWriterConfig{
 		ConcurrentUploads:    2,
 		ChunksPerFile:        chunksPerTF,
 		MaximumBufferedFiles: 8,
 		TempDir:              tempDir,
 		DestStore:            sinkCS.(chunks.TableFileStore),
+		GetAddrs:             getAddrs,
 	})
 
 	rd := GetChunkFetcher(ctx, srcChunkStore)
 
 	var pushLogger *log.Logger
-	if dbg, ok := os.LookupEnv(dconfig.EnvPushLog); ok && strings.ToLower(dbg) == "true" {
+	if dbg, ok := os.LookupEnv(dconfig.EnvPushLog); ok && strings.EqualFold(dbg, "true") {
 		logFilePath := filepath.Join(tempDir, "push.log")
 		f, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.ModePerm)
 
@@ -343,17 +356,22 @@ func (p *Puller) Pull(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if len(cChk.FullCompressedChunk) == 0 {
+			if cChk.IsGhost() {
+				return fmt.Errorf("attempted to push or pull ghost chunk: %w", nbs.ErrGhostChunkRequested)
+			}
+			if cChk.IsEmpty() {
 				return errors.New("failed to get all chunks.")
 			}
 
-			atomic.AddUint64(&p.stats.fetchedSourceBytes, uint64(len(cChk.FullCompressedChunk)))
 			atomic.AddUint64(&p.stats.fetchedSourceChunks, uint64(1))
 
 			chnk, err := cChk.ToChunk()
 			if err != nil {
 				return err
 			}
+
+			atomic.AddUint64(&p.stats.fetchedSourceBytes, uint64(len(chnk.Data())))
+
 			err = p.waf(chnk, func(h hash.Hash, _ bool) error {
 				tracker.Seen(h)
 				return nil
@@ -363,7 +381,7 @@ func (p *Puller) Pull(ctx context.Context) error {
 			}
 			tracker.TickProcessed()
 
-			err = p.wr.AddCompressedChunk(ctx, cChk)
+			err = p.wr.AddToChunker(ctx, cChk)
 			if err != nil {
 				return err
 			}

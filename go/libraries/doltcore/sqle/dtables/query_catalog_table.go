@@ -114,8 +114,10 @@ func (sq SavedQuery) asRow(nbf *types.NomsBinFormat) (row.Row, error) {
 }
 
 var DoltQueryCatalogSchema = schema.MustSchemaFromCols(queryCatalogCols)
-var catalogKd = DoltQueryCatalogSchema.GetKeyDescriptor()
-var catalogVd = DoltQueryCatalogSchema.GetValueDescriptor()
+
+// system tables do not contain addressable columns, and do not require nodestore access.
+var catalogKd = DoltQueryCatalogSchema.GetKeyDescriptor(nil)
+var catalogVd = DoltQueryCatalogSchema.GetValueDescriptor(nil)
 
 // Creates the query catalog table if it doesn't exist.
 func createQueryCatalogIfNotExists(ctx context.Context, root doltdb.RootValue) (doltdb.RootValue, error) {
@@ -234,7 +236,10 @@ func newQueryCatalogEntryProlly(ctx context.Context, tbl *doltdb.Table, id, name
 	if err != nil {
 		return SavedQuery{}, nil, err
 	}
-	m := durable.ProllyMapFromIndex(idx)
+	m, err := durable.ProllyMapFromIndex(idx)
+	if err != nil {
+		return SavedQuery{}, nil, err
+	}
 
 	existingSQ, err := retrieveFromQueryCatalogProlly(ctx, tbl, id)
 	if err != nil && !ErrQueryNotFound.Is(err) {
@@ -310,7 +315,11 @@ func retrieveFromQueryCatalogProlly(ctx context.Context, tbl *doltdb.Table, id s
 		return SavedQuery{}, err
 	}
 
-	m := durable.ProllyMapFromIndex(idx)
+	m, err := durable.ProllyMapFromIndex(idx)
+	if err != nil {
+		return SavedQuery{}, err
+	}
+
 	kb := val.NewTupleBuilder(catalogKd)
 	kb.PutString(0, id)
 	k := kb.Build(m.Pool())

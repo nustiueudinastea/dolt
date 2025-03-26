@@ -62,11 +62,22 @@ func writeItemOffsets(b *fb.Builder, items [][]byte, sumSz int) fb.UOffsetT {
 	return b.EndVector(len(items) + 1)
 }
 
+func writeItemOffsets32(b *fb.Builder, items [][]byte, sumSz int) fb.UOffsetT {
+	var off = sumSz
+	for i := len(items) - 1; i >= 0; i-- {
+		b.PrependUint32(uint32(off))
+		off -= len(items[i])
+	}
+	assertTrue(off == 0, "incorrect final value after serializing offStart")
+	b.PrependUint32(uint32(off))
+	return b.EndVector(len(items) + 1)
+}
+
 // countAddresses returns the number of chunk addresses stored within |items|.
 func countAddresses(items [][]byte, td val.TupleDesc) (cnt int) {
 	for i := len(items) - 1; i >= 0; i-- {
 		val.IterAddressFields(td, func(j int, t val.Type) {
-			// get offset of address withing |tup|
+			// get offset of address within |tup|
 			addr := val.Tuple(items[i]).GetField(j)
 			if len(addr) > 0 && !hash.New(addr).IsEmpty() {
 				cnt++
@@ -89,7 +100,7 @@ func writeAddressOffsets(b *fb.Builder, items [][]byte, sumSz int, td val.TupleD
 			if len(addr) == 0 || hash.New(addr).IsEmpty() {
 				return
 			}
-			// get offset of address withing |tup|
+			// get offset of address within |tup|
 			o, _ := tup.GetOffset(j)
 			o += off // offset is tuple start plus field start
 			b.PrependUint16(uint16(o))

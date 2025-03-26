@@ -16,6 +16,7 @@ package writer
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
@@ -35,7 +36,10 @@ func getPrimaryProllyWriter(ctx context.Context, t *doltdb.Table, schState *dses
 		return prollyIndexWriter{}, err
 	}
 
-	m := durable.ProllyMapFromIndex(idx)
+	m, err := durable.ProllyMapFromIndex(idx)
+	if err != nil {
+		return prollyIndexWriter{}, err
+	}
 
 	keyDesc, valDesc := m.Descriptors()
 
@@ -54,7 +58,10 @@ func getPrimaryKeylessProllyWriter(ctx context.Context, t *doltdb.Table, schStat
 		return prollyKeylessWriter{}, err
 	}
 
-	m := durable.ProllyMapFromIndex(idx)
+	m, err := durable.ProllyMapFromIndex(idx)
+	if err != nil {
+		return prollyKeylessWriter{}, err
+	}
 
 	keyDesc, valDesc := m.Descriptors()
 
@@ -68,7 +75,7 @@ func getPrimaryKeylessProllyWriter(ctx context.Context, t *doltdb.Table, schStat
 
 type indexWriter interface {
 	Name() string
-	Map(ctx context.Context) (prolly.Map, error)
+	Map(ctx context.Context) (prolly.MapInterface, error)
 	ValidateKeyViolations(ctx context.Context, sqlRow sql.Row) error
 	Insert(ctx context.Context, sqlRow sql.Row) error
 	Delete(ctx context.Context, sqlRow sql.Row) error
@@ -101,7 +108,7 @@ func (m prollyIndexWriter) Name() string {
 	return ""
 }
 
-func (m prollyIndexWriter) Map(ctx context.Context) (prolly.Map, error) {
+func (m prollyIndexWriter) Map(ctx context.Context) (prolly.MapInterface, error) {
 	return m.mut.Map(ctx)
 }
 
@@ -125,7 +132,12 @@ func (m prollyIndexWriter) ValidateKeyViolations(ctx context.Context, sqlRow sql
 	if err != nil {
 		return err
 	} else if ok {
-		keyStr := FormatKeyForUniqKeyErr(k, m.keyBld.Desc)
+		remappedSqlRow := make(sql.Row, len(sqlRow))
+		for to := range m.keyMap {
+			from := m.keyMap.MapOrdinal(to)
+			remappedSqlRow[to] = sqlRow[from]
+		}
+		keyStr := FormatKeyForUniqKeyErr(ctx, k, m.keyBld.Desc, remappedSqlRow)
 		return m.uniqueKeyError(ctx, keyStr, k, true)
 	}
 	return nil
@@ -182,7 +194,12 @@ func (m prollyIndexWriter) Update(ctx context.Context, oldRow sql.Row, newRow sq
 	if err != nil {
 		return err
 	} else if ok {
-		keyStr := FormatKeyForUniqKeyErr(newKey, m.keyBld.Desc)
+		remappedSqlRow := make(sql.Row, len(newRow))
+		for to := range m.keyMap {
+			from := m.keyMap.MapOrdinal(to)
+			remappedSqlRow[to] = newRow[from]
+		}
+		keyStr := FormatKeyForUniqKeyErr(ctx, newKey, m.keyBld.Desc, remappedSqlRow)
 		return m.uniqueKeyError(ctx, keyStr, newKey, true)
 	}
 
@@ -247,7 +264,7 @@ func (m prollyIndexWriter) uniqueKeyError(ctx context.Context, keyStr string, ke
 
 type prollySecondaryIndexWriter struct {
 	name          string
-	mut           *prolly.MutableMap
+	mut           prolly.MutableMapInterface
 	unique        bool
 	prefixLengths []uint16
 
@@ -273,8 +290,8 @@ func (m prollySecondaryIndexWriter) Name() string {
 	return m.name
 }
 
-func (m prollySecondaryIndexWriter) Map(ctx context.Context) (prolly.Map, error) {
-	return m.mut.Map(ctx)
+func (m prollySecondaryIndexWriter) Map(ctx context.Context) (prolly.MapInterface, error) {
+	return m.mut.MapInterface(ctx)
 }
 
 func (m prollySecondaryIndexWriter) ValidateKeyViolations(ctx context.Context, sqlRow sql.Row) error {
@@ -333,7 +350,7 @@ func (m prollySecondaryIndexWriter) checkForUniqueKeyErr(ctx context.Context, sq
 	// build a val.Tuple containing only fields for the unique column prefix
 	key := m.keyBld.BuildPrefix(ns.Pool(), m.idxCols)
 	desc := m.keyBld.Desc.PrefixDesc(m.idxCols)
-	rng := prolly.PrefixRange(key, desc)
+	rng := prolly.PrefixRange(ctx, key, desc)
 	iter, err := m.mut.IterRange(ctx, rng)
 	if err != nil {
 		return err
@@ -354,8 +371,13 @@ func (m prollySecondaryIndexWriter) checkForUniqueKeyErr(ctx context.Context, sq
 	}
 	existingPK := m.pkBld.Build(sharePool)
 
+	remappedSqlRow := make(sql.Row, m.idxCols)
+	for to := range m.keyMap[:m.idxCols] {
+		from := m.keyMap.MapOrdinal(to)
+		remappedSqlRow[to] = m.trimKeyPart(to, sqlRow[from])
+	}
 	return secondaryUniqueKeyError{
-		keyStr:      FormatKeyForUniqKeyErr(key, desc),
+		keyStr:      FormatKeyForUniqKeyErr(ctx, key, desc, remappedSqlRow),
 		existingKey: existingPK,
 	}
 }
@@ -413,7 +435,7 @@ func (m prollySecondaryIndexWriter) IterRange(ctx context.Context, rng prolly.Ra
 
 // FormatKeyForUniqKeyErr formats the given tuple |key| using |d|. The resulting
 // string is suitable for use in a sql.UniqueKeyError
-func FormatKeyForUniqKeyErr(key val.Tuple, d val.TupleDesc) string {
+func FormatKeyForUniqKeyErr(ctx context.Context, key val.Tuple, d val.TupleDesc, sqlRow sql.Row) string {
 	var sb strings.Builder
 	sb.WriteString("[")
 	seenOne := false
@@ -422,7 +444,13 @@ func FormatKeyForUniqKeyErr(key val.Tuple, d val.TupleDesc) string {
 			sb.WriteString(",")
 		}
 		seenOne = true
-		sb.WriteString(d.FormatValue(i, key.GetField(i)))
+		switch d.Types[i].Enc {
+		// address encodings should be printed as strings
+		case val.BytesAddrEnc, val.StringAddrEnc:
+			sb.WriteString(fmt.Sprintf("%s", sqlRow[i]))
+		default:
+			sb.WriteString(d.FormatValue(ctx, i, key.GetField(i)))
+		}
 	}
 	sb.WriteString("]")
 	return sb.String()

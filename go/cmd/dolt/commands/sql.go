@@ -93,6 +93,8 @@ const (
 	DefaultHost           = "localhost"
 	UseDbFlag             = "use-db"
 	ProfileFlag           = "profile"
+	timeFlag              = "time"
+	outputFlag            = "output"
 
 	welcomeMsg = `# Welcome to the DoltSQL shell.
 # Statements must be terminated with ';'.
@@ -356,7 +358,7 @@ func listSavedQueries(ctx *sql.Context, qryist cli.Queryist, dEnv *env.DoltEnv, 
 	}
 
 	query := "SELECT * FROM " + doltdb.DoltQueryCatalogTableName
-	return sqlHandleVErrAndExitCode(qryist, execQuery(ctx, qryist, query, format), usage)
+	return sqlHandleVErrAndExitCode(qryist, execSingleQuery(ctx, qryist, query, format), usage)
 }
 
 func executeSavedQuery(ctx *sql.Context, qryist cli.Queryist, dEnv *env.DoltEnv, savedQueryName string, format engine.PrintResultFormat, usage cli.UsagePrinter) int {
@@ -376,7 +378,7 @@ func executeSavedQuery(ctx *sql.Context, qryist cli.Queryist, dEnv *env.DoltEnv,
 	}
 
 	cli.PrintErrf("Executing saved query '%s':\n%s\n", savedQueryName, sq.Query)
-	return sqlHandleVErrAndExitCode(qryist, execQuery(ctx, qryist, sq.Query, format), usage)
+	return sqlHandleVErrAndExitCode(qryist, execSingleQuery(ctx, qryist, sq.Query, format), usage)
 }
 
 func queryMode(
@@ -406,7 +408,7 @@ func execSaveQuery(ctx *sql.Context, dEnv *env.DoltEnv, qryist cli.Queryist, apr
 
 	saveName := apr.GetValueOrDefault(saveFlag, "")
 
-	verr := execQuery(ctx, qryist, query, format)
+	verr := execSingleQuery(ctx, qryist, query, format)
 	if verr != nil {
 		return sqlHandleVErrAndExitCode(qryist, verr, usage)
 	}
@@ -430,7 +432,9 @@ func execSaveQuery(ctx *sql.Context, dEnv *env.DoltEnv, qryist cli.Queryist, apr
 	return 0
 }
 
-func execQuery(
+// execSingleQuery runs a single query and prints the results. This is not intended for use in interactive modes, especially
+// the shell.
+func execSingleQuery(
 	sqlCtx *sql.Context,
 	qryist cli.Queryist,
 	query string,
@@ -443,7 +447,7 @@ func execQuery(
 	}
 
 	if rowIter != nil {
-		err = engine.PrettyPrintResults(sqlCtx, format, sqlSch, rowIter)
+		err = engine.PrettyPrintResults(sqlCtx, format, sqlSch, rowIter, false)
 		if err != nil {
 			return errhand.VerboseErrorFromError(err)
 		}
@@ -459,9 +463,9 @@ func formatQueryError(message string, err error) errhand.VerboseError {
 	)
 
 	if se, ok := vterrors.AsSyntaxError(err); ok {
-		verrBuilder := errhand.BuildDError(message)
+		verrBuilder := errhand.BuildDError("%s", message)
 		verrBuilder.AddDetails("Error parsing SQL: ")
-		verrBuilder.AddDetails(se.Message)
+		verrBuilder.AddDetails("%s", se.Message)
 
 		statement := se.Statement
 		position := se.Position
@@ -493,7 +497,7 @@ func formatQueryError(message string, err error) errhand.VerboseError {
 			}
 		}
 
-		verrBuilder.AddDetails(prevLines + statement)
+		verrBuilder.AddDetails("%s%s", prevLines, statement)
 
 		marker := make([]rune, position+1)
 		for i := 0; i < position; i++ {
@@ -501,7 +505,7 @@ func formatQueryError(message string, err error) errhand.VerboseError {
 		}
 
 		marker[position] = '^'
-		verrBuilder.AddDetails(string(marker))
+		verrBuilder.AddDetails("%s", string(marker))
 
 		return verrBuilder.Build()
 	} else {
@@ -612,7 +616,7 @@ func saveQuery(ctx *sql.Context, root doltdb.RootValue, query string, name strin
 
 // execBatchMode runs all the queries in the input reader
 func execBatchMode(ctx *sql.Context, qryist cli.Queryist, input io.Reader, continueOnErr bool, format engine.PrintResultFormat) error {
-	scanner := NewSqlStatementScanner(input)
+	scanner := NewStreamScanner(input)
 	var query string
 	for scanner.Scan() {
 		if fileReadProg != nil {
@@ -630,7 +634,7 @@ func execBatchMode(ctx *sql.Context, qryist cli.Queryist, input io.Reader, conti
 		if err == sqlparser.ErrEmpty {
 			continue
 		} else if err != nil {
-			err = buildBatchSqlErr(scanner.statementStartLine, query, err)
+			err = buildBatchSqlErr(scanner.state.statementStartLine, query, err)
 			if !continueOnErr {
 				return err
 			} else {
@@ -642,7 +646,7 @@ func execBatchMode(ctx *sql.Context, qryist cli.Queryist, input io.Reader, conti
 		ctx.SetQueryTime(time.Now())
 		sqlSch, rowIter, _, err := processParsedQuery(ctx, query, qryist, sqlStatement)
 		if err != nil {
-			err = buildBatchSqlErr(scanner.statementStartLine, query, err)
+			err = buildBatchSqlErr(scanner.state.statementStartLine, query, err)
 			if !continueOnErr {
 				return err
 			} else {
@@ -659,9 +663,9 @@ func execBatchMode(ctx *sql.Context, qryist cli.Queryist, input io.Reader, conti
 					fileReadProg.printNewLineIfNeeded()
 				}
 			}
-			err = engine.PrettyPrintResults(ctx, format, sqlSch, rowIter)
+			err = engine.PrettyPrintResults(ctx, format, sqlSch, rowIter, false)
 			if err != nil {
-				err = buildBatchSqlErr(scanner.statementStartLine, query, err)
+				err = buildBatchSqlErr(scanner.state.statementStartLine, query, err)
 				if !continueOnErr {
 					return err
 				} else {
@@ -673,7 +677,7 @@ func execBatchMode(ctx *sql.Context, qryist cli.Queryist, input io.Reader, conti
 	}
 
 	if err := scanner.Err(); err != nil {
-		return buildBatchSqlErr(scanner.statementStartLine, query, err)
+		return buildBatchSqlErr(scanner.state.statementStartLine, query, err)
 	}
 
 	return nil
@@ -749,6 +753,10 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 
 	initialCtx := sqlCtx.Context
 
+	pagerEnabled := false
+	// Used for the \edit command.
+	lastSqlCmd := ""
+
 	shell.Uninterpreted(func(c *ishell.Context) {
 		query := c.Args[0]
 		query = strings.TrimSpace(query)
@@ -756,16 +764,7 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 			return
 		}
 
-		// TODO: there's a bug in the readline library when editing multi-line history entries.
-		// Longer term we need to switch to a new readline library, like in this bug:
-		// https://github.com/cockroachdb/cockroach/issues/15460
-		// For now, we store all history entries as single-line strings to avoid the issue.
-		singleLine := strings.ReplaceAll(query, "\n", " ")
-
-		if err := shell.AddHistory(singleLine); err != nil {
-			// TODO: handle better, like by turning off history writing for the rest of the session
-			shell.Println(color.RedString(err.Error()))
-		}
+		trackHistory(shell, query)
 
 		query = strings.TrimSuffix(query, shell.LineTerminator())
 
@@ -786,13 +785,32 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 
 			sqlCtx := sql.NewContext(subCtx, sql.WithSession(sqlCtx.Session))
 
-			subCmd, foundCmd := isSlashQuery(query)
-			if foundCmd {
-				err := handleSlashCommand(sqlCtx, subCmd, query, cliCtx)
-				if err != nil {
-					shell.Println(color.RedString(err.Error()))
+			cmdType, subCmd, newQuery, err := preprocessQuery(query, lastSqlCmd, cliCtx)
+			if err != nil {
+				shell.Println(color.RedString(err.Error()))
+				return true
+			}
+
+			if cmdType == DoltCliCommand {
+				if _, ok := subCmd.(SlashPager); ok {
+					p, err := handlePagerCommand(query)
+					if err != nil {
+						shell.Println(color.RedString(err.Error()))
+					} else {
+						pagerEnabled = p
+					}
+				} else {
+					err := handleSlashCommand(sqlCtx, subCmd, query, cliCtx)
+					if err != nil {
+						shell.Println(color.RedString(err.Error()))
+					}
 				}
 			} else {
+				if cmdType == TransformCommand {
+					query = newQuery
+					trackHistory(shell, query+";")
+				}
+				lastSqlCmd = query
 				var sqlSch sql.Schema
 				var rowIter sql.RowIter
 				if sqlSch, rowIter, _, err = processQuery(sqlCtx, query, qryist); err != nil {
@@ -801,9 +819,9 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 				} else if rowIter != nil {
 					switch closureFormat {
 					case engine.FormatTabular, engine.FormatVertical:
-						err = engine.PrettyPrintResultsExtended(sqlCtx, closureFormat, sqlSch, rowIter)
+						err = engine.PrettyPrintResultsExtended(sqlCtx, closureFormat, sqlSch, rowIter, pagerEnabled)
 					default:
-						err = engine.PrettyPrintResults(sqlCtx, closureFormat, sqlSch, rowIter)
+						err = engine.PrettyPrintResults(sqlCtx, closureFormat, sqlSch, rowIter, pagerEnabled)
 					}
 
 					if err != nil {
@@ -831,13 +849,55 @@ func execShell(sqlCtx *sql.Context, qryist cli.Queryist, format engine.PrintResu
 	return nil
 }
 
-func isSlashQuery(query string) (cli.Command, bool) {
+func trackHistory(shell *ishell.Shell, query string) {
+	// TODO: there's a bug in the readline library when editing multi-line history entries.
+	// Longer term we need to switch to a new readline library, like in this bug:
+	// https://github.com/cockroachdb/cockroach/issues/15460
+	// For now, we store all history entries as single-line strings to avoid the issue.
+	singleLine := strings.ReplaceAll(query, "\n", " ")
+
+	if err := shell.AddHistory(singleLine); err != nil {
+		// TODO: handle better, like by turning off history writing for the rest of the session
+		shell.Println(color.RedString(err.Error()))
+	}
+}
+
+type CommandType int
+
+// CommandType is used to determine how to handle a query. See preprocessQuery.
+const (
+	DoltCliCommand CommandType = iota
+	SqlShellCommand
+	TransformCommand
+)
+
+// preprocessQuery takes the user's query and returns the command type, the command, and the query to execute. The
+// CommandType returned is going to be used to determine how to handle the query.
+//   - DoltCliCommand: the cli.Command returned should be executed. Query string is empty, and should be ignored.
+//   - TransformCommand: The 'lastQuery' argument will be transformed into something else, using the EDITOR.
+//     The query returned will be the edited query, and should be entered into the user's command history. The cli.Command will be nil.
+//   - SqlShellCommand: cli.Command will be nil. The query returned will be identical to the query passed in.
+func preprocessQuery(query, lastQuery string, cliCtx cli.CliContext) (CommandType, cli.Command, string, error) {
 	// strip leading whitespace
 	query = strings.TrimLeft(query, " \t\n\r\v\f")
 	if strings.HasPrefix(query, "\\") {
-		return findSlashCmd(query[1:])
+		if query == "\\edit" {
+			// \edit is a special case. Maybe we'll generalize this in the future.
+			updatedQuery, err := execEditor(lastQuery, ".sql", cliCtx)
+			if err != nil {
+				return TransformCommand, nil, "", err
+			}
+			// Trailing newlines are common in editors, so may as well trim all whitespace.
+			updatedQuery = strings.TrimRight(updatedQuery, " \t\n\r\v\f")
+			return TransformCommand, nil, updatedQuery, nil
+		}
+
+		cmd, ok := findSlashCmd(query[1:])
+		if ok {
+			return DoltCliCommand, cmd, "", nil
+		}
 	}
-	return nil, false
+	return SqlShellCommand, nil, query, nil
 }
 
 // postCommandUpdate is a helper function that is run after the shell has completed a command. It updates the the database
@@ -1122,7 +1182,7 @@ func processParsedQuery(ctx *sql.Context, query string, qryist cli.Queryist, sql
 		}
 		return qryist.Query(ctx, query)
 	default:
-		return qryist.Query(ctx, query)
+		return qryist.QueryWithBindings(ctx, query, sqlStatement, nil, nil)
 	}
 }
 
@@ -1194,7 +1254,7 @@ func (f *fileReadProgress) printNewLineIfNeeded() {
 func updateFileReadProgressOutput() {
 	if fileReadProg == nil {
 		// this should not happen, but sanity check
-		cli.Println("No file is being processed.")
+		cli.PrintErrln("No file is being processed.")
 	}
 	// batch can be writing to the line, so print new line.
 	batchEditStats.printNewLineIfNeeded()

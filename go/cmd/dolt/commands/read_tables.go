@@ -152,7 +152,7 @@ func (cmd ReadTablesCmd) Exec(ctx context.Context, commandStr string, args []str
 	}
 
 	for _, tblName := range tblNames {
-		destRoot, verr = pullTableValue(ctx, dEnv, srcDB, srcRoot, destRoot, downloadLanguage, tblName, commitStr)
+		destRoot, verr = pullTableValue(ctx, dEnv, srcDB, srcRoot, destRoot, downloadLanguage, doltdb.TableName{Name: tblName}, commitStr)
 
 		if verr != nil {
 			return HandleVErrAndExitCode(verr, usage)
@@ -168,8 +168,8 @@ func (cmd ReadTablesCmd) Exec(ctx context.Context, commandStr string, args []str
 	return 0
 }
 
-func pullTableValue(ctx context.Context, dEnv *env.DoltEnv, srcDB *doltdb.DoltDB, srcRoot, destRoot doltdb.RootValue, language progLanguage, tblName, commitStr string) (doltdb.RootValue, errhand.VerboseError) {
-	tbl, ok, err := srcRoot.GetTable(ctx, doltdb.TableName{Name: tblName})
+func pullTableValue(ctx context.Context, dEnv *env.DoltEnv, srcDB *doltdb.DoltDB, srcRoot, destRoot doltdb.RootValue, language progLanguage, tblName doltdb.TableName, commitStr string) (doltdb.RootValue, errhand.VerboseError) {
+	tbl, ok, err := srcRoot.GetTable(ctx, tblName)
 	if !ok {
 		return nil, errhand.BuildDError("No table named '%s' at '%s'", tblName, commitStr).Build()
 	} else if err != nil {
@@ -190,7 +190,7 @@ func pullTableValue(ctx context.Context, dEnv *env.DoltEnv, srcDB *doltdb.DoltDB
 	cli.Println("Retrieving", tblName)
 	runProgFunc := buildProgStarter(language)
 	wg, pullerEventCh := runProgFunc(newCtx)
-	err = dEnv.DoltDB.PullChunks(ctx, tmpDir, srcDB, []hash.Hash{tblHash}, pullerEventCh, nil)
+	err = dEnv.DoltDB(ctx).PullChunks(ctx, tmpDir, srcDB, []hash.Hash{tblHash}, pullerEventCh, nil)
 	stopProgFuncs(cancelFunc, wg, pullerEventCh)
 	if err != nil {
 		return nil, errhand.BuildDError("Failed reading chunks for remote table '%s' at '%s'", tblName, commitStr).AddCause(err).Build()
@@ -223,7 +223,7 @@ func getRemoteDBAtCommit(ctx context.Context, remoteUrl string, remoteUrlParams 
 	}
 	cm, ok := optCmt.ToCommit()
 	if !ok {
-		return nil, nil, errhand.BuildDError(doltdb.ErrGhostCommitEncountered.Error()).Build()
+		return nil, nil, errhand.BuildDError("%s", doltdb.ErrGhostCommitEncountered.Error()).Build()
 	}
 
 	srcRoot, err := cm.GetRootValue(ctx)

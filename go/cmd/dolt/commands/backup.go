@@ -198,7 +198,7 @@ func addBackup(dEnv *env.DoltEnv, apr *argparser.ArgParseResults) errhand.Verbos
 	case env.ErrInvalidBackupURL:
 		return errhand.BuildDError("error: '%s' is not valid.", r.Url).AddCause(err).Build()
 	case env.ErrInvalidBackupName:
-		return errhand.BuildDError("error: invalid backup name: " + r.Name).Build()
+		return errhand.BuildDError("error: invalid backup name: %s", r.Name).Build()
 	default:
 		return errhand.BuildDError("error: Unable to save changes.").AddCause(err).Build()
 	}
@@ -267,15 +267,7 @@ func syncBackup(ctx context.Context, dEnv *env.DoltEnv, apr *argparser.ArgParseR
 }
 
 func backup(ctx context.Context, dEnv *env.DoltEnv, b env.Remote) errhand.VerboseError {
-	metadata, err := env.GetMultiEnvStorageMetadata(dEnv.FS)
-	if err != nil {
-		return nil
-	}
-	if metadata.ArchiveFilesPresent() {
-		return errhand.BuildDError("error: archive files present. Please revert them with the --revert flag before running this command.").Build()
-	}
-
-	destDb, err := b.GetRemoteDB(ctx, dEnv.DoltDB.ValueReadWriter().Format(), dEnv)
+	destDb, err := b.GetRemoteDB(ctx, dEnv.DoltDB(ctx).ValueReadWriter().Format(), dEnv)
 	if err != nil {
 		return errhand.BuildDError("error: unable to open destination.").AddCause(err).Build()
 	}
@@ -283,7 +275,7 @@ func backup(ctx context.Context, dEnv *env.DoltEnv, b env.Remote) errhand.Verbos
 	if err != nil {
 		return errhand.BuildDError("error: ").AddCause(err).Build()
 	}
-	err = actions.SyncRoots(ctx, dEnv.DoltDB, destDb, tmpDir, buildProgStarter(defaultLanguage), stopProgFuncs)
+	err = actions.SyncRoots(ctx, dEnv.DoltDB(ctx), destDb, tmpDir, buildProgStarter(defaultLanguage), stopProgFuncs)
 
 	switch err {
 	case nil:
@@ -297,7 +289,7 @@ func backup(ctx context.Context, dEnv *env.DoltEnv, b env.Remote) errhand.Verbos
 	case env.ErrInvalidBackupURL:
 		return errhand.BuildDError("error: '%s' is not valid.", b.Url).AddCause(err).Build()
 	case env.ErrInvalidBackupName:
-		return errhand.BuildDError("error: invalid backup name: " + b.Name).Build()
+		return errhand.BuildDError("error: invalid backup name: %s", b.Name).Build()
 	default:
 		return errhand.BuildDError("error: Unable to save changes.").AddCause(err).Build()
 	}
@@ -353,7 +345,7 @@ func restoreBackup(ctx context.Context, dEnv *env.DoltEnv, apr *argparser.ArgPar
 
 	if existingDEnv != nil {
 		if !force {
-			return errhand.BuildDError("error: cannot restore backup into " + restoredDB + ". A database with that name already exists. Did you mean to supply --force?").Build()
+			return errhand.BuildDError("error: cannot restore backup into %s. A database with that name already exists. Did you mean to supply --force?", restoredDB).Build()
 		}
 
 		tmpDir, err := existingDEnv.TempTableFilesDir()
@@ -361,7 +353,7 @@ func restoreBackup(ctx context.Context, dEnv *env.DoltEnv, apr *argparser.ArgPar
 			return errhand.VerboseErrorFromError(err)
 		}
 
-		err = actions.SyncRoots(ctx, srcDb, existingDEnv.DoltDB, tmpDir, buildProgStarter(downloadLanguage), stopProgFuncs)
+		err = actions.SyncRoots(ctx, srcDb, existingDEnv.DoltDB(ctx), tmpDir, buildProgStarter(downloadLanguage), stopProgFuncs)
 		if err != nil {
 			return errhand.VerboseErrorFromError(err)
 		}
@@ -384,7 +376,7 @@ func restoreBackup(ctx context.Context, dEnv *env.DoltEnv, apr *argparser.ArgPar
 		if err != nil {
 			return errhand.VerboseErrorFromError(err)
 		}
-		err = actions.SyncRoots(ctx, srcDb, clonedEnv.DoltDB, tmpDir, buildProgStarter(downloadLanguage), stopProgFuncs)
+		err = actions.SyncRoots(ctx, srcDb, clonedEnv.DoltDB(ctx), tmpDir, buildProgStarter(downloadLanguage), stopProgFuncs)
 		if err != nil {
 			// If we're cloning into a directory that already exists do not erase it. Otherwise
 			// make best effort to delete the directory we created.

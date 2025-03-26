@@ -29,10 +29,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,7 +51,7 @@ func TestS3TableReaderAt(t *testing.T) {
 		assert := assert.New(t)
 
 		baseline := s3.getCount
-		tra := &s3TableReaderAt{&s3ObjectReader{makeFlakyS3(s3), "bucket", nil, ""}, h}
+		tra := &s3TableReaderAt{&s3ObjectReader{makeFlakyS3(s3), "bucket", nil, ""}, h.String()}
 		scratch := make([]byte, len(tableData))
 		_, err := tra.ReadAtWithStats(context.Background(), scratch, 0, &Stats{})
 		require.NoError(t, err)
@@ -81,7 +78,7 @@ func TestS3TableReaderAtNamespace(t *testing.T) {
 	require.NoError(t, err)
 	s3.data["a-prefix-here/"+h.String()] = tableData
 
-	tra := &s3TableReaderAt{&s3ObjectReader{s3, "bucket", nil, ns}, h}
+	tra := &s3TableReaderAt{&s3ObjectReader{s3, "bucket", nil, ns}, h.String()}
 	scratch := make([]byte, len(tableData))
 	_, err = tra.ReadAtWithStats(context.Background(), scratch, 0, &Stats{})
 	require.NoError(t, err)
@@ -89,16 +86,16 @@ func TestS3TableReaderAtNamespace(t *testing.T) {
 }
 
 type flakyS3 struct {
-	s3iface.S3API
+	S3APIV2
 	alreadyFailed map[string]struct{}
 }
 
-func makeFlakyS3(svc s3iface.S3API) *flakyS3 {
+func makeFlakyS3(svc S3APIV2) *flakyS3 {
 	return &flakyS3{svc, map[string]struct{}{}}
 }
 
-func (fs3 *flakyS3) GetObjectWithContext(ctx aws.Context, input *s3.GetObjectInput, opts ...request.Option) (*s3.GetObjectOutput, error) {
-	output, err := fs3.S3API.GetObjectWithContext(ctx, input)
+func (fs3 *flakyS3) GetObject(ctx context.Context, input *s3.GetObjectInput, opts ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	output, err := fs3.S3APIV2.GetObject(ctx, input)
 
 	if err != nil {
 		return nil, err

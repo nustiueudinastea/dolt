@@ -25,6 +25,7 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/durable"
 	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
 	"github.com/dolthub/dolt/go/libraries/doltcore/table/typed/noms"
 	"github.com/dolthub/dolt/go/store/prolly"
 	"github.com/dolthub/dolt/go/store/prolly/tree"
@@ -34,10 +35,14 @@ import (
 
 func ProllyRangesForIndex(ctx *sql.Context, index sql.Index, ranges sql.RangeCollection) ([]prolly.Range, error) {
 	idx := index.(*doltIndex)
-	return idx.prollyRanges(ctx, idx.ns, ranges...)
+	return idx.prollyRanges(ctx, idx.ns, ranges.(sql.MySQLRangeCollection)...)
 }
 
 func RowIterForIndexLookup(ctx *sql.Context, t DoltTableable, lookup sql.IndexLookup, pkSch sql.PrimaryKeySchema, columns []uint64) (sql.RowIter, error) {
+	mysqlRanges, ok := lookup.Ranges.(sql.MySQLRangeCollection)
+	if !ok {
+		return nil, fmt.Errorf("expected MySQL ranges while creating row iter")
+	}
 	idx := lookup.Index.(*doltIndex)
 	durableState, err := idx.getDurableState(ctx, t)
 	if err != nil {
@@ -45,16 +50,16 @@ func RowIterForIndexLookup(ctx *sql.Context, t DoltTableable, lookup sql.IndexLo
 	}
 
 	if types.IsFormat_DOLT(idx.Format()) {
-		prollyRanges, err := idx.prollyRanges(ctx, idx.ns, lookup.Ranges...)
+		prollyRanges, err := idx.prollyRanges(ctx, idx.ns, mysqlRanges...)
 		if len(prollyRanges) > 1 {
 			return nil, fmt.Errorf("expected a single index range")
 		}
 		if err != nil {
 			return nil, err
 		}
-		return RowIterForProllyRange(ctx, idx, prollyRanges[0], pkSch, columns, durableState)
+		return RowIterForProllyRange(ctx, idx, prollyRanges[0], pkSch, columns, durableState, lookup.IsReverse)
 	} else {
-		nomsRanges, err := idx.nomsRanges(ctx, lookup.Ranges...)
+		nomsRanges, err := idx.nomsRanges(ctx, mysqlRanges...)
 		if err != nil {
 			return nil, err
 		}
@@ -62,7 +67,7 @@ func RowIterForIndexLookup(ctx *sql.Context, t DoltTableable, lookup sql.IndexLo
 	}
 }
 
-func RowIterForProllyRange(ctx *sql.Context, idx DoltIndex, r prolly.Range, pkSch sql.PrimaryKeySchema, projections []uint64, durableState *durableIndexState) (sql.RowIter, error) {
+func RowIterForProllyRange(ctx *sql.Context, idx DoltIndex, r prolly.Range, pkSch sql.PrimaryKeySchema, projections []uint64, durableState *durableIndexState, reverse bool) (sql.RowIter, error) {
 	if projections == nil {
 		projections = idx.Schema().GetAllCols().Tags
 	}
@@ -70,7 +75,7 @@ func RowIterForProllyRange(ctx *sql.Context, idx DoltIndex, r prolly.Range, pkSc
 	if sql.IsKeyless(pkSch.Schema) {
 		// in order to resolve row cardinality, keyless indexes must always perform
 		// an indirect lookup through the clustered index.
-		return newProllyKeylessIndexIter(ctx, idx, r, pkSch, projections, durableState.Primary, durableState.Secondary)
+		return newProllyKeylessIndexIter(ctx, idx, r, nil, pkSch, projections, durableState.Primary, durableState.Secondary, reverse)
 	}
 
 	covers := idx.coversColumns(durableState, projections)
@@ -101,6 +106,10 @@ type IndexLookupKeyIterator interface {
 }
 
 func NewRangePartitionIter(ctx *sql.Context, t DoltTableable, lookup sql.IndexLookup, isDoltFmt bool) (sql.PartitionIter, error) {
+	if _, ok := lookup.Ranges.(DoltgresRangeCollection); ok {
+		return NewDoltgresPartitionIter(ctx, lookup)
+	}
+	mysqlRanges := lookup.Ranges.(sql.MySQLRangeCollection)
 	idx := lookup.Index.(*doltIndex)
 	if lookup.IsPointLookup && isDoltFmt {
 		return newPointPartitionIter(ctx, lookup, idx)
@@ -110,9 +119,9 @@ func NewRangePartitionIter(ctx *sql.Context, t DoltTableable, lookup sql.IndexLo
 	var nomsRanges []*noms.ReadRange
 	var err error
 	if isDoltFmt {
-		prollyRanges, err = idx.prollyRanges(ctx, idx.ns, lookup.Ranges...)
+		prollyRanges, err = idx.prollyRanges(ctx, idx.ns, mysqlRanges...)
 	} else {
-		nomsRanges, err = idx.nomsRanges(ctx, lookup.Ranges...)
+		nomsRanges, err = idx.nomsRanges(ctx, mysqlRanges...)
 	}
 	if err != nil {
 		return nil, err
@@ -127,7 +136,7 @@ func NewRangePartitionIter(ctx *sql.Context, t DoltTableable, lookup sql.IndexLo
 }
 
 func newPointPartitionIter(ctx *sql.Context, lookup sql.IndexLookup, idx *doltIndex) (sql.PartitionIter, error) {
-	prollyRanges, err := idx.prollyRanges(ctx, idx.ns, lookup.Ranges[0])
+	prollyRanges, err := idx.prollyRanges(ctx, idx.ns, lookup.Ranges.(sql.MySQLRangeCollection)[0])
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +146,7 @@ func newPointPartitionIter(ctx *sql.Context, lookup sql.IndexLookup, idx *doltIn
 }
 
 var _ sql.PartitionIter = (*pointPartition)(nil)
-var _ sql.Partition = (*pointPartition)(nil)
+var _ sql.Partition = pointPartition{}
 
 type pointPartition struct {
 	r    prolly.Range
@@ -226,21 +235,75 @@ func (rp rangePartition) Key() []byte {
 	return rp.key
 }
 
+func GetDurableIndex(ctx *sql.Context,
+	tab DoltTableable,
+	idx DoltIndex) (durable.Index, error) {
+	di := idx.(*doltIndex)
+	s, err := di.getDurableState(ctx, tab)
+	if err != nil {
+		return nil, err
+	}
+	return s.Secondary, nil
+}
+
+// vectorPartitionIter is the sql.PartitionIter for vector indexes.
+// Because it only ever has one partition, it also implements sql.Partition
+// and returns itself in calls to Next.
+type vectorPartitionIter struct {
+	Column sql.Expression
+	sql.OrderAndLimit
+	used bool
+}
+
+var _ sql.PartitionIter = (*vectorPartitionIter)(nil)
+var _ sql.Partition = vectorPartitionIter{}
+
+// Key returns the key used to distinguish partitions. Since it only ever has one partition,
+// this value is unused.
+func (v vectorPartitionIter) Key() []byte {
+	return nil
+}
+
+func (v *vectorPartitionIter) Close(_ *sql.Context) error {
+	return nil
+}
+
+func (v *vectorPartitionIter) Next(_ *sql.Context) (sql.Partition, error) {
+	if v.used {
+		return nil, io.EOF
+	}
+	v.used = true
+	return *v, nil
+}
+
+func NewVectorPartitionIter(lookup sql.IndexLookup) (sql.PartitionIter, error) {
+	return &vectorPartitionIter{
+		OrderAndLimit: lookup.VectorOrderAndLimit,
+	}, nil
+}
+
 // IndexScanBuilder generates secondary lookups for partitions and
 // encapsulates fast path optimizations for certain point lookups.
 type IndexScanBuilder interface {
+	IndexRangeIterable
+
 	// NewPartitionRowIter returns a sql.RowIter for an index partition.
 	NewPartitionRowIter(ctx *sql.Context, part sql.Partition) (sql.RowIter, error)
 
-	// NewRangeMapIter returns a prolly.MapIter for an index partition.
-	NewRangeMapIter(ctx context.Context, r prolly.Range, reverse bool) (prolly.MapIter, error)
-
 	// NewSecondaryIter returns an object used to perform secondary lookups
 	// for index joins.
-	NewSecondaryIter(strict bool, cnt int, nullSafe []bool) SecondaryLookupIterGen
+	NewSecondaryIter(strict bool, cnt int, nullSafe []bool) (SecondaryLookupIterGen, error)
 
 	// Key returns the table root for caching purposes
 	Key() doltdb.DataCacheKey
+
+	// OutputSchema returns the output KV tuple schema
+	OutputSchema() schema.Schema
+}
+
+type IndexRangeIterable interface {
+	// NewRangeMapIter returns a prolly.MapIter for an index partition.
+	NewRangeMapIter(ctx context.Context, r prolly.Range, reverse bool) (prolly.MapIter, error)
 }
 
 func NewIndexReaderBuilder(
@@ -269,10 +332,18 @@ func NewIndexReaderBuilder(
 	}
 
 	if isDoltFormat {
-		base.sec = durable.ProllyMapFromIndex(s.Secondary)
-		base.secKd, base.secVd = base.sec.Descriptors()
-		base.ns = base.sec.NodeStore()
+		secondaryIndex := durable.MapFromIndex(s.Secondary)
+		base.ns = secondaryIndex.NodeStore()
+		base.secKd, base.secVd = secondaryIndex.Descriptors()
 		base.prefDesc = base.secKd.PrefixDesc(len(di.columns))
+		switch si := secondaryIndex.(type) {
+		case prolly.Map:
+			base.sec = si
+		case prolly.ProximityMap:
+			base.proximitySecondary = si
+		default:
+			return nil, fmt.Errorf("unknown index type %v", secondaryIndex)
+		}
 	}
 
 	switch {
@@ -324,15 +395,17 @@ func newNonCoveringLookupBuilder(s *durableIndexState, b *baseIndexImplBuilder) 
 			"primary index passed, but only secondary indexes are supported")
 	}
 
-	primary := durable.ProllyMapFromIndex(s.Primary)
+	primary, err := durable.ProllyMapFromIndex(s.Primary)
+	if err != nil {
+		return nil, err
+	}
 	priKd, _ := primary.Descriptors()
 	tbBld := val.NewTupleBuilder(priKd)
-	pkMap := ordinalMappingFromIndex(b.idx)
+	pkMap := OrdinalMappingFromIndex(b.idx)
 	keyProj, valProj, ordProj := projectionMappings(b.idx.Schema(), b.projections)
 	return &nonCoveringIndexImplBuilder{
 		baseIndexImplBuilder: b,
 		pri:                  primary,
-		priKd:                priKd,
 		pkBld:                tbBld,
 		pkMap:                pkMap,
 		keyMap:               keyProj,
@@ -356,14 +429,20 @@ type baseIndexImplBuilder struct {
 	sch         sql.PrimaryKeySchema
 	projections []uint64
 
-	sec          prolly.Map
-	secKd, secVd val.TupleDesc
-	prefDesc     val.TupleDesc
-	ns           tree.NodeStore
+	isProximity        bool
+	sec                prolly.Map
+	proximitySecondary prolly.ProximityMap
+	secKd, secVd       val.TupleDesc
+	prefDesc           val.TupleDesc
+	ns                 tree.NodeStore
 }
 
 func (ib *baseIndexImplBuilder) Key() doltdb.DataCacheKey {
 	return ib.key
+}
+
+func (ib *baseIndexImplBuilder) OutputSchema() schema.Schema {
+	return ib.idx.IndexSchema()
 }
 
 // NewPartitionRowIter implements IndexScanBuilder
@@ -376,7 +455,7 @@ func (ib *baseIndexImplBuilder) NewRangeMapIter(_ context.Context, _ prolly.Rang
 	panic("cannot call NewMapIter on baseIndexImplBuilder")
 }
 
-func (ib *baseIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) SecondaryLookupIterGen {
+func (ib *baseIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) (SecondaryLookupIterGen, error) {
 	panic("cannot call NewSecondaryIter on baseIndexImplBuilder")
 }
 
@@ -384,8 +463,12 @@ func (ib *baseIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe 
 // every subsequent point lookup. Note that equality joins can have a mix of
 // point lookups on concrete values, and range lookups for null matches.
 func (ib *baseIndexImplBuilder) newPointLookup(ctx *sql.Context, rang prolly.Range) (iter prolly.MapIter, err error) {
+	if ib.isProximity {
+		// TODO: It should be possible to do a point lookup with a proximity index.
+		return nil, fmt.Errorf("can't perform point lookup with a proximity index")
+	}
 	err = ib.sec.GetPrefix(ctx, rang.Tup, ib.prefDesc, func(key val.Tuple, value val.Tuple) (err error) {
-		if key != nil && rang.Matches(key) {
+		if key != nil && rang.Matches(ctx, key) {
 			iter = prolly.NewPointLookup(key, value)
 		} else {
 			iter = prolly.EmptyPointLookup
@@ -400,14 +483,33 @@ func (ib *baseIndexImplBuilder) rangeIter(ctx *sql.Context, part sql.Partition) 
 	case pointPartition:
 		return ib.newPointLookup(ctx, p.r)
 	case rangePartition:
+		if ib.isProximity {
+			return nil, fmt.Errorf("range iter not allowed for vector index")
+		}
 		if p.isReverse {
 			return ib.sec.IterRangeReverse(ctx, p.prollyRange)
 		} else {
 			return ib.sec.IterRange(ctx, p.prollyRange)
 		}
+	case DoltgresPartition:
+		return doltgresProllyMapIterator(ctx, ib.secKd, ib.ns, ib.sec.Node(), p.rang)
+	case vectorPartitionIter:
+		return nil, fmt.Errorf("ranger iter not allowed for vector partition")
 	default:
 		panic(fmt.Sprintf("unexpected prolly partition type: %T", part))
 	}
+}
+
+func (ib *baseIndexImplBuilder) proximityIter(ctx *sql.Context, part vectorPartitionIter) (prolly.MapIter, error) {
+	candidateVector, err := part.Literal.Eval(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := part.Limit.Eval(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	return ib.proximitySecondary.GetClosest(ctx, candidateVector, int(limit.(int64)))
 }
 
 // coveringIndexImplBuilder constructs row iters for covering lookups,
@@ -421,17 +523,18 @@ type coveringIndexImplBuilder struct {
 	keyMap, valMap, ordMap val.OrdinalMapping
 }
 
-func NewSequenceMapIter(ctx context.Context, ib IndexScanBuilder, ranges []prolly.Range, reverse bool) (prolly.MapIter, error) {
+func NewSequenceRangeIter(ctx context.Context, irIter IndexRangeIterable, ranges []prolly.Range, reverse bool) (prolly.MapIter, error) {
 	if len(ranges) == 0 {
 		return &strictLookupIter{}, nil
 	}
-	cur, err := ib.NewRangeMapIter(ctx, ranges[0], reverse)
+	// TODO: probably need to do something with Doltgres ranges here?
+	cur, err := irIter.NewRangeMapIter(ctx, ranges[0], reverse)
 	if err != nil || len(ranges) < 2 {
 		return cur, err
 	}
 	return &sequenceRangeIter{
 		cur:             cur,
-		ib:              ib,
+		irIter:          irIter,
 		reverse:         reverse,
 		remainingRanges: ranges[1:],
 	}, nil
@@ -442,7 +545,7 @@ func NewSequenceMapIter(ctx context.Context, ib IndexScanBuilder, ranges []proll
 // an underlying map.
 type sequenceRangeIter struct {
 	cur             prolly.MapIter
-	ib              IndexScanBuilder
+	irIter          IndexRangeIterable
 	reverse         bool
 	remainingRanges []prolly.Range
 }
@@ -456,7 +559,7 @@ func (i *sequenceRangeIter) Next(ctx context.Context) (val.Tuple, val.Tuple, err
 		if len(i.remainingRanges) == 0 {
 			return nil, nil, io.EOF
 		}
-		i.cur, err = i.ib.NewRangeMapIter(ctx, i.remainingRanges[0], i.reverse)
+		i.cur, err = i.irIter.NewRangeMapIter(ctx, i.remainingRanges[0], i.reverse)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -468,8 +571,32 @@ func (i *sequenceRangeIter) Next(ctx context.Context) (val.Tuple, val.Tuple, err
 	return k, v, nil
 }
 
+type secIterGen struct {
+	m prolly.Map
+}
+
+func NewSecondaryIterGen(m prolly.Map) IndexRangeIterable {
+	return secIterGen{m: m}
+}
+
+// NewRangeMapIter implements IndexScanBuilder
+func (si secIterGen) NewRangeMapIter(ctx context.Context, r prolly.Range, reverse bool) (prolly.MapIter, error) {
+	if reverse {
+		return si.m.IterRangeReverse(ctx, r)
+	} else {
+		return si.m.IterRange(ctx, r)
+	}
+}
+
+func (ib *coveringIndexImplBuilder) OutputSchema() schema.Schema {
+	return ib.idx.IndexSchema()
+}
+
 // NewRangeMapIter implements IndexScanBuilder
 func (ib *coveringIndexImplBuilder) NewRangeMapIter(ctx context.Context, r prolly.Range, reverse bool) (prolly.MapIter, error) {
+	if ib.isProximity {
+		return nil, fmt.Errorf("range map iter not allowed for vector index")
+	}
 	if reverse {
 		return ib.sec.IterRangeReverse(ctx, r)
 	} else {
@@ -479,13 +606,19 @@ func (ib *coveringIndexImplBuilder) NewRangeMapIter(ctx context.Context, r proll
 
 // NewPartitionRowIter implements IndexScanBuilder
 func (ib *coveringIndexImplBuilder) NewPartitionRowIter(ctx *sql.Context, part sql.Partition) (sql.RowIter, error) {
-	rangeIter, err := ib.rangeIter(ctx, part)
+	var indexIter prolly.MapIter
+	var err error
+	if proximityPartition, ok := part.(vectorPartitionIter); ok {
+		indexIter, err = ib.proximityIter(ctx, proximityPartition)
+	} else {
+		indexIter, err = ib.rangeIter(ctx, part)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return prollyCoveringIndexIter{
 		idx:         ib.idx,
-		indexIter:   rangeIter,
+		indexIter:   indexIter,
 		keyDesc:     ib.secKd,
 		valDesc:     ib.secVd,
 		keyMap:      ib.keyMap,
@@ -498,11 +631,11 @@ func (ib *coveringIndexImplBuilder) NewPartitionRowIter(ctx *sql.Context, part s
 }
 
 // NewSecondaryIter implements IndexScanBuilder
-func (ib *coveringIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) SecondaryLookupIterGen {
+func (ib *coveringIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) (SecondaryLookupIterGen, error) {
 	if strict {
-		return &covStrictSecondaryLookupGen{m: ib.sec, prefixDesc: ib.secKd.PrefixDesc(cnt), index: ib.idx}
+		return &covStrictSecondaryLookupGen{m: ib.sec, prefixDesc: ib.secKd.PrefixDesc(cnt), index: ib.idx}, nil
 	} else {
-		return &covLaxSecondaryLookupGen{m: ib.sec, prefixDesc: ib.secKd.PrefixDesc(cnt), index: ib.idx, nullSafe: nullSafe}
+		return &covLaxSecondaryLookupGen{m: ib.sec, prefixDesc: ib.secKd.PrefixDesc(cnt), index: ib.idx, nullSafe: nullSafe}, nil
 	}
 }
 
@@ -513,7 +646,6 @@ type nonCoveringIndexImplBuilder struct {
 	*baseIndexImplBuilder
 
 	pri   prolly.Map
-	priKd val.TupleDesc
 	pkBld *val.TupleBuilder
 
 	pkMap, keyMap, valMap, ordMap val.OrdinalMapping
@@ -551,8 +683,16 @@ func (i *nonCoveringMapIter) Next(ctx context.Context) (val.Tuple, val.Tuple, er
 	return pk, value, nil
 }
 
+func (ib *nonCoveringIndexImplBuilder) OutputSchema() schema.Schema {
+	// this refs the table schema
+	return ib.baseIndexImplBuilder.idx.Schema()
+}
+
 // NewRangeMapIter implements IndexScanBuilder
 func (ib *nonCoveringIndexImplBuilder) NewRangeMapIter(ctx context.Context, r prolly.Range, reverse bool) (prolly.MapIter, error) {
+	if ib.isProximity {
+		return nil, fmt.Errorf("range map iter not allowed for vector index")
+	}
 	var secIter prolly.MapIter
 	var err error
 	if reverse {
@@ -574,13 +714,19 @@ func (ib *nonCoveringIndexImplBuilder) NewRangeMapIter(ctx context.Context, r pr
 
 // NewPartitionRowIter implements IndexScanBuilder
 func (ib *nonCoveringIndexImplBuilder) NewPartitionRowIter(ctx *sql.Context, part sql.Partition) (sql.RowIter, error) {
-	rangeIter, err := ib.rangeIter(ctx, part)
+	var indexIter prolly.MapIter
+	var err error
+	if proximityPartition, ok := part.(vectorPartitionIter); ok {
+		indexIter, err = ib.proximityIter(ctx, proximityPartition)
+	} else {
+		indexIter, err = ib.rangeIter(ctx, part)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return prollyIndexIter{
 		idx:         ib.idx,
-		indexIter:   rangeIter,
+		indexIter:   indexIter,
 		primary:     ib.pri,
 		pkBld:       ib.pkBld,
 		pkMap:       ib.pkMap,
@@ -592,11 +738,18 @@ func (ib *nonCoveringIndexImplBuilder) NewPartitionRowIter(ctx *sql.Context, par
 	}, nil
 }
 
-func (ib *nonCoveringIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) SecondaryLookupIterGen {
+func (ib *nonCoveringIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) (SecondaryLookupIterGen, error) {
 	if strict {
-		return &nonCovStrictSecondaryLookupGen{pri: ib.pri, sec: ib.sec, pkMap: ib.pkMap, pkBld: ib.pkBld, sch: ib.idx.tableSch, prefixDesc: ib.secKd.PrefixDesc(cnt)}
+		return &nonCovStrictSecondaryLookupGen{pri: ib.pri, sec: ib.sec, pkMap: ib.pkMap, pkBld: ib.pkBld, sch: ib.idx.tableSch, prefixDesc: ib.secKd.PrefixDesc(cnt)}, nil
 	} else {
-		return &nonCovLaxSecondaryLookupGen{pri: ib.pri, sec: ib.sec, pkMap: ib.pkMap, pkBld: ib.pkBld, sch: ib.idx.tableSch, prefixDesc: ib.secKd.PrefixDesc(cnt), nullSafe: nullSafe}
+		return &nonCovLaxSecondaryLookupGen{pri: ib.pri, sec: ib.sec, pkMap: ib.pkMap, pkBld: ib.pkBld, sch: ib.idx.tableSch, prefixDesc: ib.secKd.PrefixDesc(cnt), nullSafe: nullSafe}, nil
+	}
+}
+
+func NewKeylessIndexImplBuilder(pri, sec durable.Index, idx DoltIndex) *keylessIndexImplBuilder {
+	return &keylessIndexImplBuilder{
+		baseIndexImplBuilder: &baseIndexImplBuilder{idx: idx.(*doltIndex)},
+		s:                    &durableIndexState{Primary: pri, Secondary: sec},
 	}
 }
 
@@ -608,18 +761,28 @@ type keylessIndexImplBuilder struct {
 	s *durableIndexState
 }
 
+func (ib *keylessIndexImplBuilder) OutputSchema() schema.Schema {
+	return ib.idx.Schema()
+}
+
 // NewRangeMapIter implements IndexScanBuilder
 func (ib *keylessIndexImplBuilder) NewRangeMapIter(ctx context.Context, r prolly.Range, reverse bool) (prolly.MapIter, error) {
 	rows := ib.s.Primary
 	dsecondary := ib.s.Secondary
-	secondary := durable.ProllyMapFromIndex(dsecondary)
+	secondary, err := durable.ProllyMapFromIndex(dsecondary)
+	if err != nil {
+		return nil, err
+	}
 	indexIter, err := secondary.IterRange(ctx, r)
 	if err != nil {
 		return nil, err
 	}
-	clustered := durable.ProllyMapFromIndex(rows)
+	clustered, err := durable.ProllyMapFromIndex(rows)
+	if err != nil {
+		return nil, err
+	}
 	keyDesc := clustered.KeyDesc()
-	indexMap := ordinalMappingFromIndex(ib.idx)
+	indexMap := OrdinalMappingFromIndex(ib.idx)
 
 	keyBld := val.NewTupleBuilder(keyDesc)
 
@@ -664,35 +827,50 @@ func (i *keylessMapIter) Next(ctx context.Context) (val.Tuple, val.Tuple, error)
 // NewPartitionRowIter implements IndexScanBuilder
 func (ib *keylessIndexImplBuilder) NewPartitionRowIter(ctx *sql.Context, part sql.Partition) (sql.RowIter, error) {
 	var prollyRange prolly.Range
+	var doltgresRange *DoltgresRange
+	var reverse bool
 	switch p := part.(type) {
 	case rangePartition:
 		prollyRange = p.prollyRange
+		reverse = p.isReverse
 	case pointPartition:
 		prollyRange = p.r
+	case DoltgresPartition:
+		doltgresRange = &p.rang
 	}
-	return newProllyKeylessIndexIter(ctx, ib.idx, prollyRange, ib.sch, ib.projections, ib.s.Primary, ib.s.Secondary)
+	return newProllyKeylessIndexIter(ctx, ib.idx, prollyRange, doltgresRange, ib.sch, ib.projections, ib.s.Primary, ib.s.Secondary, reverse)
 }
 
-func (ib *keylessIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) SecondaryLookupIterGen {
-	pri := durable.ProllyMapFromIndex(ib.s.Primary)
+func (ib *keylessIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) (SecondaryLookupIterGen, error) {
+	pri, err := durable.ProllyMapFromIndex(ib.s.Primary)
+	if err != nil {
+		return nil, err
+	}
 	pkDesc, _ := pri.Descriptors()
 	pkBld := val.NewTupleBuilder(pkDesc)
 
-	secondary := durable.ProllyMapFromIndex(ib.s.Secondary)
+	secondary, err := durable.ProllyMapFromIndex(ib.s.Secondary)
+	if err != nil {
+		return nil, err
+	}
 
 	return &keylessSecondaryLookupGen{
 		pri:        pri,
 		sec:        secondary,
 		sch:        ib.idx.tableSch,
-		pkMap:      ordinalMappingFromIndex(ib.idx),
+		pkMap:      OrdinalMappingFromIndex(ib.idx),
 		pkBld:      pkBld,
 		prefixDesc: secondary.KeyDesc().PrefixDesc(cnt),
-	}
+	}, nil
 }
 
 type nomsIndexImplBuilder struct {
 	*baseIndexImplBuilder
 	s *durableIndexState
+}
+
+func (ib *nomsIndexImplBuilder) OutputSchema() schema.Schema {
+	return ib.baseIndexImplBuilder.idx.Schema()
 }
 
 // NewPartitionRowIter implements IndexScanBuilder
@@ -707,7 +885,7 @@ func (ib *nomsIndexImplBuilder) NewRangeMapIter(ctx context.Context, r prolly.Ra
 	panic("cannot call NewMapIter on *nomsIndexImplBuilder")
 }
 
-func (ib *nomsIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) SecondaryLookupIterGen {
+func (ib *nomsIndexImplBuilder) NewSecondaryIter(strict bool, cnt int, nullSafe []bool) (SecondaryLookupIterGen, error) {
 	panic("cannot call NewSecondaryIter on *nomsIndexImplBuilder")
 }
 
