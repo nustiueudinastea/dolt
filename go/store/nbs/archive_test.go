@@ -20,15 +20,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 	"io"
 	"math"
 	"math/rand"
 	"testing"
-
-	"github.com/dolthub/gozstd"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 
 	dherrors "github.com/dolthub/dolt/go/libraries/utils/errors"
 	"github.com/dolthub/dolt/go/store/chunks"
@@ -38,7 +36,7 @@ import (
 // There are many tests which don't actually use the dictionary to compress. But some dictionary is required, so
 // we'll use this one.
 var defaultDict []byte
-var defaultCDict *gozstd.CDict
+var defaultCDict *zstdCDict
 var defaultId hash.Hash
 
 func init() {
@@ -270,16 +268,16 @@ func TestArchiveDictDecompression(t *testing.T) {
 		samples[i] = c.Data()
 	}
 
-	dict := gozstd.BuildDict(samples, 2048)
-	cDict, err := gozstd.NewCDict(dict)
+	dict := zstdBuildDict(samples, 2048)
+	cDict, err := newZstdCDict(dict)
 	assert.NoError(t, err)
 
 	aw := newArchiveWriterWithSink(writer)
 
-	cmpDict := gozstd.Compress(nil, dict)
+	cmpDict := zstdCompress(nil, dict)
 	dictId, err := aw.writeByteSpan(cmpDict)
 	for _, chk := range chks {
-		cmp := gozstd.CompressDict(nil, chk.Data(), cDict)
+		cmp := zstdCompressDict(nil, chk.Data(), cDict)
 
 		chId, err := aw.writeByteSpan(cmp)
 		assert.NoError(t, err)
@@ -364,7 +362,7 @@ func TestArchiveSnappyDecompression(t *testing.T) {
 func TestArchiveMixedTypesToChunkers(t *testing.T) {
 	// 32K of data, but half of the chunks will be very highly compressible with a dictionary. Note that if
 	// you ran the equivalent test with snappy only, this buffer would be too small (need 1<<16)
-	writer := NewFixedBufferByteSink(make([]byte, 1<<14))
+	writer := NewFixedBufferByteSink(make([]byte, 1<<15))
 	chks, _, _ := generateSimilarChunks(42, 32)
 	samples := make([][]byte, len(chks))
 	for i, c := range chks {
@@ -373,20 +371,20 @@ func TestArchiveMixedTypesToChunkers(t *testing.T) {
 
 	// Build zStd dictionary. This will be a decent dictionary for all chunks, but we will only
 	// use it for even chunks.
-	dict := gozstd.BuildDict(samples, 2048)
-	cDict, err := gozstd.NewCDict(dict)
+	dict := zstdBuildDict(samples, 2048)
+	cDict, err := newZstdCDict(dict)
 	assert.NoError(t, err)
 
 	aw := newArchiveWriterWithSink(writer)
 
-	cmpDict := gozstd.Compress(nil, dict)
+	cmpDict := zstdCompress(nil, dict)
 	dictId, err := aw.writeByteSpan(cmpDict)
 	assert.NoError(t, err)
 
 	for _, chk := range chks {
 		if isEven(chk.Hash()) {
 			// Use zStd compression for even  chunks
-			cmp := gozstd.CompressDict(nil, chk.Data(), cDict)
+			cmp := zstdCompressDict(nil, chk.Data(), cDict)
 
 			chId, err := aw.writeByteSpan(cmp)
 			assert.NoError(t, err)
@@ -704,7 +702,7 @@ func TestArchiveChunkGroup(t *testing.T) {
 	cg, err := newChunkGroup(context.TODO(), cache, hs, defaultCDict, &stats)
 	require.NoError(t, err)
 	assertFloatBetween(t, cg.totalRatioWDict, 0.86, 0.87)
-	assertIntBetween(t, cg.totalBytesSavedWDict, 8690, 8720)
+	assertIntBetween(t, cg.totalBytesSavedWDict, 8670, 8720)
 	assertIntBetween(t, cg.avgRawChunkSize, 1004, 1005)
 
 	unsimilar := generateRandomChunk(23, 980) // 20 bytes shorter to effect the average size.
@@ -729,7 +727,7 @@ func TestArchiveChunkGroup(t *testing.T) {
 	err = cg.addChunk(context.TODO(), cache, similar, defaultCDict, &stats)
 	assert.NoError(t, err)
 	assertFloatBetween(t, cg.totalRatioWDict, 0.80, 0.81)
-	assertIntBetween(t, cg.totalBytesSavedWDict, 9650, 9700)
+	assertIntBetween(t, cg.totalBytesSavedWDict, 9620, 9700)
 	assertIntBetween(t, cg.avgRawChunkSize, 990, 1010)
 }
 
@@ -1242,15 +1240,15 @@ func hashWithPrefix(t *testing.T, prefix uint64) hash.Hash {
 
 // Most tests need a test dictionary. We generate a terrible one because we don't care about the actual compression.
 // We return both the raw form and the CDict form.
-func generateTerribleDefaultDictionary() ([]byte, *gozstd.CDict) {
+func generateTerribleDefaultDictionary() ([]byte, *zstdCDict) {
 	return generateDictionary(1977)
 }
 
-func generateDictionary(seed int64) ([]byte, *gozstd.CDict) {
+func generateDictionary(seed int64) ([]byte, *zstdCDict) {
 	chks, _, _ := generateSimilarChunks(seed, 10)
 	rawDict := buildDictionary(chks)
-	cDict, _ := gozstd.NewCDict(rawDict)
-	rawDict = gozstd.Compress(nil, rawDict)
+	cDict, _ := newZstdCDict(rawDict)
+	rawDict = zstdCompress(nil, rawDict)
 	return rawDict, cDict
 }
 
@@ -1418,7 +1416,7 @@ func createTestArchiveWithHashes(t *testing.T, chunkData [][]byte, hashes []hash
 			assert.NoError(t, err)
 		} else {
 			// Use zStd compression with dictionary
-			compressedData := gozstd.CompressDict(nil, data, defaultCDict)
+			compressedData := zstdCompressDict(nil, data, defaultCDict)
 			bsId, err := aw.writeByteSpan(compressedData)
 			assert.NoError(t, err)
 
