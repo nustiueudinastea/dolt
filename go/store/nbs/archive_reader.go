@@ -27,7 +27,6 @@ import (
 	"os"
 	"sync/atomic"
 
-	"github.com/dolthub/gozstd"
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
@@ -632,7 +631,7 @@ func (ar *archiveReader) decompress(h hash.Hash, dict *DecompBundle, data []byte
 		}
 		return chk.Data(), nil
 	}
-	return gozstd.DecompressDict(nil, data, dict.dDict)
+	return zstdDecompressDict(nil, data, dict.dDict)
 }
 
 // getAsToChunker returns the chunk which is has not been decompressed. Similar to get, but with a different return type.
@@ -830,7 +829,7 @@ func (ar *archiveReader) iterate(ctx context.Context, cb func(chunks.Chunk) erro
 	byteSpanCounter := uint32(1)
 
 	buf := make([]byte, 4*1024*1024)
-	loadedDictionaries := make(map[uint32]*gozstd.DDict)
+	loadedDictionaries := make(map[uint32]*zstdDDict)
 
 	for byteSpanCounter <= ar.footer.byteSpanCount {
 		if ctx.Err() != nil {
@@ -887,7 +886,7 @@ func (ar *archiveReader) iterate(ctx context.Context, cb func(chunks.Chunk) erro
 					panic("Reverse Index incomplete: Dictionary ID not found in loaded dictionaries")
 				}
 
-				chunkData, err = gozstd.DecompressDict(nil, spanData, dict)
+				chunkData, err = zstdDecompressDict(nil, spanData, dict)
 				if err != nil {
 					return fmt.Errorf("error decompressing span: %d, %v, %w", byteSpanCounter, span, err)
 				}
@@ -929,7 +928,7 @@ func (ar *archiveReader) tolerantIterate(ctx context.Context, cb func(chunks.Chu
 	byteSpanCounter := uint32(1)
 
 	buf := make([]byte, 4*1024*1024)
-	loadedDictionaries := make(map[uint32]*gozstd.DDict)
+	loadedDictionaries := make(map[uint32]*zstdDDict)
 	failedDictionaries := make(map[uint32]struct{})
 
 	for byteSpanCounter <= ar.footer.byteSpanCount {
@@ -1001,7 +1000,7 @@ func (ar *archiveReader) tolerantIterate(ctx context.Context, cb func(chunks.Chu
 						chunkOk = false
 					} else {
 						var decompErr error
-						chunkData, decompErr = gozstd.DecompressDict(nil, spanData, dict)
+						chunkData, decompErr = zstdDecompressDict(nil, spanData, dict)
 						if decompErr != nil {
 							errCb(fmt.Errorf("chunk %s: decompression error: %w", h.String(), decompErr))
 							chunkOk = false

@@ -15,8 +15,6 @@
 package nbs
 
 import (
-	"github.com/dolthub/gozstd"
-
 	"github.com/dolthub/dolt/go/store/chunks"
 	"github.com/dolthub/dolt/go/store/hash"
 )
@@ -27,8 +25,8 @@ import (
 //
 // We also track the compression dictionary (CDict) because we sometimes need it too.
 type DecompBundle struct {
-	dDict         *gozstd.DDict
-	cDict         *gozstd.CDict
+	dDict         *zstdDDict
+	cDict         *zstdCDict
 	rawDictionary *[]byte
 }
 
@@ -36,16 +34,16 @@ type DecompBundle struct {
 // bytes we store on disk and transport over the wire. The uncompressed form is preserved in the result.
 func NewDecompBundle(compressedDict []byte) (*DecompBundle, error) {
 	// Standard zStd decompression. No dictionary for dictionaries.
-	rawDict, err := gozstd.Decompress(nil, compressedDict)
+	rawDict, err := zstdDecompress(nil, compressedDict)
 	if err != nil {
 		return nil, err
 	}
-	cDict, err := gozstd.NewCDict(rawDict)
+	cDict, err := newZstdCDict(rawDict)
 	if err != nil {
 		return nil, err
 	}
 
-	dict, err := gozstd.NewDDict(rawDict)
+	dict, err := newZstdDDict(rawDict)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +74,7 @@ func (a *ArchiveToChunker) Hash() hash.Hash {
 func (a *ArchiveToChunker) ToChunk() (chunks.Chunk, error) {
 	dict := a.dict.dDict
 	data := a.chunkData
-	rawChunk, err := gozstd.DecompressDict(nil, data, dict)
+	rawChunk, err := zstdDecompressDict(nil, data, dict)
 	if err != nil {
 		return chunks.EmptyChunk, err
 	}
