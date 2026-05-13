@@ -20,7 +20,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/dolthub/gozstd"
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/dolthub/dolt/go/store/chunks"
@@ -58,7 +57,7 @@ func indexFinalizeFlushArchive(arcW *archiveWriter, archivePath string, originTa
 // calculated statistics about the group, specifically the total compression ratio and the average raw chunk size.
 type chunkGroup struct {
 	dict  []byte
-	cDict *gozstd.CDict
+	cDict *zstdCDict
 	// Sorted list of chunks and their compression score. Higher is better. The score doesn't include the dictionary size.
 	chks []chunkCmpScore
 	// The total ratio _includes_ the dictionary size.
@@ -92,7 +91,7 @@ func newChunkGroup(
 	ctx context.Context,
 	chunkCache *simpleChunkSourceCache,
 	chks hash.HashSet,
-	defaultDict *gozstd.CDict,
+	defaultDict *zstdCDict,
 	stats *Stats,
 ) (*chunkGroup, error) {
 	scored := make([]chunkCmpScore, len(chks))
@@ -131,7 +130,7 @@ func (cg *chunkGroup) addChunk(
 	ctx context.Context,
 	chunkChache *simpleChunkSourceCache,
 	c *chunks.Chunk,
-	defaultDict *gozstd.CDict,
+	defaultDict *zstdCDict,
 	stats *Stats,
 ) error {
 	scored := chunkCmpScore{
@@ -173,7 +172,7 @@ func (cg *chunkGroup) worstZScore() float64 {
 
 // rebuild - recalculate the entire group's compression ratio. Dictionary and total compression ratio are updated as well.
 // This method is called after a new chunk is added to the group. Ensures that stats about the group are up-to-date.
-func (cg *chunkGroup) rebuild(ctx context.Context, chunkCache *simpleChunkSourceCache, defaultDict *gozstd.CDict, stats *Stats) error {
+func (cg *chunkGroup) rebuild(ctx context.Context, chunkCache *simpleChunkSourceCache, defaultDict *zstdCDict, stats *Stats) error {
 	chks := make([]*chunks.Chunk, 0, len(cg.chks))
 
 	for _, cs := range cg.chks {
@@ -194,13 +193,13 @@ func (cg *chunkGroup) rebuild(ctx context.Context, chunkCache *simpleChunkSource
 
 	dct := buildDictionary(padSamples(chks))
 
-	var cDict *gozstd.CDict
-	cDict, err := gozstd.NewCDict(dct)
+	var cDict *zstdCDict
+	cDict, err := newZstdCDict(dct)
 	if err != nil {
 		return err
 	}
 
-	cmpDct := gozstd.Compress(nil, dct)
+	cmpDct := zstdCompress(nil, dct)
 
 	raw := 0
 	dictCmpSize := len(cmpDct)
@@ -208,8 +207,8 @@ func (cg *chunkGroup) rebuild(ctx context.Context, chunkCache *simpleChunkSource
 	scored := make([]chunkCmpScore, len(chks))
 	for i, c := range chks {
 		d := c.Data()
-		comp := gozstd.CompressDict(nil, d, cDict)
-		defaultDictComp := gozstd.CompressDict(nil, d, defaultDict)
+		comp := zstdCompressDict(nil, d, cDict)
+		defaultDictComp := zstdCompressDict(nil, d, defaultDict)
 
 		ccs := chunkCmpScore{
 			chunkId:            c.Hash(),
@@ -246,12 +245,12 @@ func buildDictionary(chks []*chunks.Chunk) (ans []byte) {
 	for _, c := range chks {
 		samples = append(samples, c.Data())
 	}
-	return gozstd.BuildDict(samples, defaultDictionarySize)
+	return zstdBuildDict(samples, defaultDictionarySize)
 }
 
 // Returns true if the chunk's compression ratio (using the existing dictionary) is better than the group's worst chunk.
 func (cg *chunkGroup) testChunk(c *chunks.Chunk) (bool, error) {
-	comp := gozstd.CompressDict(nil, c.Data(), cg.cDict)
+	comp := zstdCompressDict(nil, c.Data(), cg.cDict)
 
 	ratio := float64(len(c.Data())-len(comp)) / float64(len(c.Data()))
 

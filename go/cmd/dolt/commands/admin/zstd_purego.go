@@ -1,4 +1,4 @@
-// Copyright 2024 Dolthub, Inc.
+// Copyright 2026 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !dolt_purego_zstd
+//go:build dolt_purego_zstd
 
 package admin
 
@@ -23,9 +23,8 @@ import (
 	"github.com/dolthub/dolt/go/cmd/dolt/cli"
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 	"github.com/dolthub/dolt/go/libraries/utils/argparser"
-
-	"github.com/dolthub/gozstd"
 	"github.com/fatih/color"
+	kpzstd "github.com/klauspost/compress/zstd"
 )
 
 type ZstdCmd struct {
@@ -36,7 +35,7 @@ func (cmd ZstdCmd) Name() string {
 }
 
 func (cmd ZstdCmd) Description() string {
-	return "A temporary admin command for taking a dependency on gozstd and working out tooling dependencies."
+	return "A temporary admin command for taking a dependency on zstd and working out tooling dependencies."
 }
 
 func (cmd ZstdCmd) RequiresRepo() bool {
@@ -57,7 +56,12 @@ func (cmd ZstdCmd) Hidden() bool {
 }
 
 func (cmd ZstdCmd) Exec(ctx context.Context, commandStr string, args []string, dEnv *env.DoltEnv, cliCtx cli.CliContext) int {
-	fmt.Fprintf(color.Error, "Hello, world! compressed is %v\n", gozstd.Compress(nil, []byte("Hello, world!")))
+	enc, err := kpzstd.NewWriter(nil, kpzstd.WithEncoderConcurrency(1))
+	if err != nil {
+		fmt.Fprintf(color.Error, "zstd error: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(color.Error, "Hello, world! compressed is %v\n", enc.EncodeAll([]byte("Hello, world!"), nil))
 
 	return 0
 }

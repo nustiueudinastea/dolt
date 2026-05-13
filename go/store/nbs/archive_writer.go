@@ -28,8 +28,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/dolthub/gozstd"
-
 	"github.com/dolthub/dolt/go/cmd/dolt/doltversion"
 	"github.com/dolthub/dolt/go/store/chunks"
 	"github.com/dolthub/dolt/go/store/hash"
@@ -648,7 +646,7 @@ func (asw *ArchiveStreamWriter) writeArchiveToChunker(chunker *ArchiveToChunker)
 	dictId, ok := asw.dictMap[dict]
 	if !ok {
 		// compress the raw bytes of the dictionary before persisting it.
-		compressedDict := gozstd.Compress(nil, *dict.rawDictionary)
+		compressedDict := zstdCompress(nil, *dict.rawDictionary)
 
 		// New dictionary. Write it out, and add id to the map.
 		dictId, err = asw.writer.writeByteSpan(compressedDict)
@@ -691,7 +689,7 @@ func (asw *ArchiveStreamWriter) writeCompressedChunk(chunker CompressedChunk) (b
 			samples[i] = &chk
 		}
 		rawDictionary := buildDictionary(samples)
-		compressedDict := gozstd.Compress(nil, rawDictionary)
+		compressedDict := zstdCompress(nil, rawDictionary)
 		bytesWritten += uint32(len(compressedDict))
 		asw.snappyDict, err = NewDecompBundle(compressedDict)
 		if err != nil {
@@ -742,7 +740,7 @@ func (asw *ArchiveStreamWriter) convertSnappyAndStage(cc CompressedChunk) (uint3
 		return 0, err
 	}
 
-	compressedData := gozstd.CompressDict(nil, chk.Data(), asw.snappyDict.cDict)
+	compressedData := zstdCompressDict(nil, chk.Data(), asw.snappyDict.cDict)
 
 	dataId, err := asw.writer.writeByteSpan(compressedData)
 	if err != nil {
