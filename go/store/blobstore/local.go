@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"time"
 
-	filelocks "github.com/dolthub/file-locks"
 	"github.com/google/uuid"
 
 	"github.com/dolthub/dolt/go/libraries/utils/file"
@@ -67,6 +66,11 @@ func (lbrrc *localBlobRangeReadCloser) Close() error {
 // LocalBlobstore is a Blobstore implementation that uses the local filesystem
 type LocalBlobstore struct {
 	RootDir string
+}
+
+type localFileLock interface {
+	Unlock() error
+	Close() error
 }
 
 var _ Blobstore = &LocalBlobstore{}
@@ -168,19 +172,6 @@ func (bs *LocalBlobstore) Put(ctx context.Context, key string, totalSize int64, 
 		return "", err
 	}
 	return info.ModTime().String(), nil
-}
-
-func fLock(lockFilePath string) (*filelocks.Lock, error) {
-	lck, err := filelocks.New(lockFilePath)
-	if err != nil {
-		return nil, err
-	}
-	if err := lck.Lock(); err != nil {
-		_ = lck.Close()
-		return nil, err
-	}
-
-	return lck, nil
 }
 
 func (bs *LocalBlobstore) CheckAndPutManifest(ctx context.Context, expectedVersion string, contents []byte) (string, error) {
