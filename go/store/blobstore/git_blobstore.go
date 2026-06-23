@@ -31,7 +31,6 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/dolthub/fslock"
 	"github.com/google/uuid"
 
 	git "github.com/dolthub/dolt/go/store/blobstore/internal/git"
@@ -686,6 +685,12 @@ func (gbs *GitBlobstore) Close() error {
 
 const gcInterval = 24 * time.Hour
 
+type gcFileLock interface {
+	LockWithTimeout(time.Duration) error
+	Unlock() error
+	Close() error
+}
+
 // maxParentedCommits is the number of consecutive parented commits before
 // we create a parentless commit to sever the history chain. This bounds
 // reachable history so git gc can prune old objects, while still giving
@@ -705,7 +710,7 @@ func (gbs *GitBlobstore) maybeRunGC() {
 	}
 
 	lockPath := filepath.Join(gbs.gitDir, ".dolt-gc.lock")
-	lck, err := fslock.New(lockPath)
+	lck, err := newGCFileLock(lockPath)
 	if err != nil {
 		return // can't open the lock directory, skip
 	}
