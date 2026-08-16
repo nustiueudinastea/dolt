@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions/dolt_ci"
-	dtablefunctions "github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtablefunctions"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env/actions/dolt_ci"
+	dtablefunctions "github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dtablefunctions"
 )
 
 // previewDoltTestStatements returns the SQL queries that would be executed by dolt_test_run

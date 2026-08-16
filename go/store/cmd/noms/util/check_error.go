@@ -27,7 +27,7 @@ import (
 
 	flag "github.com/juju/gnuflag"
 
-	"github.com/dolthub/dolt/go/store/util/exit"
+	"github.com/nustiueudinastea/dolt/go/store/util/exit"
 )
 
 func CheckError(err error) {

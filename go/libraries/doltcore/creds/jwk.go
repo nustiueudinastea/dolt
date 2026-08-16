@@ -20,8 +20,8 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
-	"github.com/dolthub/dolt/go/libraries/utils/iohelp"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/iohelp"
 )
 
 const (

@@ -17,9 +17,9 @@ package merge
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 func MergeBase(ctx context.Context, left, right *doltdb.Commit) (base hash.Hash, err error) {

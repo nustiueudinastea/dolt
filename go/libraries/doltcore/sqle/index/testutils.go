@@ -17,7 +17,7 @@ package index
 import (
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/store/prolly"
+	"github.com/nustiueudinastea/dolt/go/store/prolly"
 )
 
 func ProllyRangesFromIndexLookup(ctx *sql.Context, lookup sql.IndexLookup) ([]prolly.Range, error) {

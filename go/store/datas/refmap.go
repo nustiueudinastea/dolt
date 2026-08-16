@@ -19,10 +19,10 @@ import (
 
 	flatbuffers "github.com/dolthub/flatbuffers/v23/go"
 
-	"github.com/dolthub/dolt/go/gen/fb/serial"
-	"github.com/dolthub/dolt/go/store/prolly"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/store/prolly"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 func storeroot_flatbuffer(am prolly.AddressMap) serial.Message {

@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 const (

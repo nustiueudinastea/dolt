@@ -21,13 +21,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
-	_ "github.com/dolthub/dolt/go/libraries/doltcore/sqle"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlfmt"
-	"github.com/dolthub/dolt/go/libraries/utils/set"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
+	_ "github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlfmt"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/set"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 const expectedDropSql = "DROP TABLE `table_name`;"

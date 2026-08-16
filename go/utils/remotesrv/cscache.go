@@ -19,9 +19,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/remotesrv"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
-	"github.com/dolthub/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/remotesrv"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
 )
 
 const (

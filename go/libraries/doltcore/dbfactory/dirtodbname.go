@@ -19,7 +19,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"
 )
 
 // DirToDBName takes the physical directory name, |dirName|, and replaces any unsupported characters to create a

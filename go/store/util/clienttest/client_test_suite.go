@@ -29,11 +29,11 @@ import (
 	flag "github.com/juju/gnuflag"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/dolthub/dolt/go/libraries/utils/file"
-	"github.com/dolthub/dolt/go/libraries/utils/osutil"
-	"github.com/dolthub/dolt/go/store/d"
-	"github.com/dolthub/dolt/go/store/util/exit"
-	"github.com/dolthub/dolt/go/store/util/tempfiles"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/file"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/osutil"
+	"github.com/nustiueudinastea/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/util/exit"
+	"github.com/nustiueudinastea/dolt/go/store/util/tempfiles"
 )
 
 const DefaultMemTableSize = 8 * (1 << 20) // 8MB

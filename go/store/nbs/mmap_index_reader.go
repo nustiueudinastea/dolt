@@ -21,8 +21,8 @@ import (
 	"os"
 	"sync/atomic"
 
-	"github.com/dolthub/dolt/go/libraries/utils/file"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/file"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 type archiveIndexReader interface {

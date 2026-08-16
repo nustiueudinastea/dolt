@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/dolthub/dolt/go/store/prolly/message"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/message"
 )
 
 type Mutation struct {

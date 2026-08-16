@@ -27,7 +27,7 @@ import (
 	"github.com/dolthub/gozstd"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // testArchive is an archive built in memory, with the numbers needed to locate

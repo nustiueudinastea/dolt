@@ -21,7 +21,7 @@ import (
 	flatbuffers "github.com/dolthub/flatbuffers/v23/go"
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
 )
 
 // Namespace contains all of the expressions that comprise the "dolt_branch_namespace_control" table, which controls

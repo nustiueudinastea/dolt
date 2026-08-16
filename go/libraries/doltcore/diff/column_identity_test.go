@@ -17,7 +17,7 @@ package diff_test
 import (
 	"testing"
 
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 type identityTest struct {

@@ -21,9 +21,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dbfactory"
-	"github.com/dolthub/dolt/go/libraries/utils/config"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dbfactory"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/config"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 type historyConfigDialer struct {

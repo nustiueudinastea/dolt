@@ -28,12 +28,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
-	cmd "github.com/dolthub/dolt/go/cmd/dolt/commands"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/cnfcmds"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/engine"
-	dtu "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
+	cmd "github.com/nustiueudinastea/dolt/go/cmd/dolt/commands"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/cnfcmds"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/engine"
+	dtu "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle"
 )
 
 func TestMerge(t *testing.T) {

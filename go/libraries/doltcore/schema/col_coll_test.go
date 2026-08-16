@@ -21,8 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	typeinfo "github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/dolthub/dolt/go/store/types"
+	typeinfo "github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 var firstNameCol = Column{Name: "first", Kind: types.StringKind, TypeInfo: typeinfo.StringDefaultType}

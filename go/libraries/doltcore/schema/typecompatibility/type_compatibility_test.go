@@ -25,7 +25,7 @@ import (
 	"github.com/dolthub/vitess/go/vt/proto/query"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
 )
 
 type typeChangeCompatibilityTest struct {

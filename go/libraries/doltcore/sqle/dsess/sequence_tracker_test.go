@@ -24,9 +24,9 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess/mutexmap"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess/mutexmap"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // The types below instantiate the generic SequenceTracker over stub relations, so that

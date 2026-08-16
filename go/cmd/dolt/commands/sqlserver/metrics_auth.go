@@ -22,8 +22,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
-	"github.com/dolthub/dolt/go/libraries/utils/jwtauth"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/jwtauth"
 )
 
 func validateJWT(jwksConfig *servercfg.JwksConfig, token string, reqTime time.Time) (bool, *jwtauth.Claims, error) {

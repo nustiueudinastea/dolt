@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"
 
 	"github.com/stretchr/testify/require"
 )

@@ -19,7 +19,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/dolthub/dolt/go/libraries/utils/test"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/test"
 )
 
 type test16ByteWriter struct {

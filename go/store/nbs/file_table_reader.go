@@ -32,8 +32,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/dolthub/dolt/go/libraries/utils/dynassert"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/dynassert"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 var ErrTableFileNotFound = errors.New("table file not found")

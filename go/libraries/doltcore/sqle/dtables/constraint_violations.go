@@ -17,7 +17,7 @@ package dtables
 import (
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 )
 
 // NewConstraintViolationsTable returns a sql.Table that lists constraint violations.

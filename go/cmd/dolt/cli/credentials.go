@@ -20,8 +20,8 @@ import (
 
 	"golang.org/x/crypto/ssh/terminal"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
-	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/argparser"
 )
 
 type UserPassword struct {

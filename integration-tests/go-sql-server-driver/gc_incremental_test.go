@@ -18,7 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
 )
 
 func TestGCIncremental(t *testing.T) {

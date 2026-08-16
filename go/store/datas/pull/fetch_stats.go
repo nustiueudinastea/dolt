@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/dolthub/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
 )
 
 // fetchStatsRecorder is a per-pull implementation of nbs.StatsRecorder. It

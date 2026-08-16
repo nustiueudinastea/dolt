@@ -21,8 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/utils/earl"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/earl"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 func TestCreateMemDB(t *testing.T) {

@@ -19,10 +19,10 @@ import (
 	"context"
 	"io"
 
-	dherrors "github.com/dolthub/dolt/go/libraries/utils/errors"
-	"github.com/dolthub/dolt/go/store/blobstore"
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/hash"
+	dherrors "github.com/nustiueudinastea/dolt/go/libraries/utils/errors"
+	"github.com/nustiueudinastea/dolt/go/store/blobstore"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // singleBlobBSPersister writes table files as single blobs (no .records/.tail split)

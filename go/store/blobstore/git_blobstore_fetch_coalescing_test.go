@@ -23,8 +23,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	git "github.com/dolthub/dolt/go/store/blobstore/internal/git"
-	"github.com/dolthub/dolt/go/store/testutils/gitrepo"
+	git "github.com/nustiueudinastea/dolt/go/store/blobstore/internal/git"
+	"github.com/nustiueudinastea/dolt/go/store/testutils/gitrepo"
 )
 
 // countingFetchGitAPI counts FetchRef calls and tracks how many ran at once, so

@@ -22,7 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
 )
 
 // startServerOverOrphanedDir seeds a healthy database named good, lets |makeOrphan| place an orphaned database

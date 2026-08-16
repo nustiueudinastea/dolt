@@ -21,7 +21,7 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/dolthub/dolt/go/libraries/utils/version"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/version"
 )
 
 func YamlForVersion(st any, versionNum uint32) ([]byte, error) {

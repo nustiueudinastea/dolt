@@ -23,8 +23,8 @@ import (
 	"github.com/cockroachdb/apd/v3"
 	"github.com/dolthub/go-mysql-server/sql/analyzer/analyzererrors"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/pool"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/pool"
 )
 
 const (

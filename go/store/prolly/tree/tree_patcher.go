@@ -18,8 +18,8 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/prolly/message"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/message"
 )
 
 // ApplyPatches iterates over |edits|, applying the patches to |root| to produce a new tree.

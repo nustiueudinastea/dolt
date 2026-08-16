@@ -19,9 +19,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/prolly/message"
-	"github.com/dolthub/dolt/go/store/skip"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/message"
+	"github.com/nustiueudinastea/dolt/go/store/skip"
 )
 
 type KeyValueFn[K, V ~[]byte] func(key K, value V) error

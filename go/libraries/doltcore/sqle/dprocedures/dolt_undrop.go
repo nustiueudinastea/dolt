@@ -19,8 +19,8 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
-	"github.com/dolthub/dolt/go/libraries/utils/errors"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/errors"
 )
 
 // doltUndrop restores a database that has been dropped and moved to a temporary holding area.

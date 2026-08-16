@@ -24,7 +24,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/untyped"
 )
 
 func TestDecodeXLSXRows(t *testing.T) {

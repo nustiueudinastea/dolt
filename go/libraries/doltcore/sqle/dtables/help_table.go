@@ -22,9 +22,9 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	sqlTypes "github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dprocedures"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dprocedures"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/index"
 )
 
 type HelpTable struct {

@@ -16,7 +16,7 @@ syntax = "proto3";
 
 package dolt.services.replicationapi.v1alpha1;
 
-option go_package = "github.com/dolthub/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1;replicationapi";
+option go_package = "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1;replicationapi";
 
 service ReplicationService {
   // Users and grants in Dolt are stored in in a

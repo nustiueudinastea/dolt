@@ -23,7 +23,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // ThreeWayDiffer is an iterator that gives an increased level of granularity

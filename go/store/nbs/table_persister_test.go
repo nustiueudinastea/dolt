@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/blobstore"
+	"github.com/nustiueudinastea/dolt/go/store/blobstore"
 )
 
 func TestPlanCompaction(t *testing.T) {

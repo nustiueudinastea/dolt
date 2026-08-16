@@ -19,7 +19,7 @@ import (
 
 	"gopkg.in/src-d/go-errors.v1"
 
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 var UnhandledTypeConversion = errors.NewKind("`%s` does not know how to handle type conversions to `%s`")

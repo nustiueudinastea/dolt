@@ -20,7 +20,7 @@ import (
 	"github.com/dolthub/vitess/go/sqltypes"
 	"github.com/dolthub/vitess/go/vt/proto/query"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
 )
 
 // TypeCompatibilityChecker checks if type changes are compatible at the storage layer and is used to

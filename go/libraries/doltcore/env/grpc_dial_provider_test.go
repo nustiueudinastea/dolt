@@ -30,9 +30,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/creds"
-	"github.com/dolthub/dolt/go/libraries/doltcore/grpcendpoint"
-	"github.com/dolthub/dolt/go/libraries/utils/config"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/creds"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/grpcendpoint"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/config"
 )
 
 func TestCredentialHelperUsesGlobalConfig(t *testing.T) {

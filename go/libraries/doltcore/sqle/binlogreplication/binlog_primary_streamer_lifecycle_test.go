@@ -28,7 +28,7 @@ import (
 	"github.com/dolthub/vitess/go/mysql"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 func TestBinlogStreamerManagerClose(t *testing.T) {

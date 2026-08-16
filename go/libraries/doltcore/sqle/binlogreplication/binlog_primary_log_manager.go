@@ -29,7 +29,7 @@ import (
 	"github.com/dolthub/vitess/go/mysql"
 	"github.com/sirupsen/logrus"
 
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 var binlogDirectory = filepath.Join(".dolt", "binlog")

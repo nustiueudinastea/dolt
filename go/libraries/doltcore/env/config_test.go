@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/utils/config"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/config"
 )
 
 const (

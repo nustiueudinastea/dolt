@@ -19,8 +19,8 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/row"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/row"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 )
 
 // Reader is an interface for reading rows from a table

@@ -19,8 +19,8 @@ import (
 
 	"github.com/dolthub/vitess/go/vt/proto/query"
 
-	"github.com/dolthub/dolt/go/gen/fb/serial"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
 )
 
 // encodingFromQueryType returns a serial.Encoding for a query.Type.

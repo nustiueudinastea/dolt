@@ -21,10 +21,10 @@ import (
 	"context"
 	"io"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/commitgraph"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/store/datas"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/commitgraph"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/store/datas"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // doltDBResolver adapts *doltdb.DoltDB to commitgraph.HashResolver.

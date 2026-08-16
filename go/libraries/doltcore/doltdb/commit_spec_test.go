@@ -17,8 +17,8 @@ package doltdb
 import (
 	"testing"
 
-	"github.com/dolthub/dolt/go/libraries/utils/test"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/test"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 func TestCommitRegex(t *testing.T) {

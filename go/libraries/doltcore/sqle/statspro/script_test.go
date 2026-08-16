@@ -24,7 +24,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dprocedures"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dprocedures"
 )
 
 type scriptTest struct {

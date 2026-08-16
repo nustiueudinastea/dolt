@@ -24,7 +24,7 @@ package types
 import (
 	"fmt"
 
-	"github.com/dolthub/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/d"
 )
 
 // walkRefs calls cb() on each Ref that can be decoded from |c|. The results

@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/durable"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/durable"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // GetNonlocalTablesRef is a function that reads the "ref" column from dolt_nonlocal_tables. This is used to handle the Doltgres extended string type.

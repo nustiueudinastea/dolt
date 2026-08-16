@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dolthub/dolt/go/libraries/utils/gitauth"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/gitauth"
 )
 
 const maxCapturedOutputBytes = 64 * 1024

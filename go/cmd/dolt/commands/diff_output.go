@@ -26,17 +26,17 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/libraries/doltcore/diff"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtablefunctions"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/overrides"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlfmt"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/typed/json"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped/sqlexport"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped/tabular"
-	"github.com/dolthub/dolt/go/libraries/utils/iohelp"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/diff"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dtablefunctions"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/overrides"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlfmt"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/typed/json"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/untyped/sqlexport"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/untyped/tabular"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/iohelp"
 )
 
 // diffWriter is an interface that lets us write diffs in a variety of output formats

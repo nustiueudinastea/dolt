@@ -20,8 +20,8 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/vitess/go/sqltypes"
 
-	"github.com/dolthub/dolt/go/store/types"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // inlineBlobType handles BINARY and VARBINARY. BLOB types are handled by varBinaryType.

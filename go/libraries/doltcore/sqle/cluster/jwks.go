@@ -22,7 +22,7 @@ import (
 	"gopkg.in/go-jose/go-jose.v2"
 	"gopkg.in/go-jose/go-jose.v2/jwt"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/creds"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/creds"
 )
 
 type JWKSHandler struct {

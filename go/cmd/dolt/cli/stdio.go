@@ -26,7 +26,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/vbauerster/mpb/v8/cwriter"
 
-	"github.com/dolthub/dolt/go/libraries/utils/iohelp"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/iohelp"
 )
 
 var colorOutput = color.Output

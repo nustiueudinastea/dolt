@@ -28,7 +28,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/dolthub/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/d"
 )
 
 var ErrUnknownType = errors.New("unknown type $@")

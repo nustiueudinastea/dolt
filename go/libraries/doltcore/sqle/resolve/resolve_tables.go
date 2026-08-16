@@ -17,7 +17,7 @@ package resolve
 import (
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 )
 
 // Table returns the schema-qualified name of the table given in the root provided, along with the table itself

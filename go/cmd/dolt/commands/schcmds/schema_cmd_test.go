@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle"
 )
 
 // Smoke test: dolt schema export runs successfully

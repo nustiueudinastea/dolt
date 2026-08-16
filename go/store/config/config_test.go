@@ -29,8 +29,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/dolthub/dolt/go/libraries/utils/osutil"
-	"github.com/dolthub/dolt/go/store/spec"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/osutil"
+	"github.com/nustiueudinastea/dolt/go/store/spec"
 )
 
 const (

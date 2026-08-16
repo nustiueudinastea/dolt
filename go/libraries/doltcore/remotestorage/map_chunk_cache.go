@@ -17,8 +17,8 @@ package remotestorage
 import (
 	lru "github.com/hashicorp/golang-lru/v2"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
 )
 
 // mapChunkCache is a simple ChunkCache implementation that stores

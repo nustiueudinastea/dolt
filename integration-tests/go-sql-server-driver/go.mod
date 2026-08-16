@@ -3,7 +3,7 @@ module github.com/dolthub/dolt/integration-tests/go-sql-server-driver
 go 1.26.2
 
 require (
-	github.com/dolthub/dolt/go v0.40.4
+	github.com/nustiueudinastea/dolt/go v0.40.4
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
@@ -28,4 +28,4 @@ require (
 	gopkg.in/src-d/go-errors.v1 v1.0.0 // indirect
 )
 
-replace github.com/dolthub/dolt/go => ../../go/
+replace github.com/nustiueudinastea/dolt/go => ../../go/

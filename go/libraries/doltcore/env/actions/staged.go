@@ -18,9 +18,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/diff"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/diff"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 )
 
 func StageTables(ctx context.Context, roots doltdb.Roots, tbls []doltdb.TableName, filterIgnoredTables bool) (doltdb.Roots, error) {

@@ -18,7 +18,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/types"
 
-	stypes "github.com/dolthub/dolt/go/store/types"
+	stypes "github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 const StatsVersion int64 = 1
