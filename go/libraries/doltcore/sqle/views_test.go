@@ -23,9 +23,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/editor"
 )
 
 // Not an exhaustive test of views -- we rely on bats tests for end-to-end verification.

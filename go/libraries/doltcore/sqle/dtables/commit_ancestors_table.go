@@ -20,9 +20,9 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/index"
 )
 
 const commitAncestorsDefaultRowCount = 100

@@ -21,8 +21,8 @@ import (
 	"github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/dolthub/vitess/go/sqltypes"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/editor"
 )
 
 // doltProceduresHistoryTable implements the dolt_history_dolt_procedures system table

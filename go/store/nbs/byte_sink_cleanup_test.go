@@ -25,8 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/util/tempfiles"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/util/tempfiles"
 )
 
 // sinkTempDir points MovableTempFileProvider at a directory owned by the test

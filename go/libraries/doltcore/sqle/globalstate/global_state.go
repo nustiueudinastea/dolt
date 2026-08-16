@@ -17,7 +17,7 @@ package globalstate
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 )
 
 // GlobalState is just a holding interface for pieces of global state, of which the auto increment tracking info is

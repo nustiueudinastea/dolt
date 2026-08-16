@@ -21,8 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/pool"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/pool"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 var sharedPool = pool.NewBuffPool()

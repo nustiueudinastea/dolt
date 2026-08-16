@@ -22,7 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
 )
 
 // A simple test to ensure that temptf is cleaned up when we push.

@@ -21,7 +21,7 @@ import (
 
 	errors2 "gopkg.in/src-d/go-errors.v1"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"
 )
 
 const (

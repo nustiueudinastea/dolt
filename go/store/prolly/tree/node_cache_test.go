@@ -19,7 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // cacheInsert does the get/insert round trip a reader does, for tests

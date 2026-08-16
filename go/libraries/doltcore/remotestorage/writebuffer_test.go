@@ -22,9 +22,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
 )
 
 func TestNoopWriteBuffer(t *testing.T) {

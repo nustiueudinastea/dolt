@@ -30,13 +30,13 @@ import (
 	textunicode "golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/row"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
-	"github.com/dolthub/dolt/go/libraries/utils/iohelp"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/row"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/untyped"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/iohelp"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 // ReadBufSize is the size of the buffer used when reading the csv file.  It is set at the package level and all

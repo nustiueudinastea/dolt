@@ -22,11 +22,11 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/row"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/row"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/untyped"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 var ReadBufSize = 256 * 1024

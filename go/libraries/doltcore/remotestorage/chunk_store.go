@@ -39,13 +39,13 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	remotesapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
-	"github.com/dolthub/dolt/go/libraries/doltcore/remotestorage/internal/reliable"
-	"github.com/dolthub/dolt/go/store/atomicerr"
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/nbs"
-	"github.com/dolthub/dolt/go/store/types"
+	remotesapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/remotestorage/internal/reliable"
+	"github.com/nustiueudinastea/dolt/go/store/atomicerr"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 var ErrWriteBufferCapacityExceeded = errors.New("too much data: the write buffer capacity has been reached")
@@ -77,7 +77,7 @@ var _ nbs.NBSCompressedChunkStore = (*DoltChunkStore)(nil)
 var _ chunks.ChunkStore = (*DoltChunkStore)(nil)
 var _ chunks.LoggingChunkStore = (*DoltChunkStore)(nil)
 
-var tracer = otel.Tracer("github.com/dolthub/dolt/go/libraries/doltcore/remotestorage")
+var tracer = otel.Tracer("github.com/nustiueudinastea/dolt/go/libraries/doltcore/remotestorage")
 
 func uploadBackOff(ctx context.Context, max int) backoff.BackOff {
 	ret := backoff.NewExponentialBackOff()

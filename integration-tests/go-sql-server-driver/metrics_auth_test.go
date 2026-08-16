@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/go-jose/go-jose.v2"

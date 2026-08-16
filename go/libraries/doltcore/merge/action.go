@@ -20,11 +20,11 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions"
-	"github.com/dolthub/dolt/go/store/datas"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env/actions"
+	"github.com/nustiueudinastea/dolt/go/store/datas"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 var ErrFailedToDetermineMergeability = errors.New("failed to determine mergeability")

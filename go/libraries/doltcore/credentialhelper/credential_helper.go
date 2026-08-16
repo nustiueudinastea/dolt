@@ -32,7 +32,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/grpcendpoint"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/grpcendpoint"
 )
 
 const (

@@ -21,8 +21,8 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/diff"
-	"github.com/dolthub/dolt/go/libraries/doltcore/merge"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/diff"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/merge"
 )
 
 const (

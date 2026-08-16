@@ -19,7 +19,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/index"
 )
 
 // IndexedDoltTable is a wrapper for a DoltTable. It implements the sql.Table interface like

@@ -29,12 +29,12 @@ import (
 	"github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
-	"github.com/dolthub/dolt/go/store/prolly"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/editor"
+	"github.com/nustiueudinastea/dolt/go/store/prolly"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // rowLookupJoinSetup is shared by the tests below.

@@ -22,9 +22,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/libraries/utils/argparser"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/argparser"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 func getRefusedPort(t *testing.T) int {

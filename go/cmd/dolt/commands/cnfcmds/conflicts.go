@@ -15,7 +15,7 @@
 package cnfcmds
 
 import (
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 )
 
 var Commands = cli.NewSubCommandHandler("conflicts", "Commands for viewing and resolving merge conflicts.", []cli.Command{

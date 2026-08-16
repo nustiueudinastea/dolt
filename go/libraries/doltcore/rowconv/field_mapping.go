@@ -18,8 +18,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/errhand"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 // ErrMappingFileRead is an error returned when a mapping file cannot be read

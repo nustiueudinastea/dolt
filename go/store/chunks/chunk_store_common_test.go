@@ -27,8 +27,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/dolthub/dolt/go/store/constants"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/constants"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 type ChunkStoreTestSuite struct {

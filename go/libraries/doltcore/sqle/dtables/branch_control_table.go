@@ -23,8 +23,8 @@ import (
 	"github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/dolthub/vitess/go/sqltypes"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/branch_control"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/branch_control"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/index"
 )
 
 const (

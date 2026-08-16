@@ -21,8 +21,8 @@ import (
 	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/dolthub/vitess/go/sqltypes"
 
-	"github.com/dolthub/dolt/go/store/types"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // varStringType handles CHAR and VARCHAR. The TEXT types are handled by blobStringType. For any repositories that were

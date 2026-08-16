@@ -19,10 +19,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/globalstate"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/globalstate/sequences"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/ref"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/globalstate"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/globalstate/sequences"
 )
 
 // TrackerKey is a type used as a key into the GlobalStateImpl's map of SequenceTrackers

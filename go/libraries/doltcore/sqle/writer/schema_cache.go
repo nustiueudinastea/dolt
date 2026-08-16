@@ -19,12 +19,12 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/expranalysis"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/expranalysis"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // writerSchema returns the state required to map logical sql.Row values to

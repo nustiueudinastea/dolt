@@ -26,8 +26,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/blobstore"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/blobstore"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // validateTestChunks is enough chunks that the index has both an offsets1 and

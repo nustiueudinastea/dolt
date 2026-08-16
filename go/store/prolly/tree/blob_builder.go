@@ -23,9 +23,9 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	sqltypes "github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/prolly/message"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/message"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 const DefaultFixedChunkLength = 4000

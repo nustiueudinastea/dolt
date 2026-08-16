@@ -15,7 +15,7 @@
 package nbs
 
 import (
-	"github.com/dolthub/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/d"
 )
 
 func mustUint32(val uint32, err error) uint32 {

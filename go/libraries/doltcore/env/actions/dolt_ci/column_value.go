@@ -22,8 +22,8 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/vitess/go/sqltypes"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlutil"
 )
 
 type columnValue struct {

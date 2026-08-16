@@ -25,13 +25,13 @@ import (
 	"github.com/dolthub/vitess/go/sqltypes"
 	"gopkg.in/src-d/go-errors.v1"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtables"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/index"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dtables"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/index"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 const (

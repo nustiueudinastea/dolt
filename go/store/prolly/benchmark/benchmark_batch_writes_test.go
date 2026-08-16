@@ -23,12 +23,12 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/dolthub/dolt/go/store/nbs"
-	"github.com/dolthub/dolt/go/store/prolly"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	"github.com/dolthub/dolt/go/store/skip"
-	"github.com/dolthub/dolt/go/store/types"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/store/prolly"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/skip"
+	"github.com/nustiueudinastea/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"

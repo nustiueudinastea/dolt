@@ -14,7 +14,7 @@
 
 package cvcmds
 
-import "github.com/dolthub/dolt/go/cmd/dolt/cli"
+import "github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 
 var Commands = cli.NewSubCommandHandler("constraints", "Commands for handling constraints.", []cli.Command{
 	VerifyConstraintsCmd{},

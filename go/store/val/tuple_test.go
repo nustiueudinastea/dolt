@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/dolthub/dolt/go/store/pool"
+	"github.com/nustiueudinastea/dolt/go/store/pool"
 )
 
 var testPool = pool.NewBuffPool()

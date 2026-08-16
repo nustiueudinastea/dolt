@@ -36,11 +36,11 @@ import (
 	textunicode "golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/engine"
-	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/engine"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/errhand"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/argparser"
 	eventsapi "github.com/dolthub/eventsapi_schema/dolt/services/eventsapi/v1alpha1"
 )
 

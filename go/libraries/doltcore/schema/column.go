@@ -19,8 +19,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 // InvalidTag is used as an invalid tag

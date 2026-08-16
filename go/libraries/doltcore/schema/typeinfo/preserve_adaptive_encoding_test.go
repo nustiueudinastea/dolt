@@ -22,7 +22,7 @@ import (
 	"github.com/dolthub/vitess/go/sqltypes"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // TestPreserveAdaptiveEncoding_TextStaysLegacy guards the regression where an ALTER

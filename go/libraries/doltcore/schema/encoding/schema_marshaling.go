@@ -19,9 +19,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 // MarshalSchema takes a Schema and converts it to a types.Value

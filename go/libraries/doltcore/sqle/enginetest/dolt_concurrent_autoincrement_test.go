@@ -25,7 +25,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"
 )
 
 func TestConcurrentAutoIncrementInserts(t *testing.T) {

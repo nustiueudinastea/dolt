@@ -80,7 +80,7 @@ jobs:
         continue-on-error: true
         run: |
           cd doltgresql
-          go get github.com/dolthub/dolt/go@main
+          go get github.com/nustiueudinastea/dolt/go@main
           go mod tidy
           cd testing/go
           go test ./... --count=1 -skip Replication
@@ -90,7 +90,7 @@ jobs:
         run: |
           cd doltgresql
           git reset --hard
-          go mod edit -replace github.com/dolthub/dolt/go=../go
+          go mod edit -replace github.com/nustiueudinastea/dolt/go=../go
           go mod tidy
           cd testing/go
           go test ./... --count=1 -skip Replication

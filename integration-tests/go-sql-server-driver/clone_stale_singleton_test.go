@@ -19,7 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
 )
 
 // TestCloneAfterPushStaleSingleton surfaces a bug in the interaction

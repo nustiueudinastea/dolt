@@ -21,7 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/utils/config"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/config"
 )
 
 func TestGitRemoteHistoryOptions(t *testing.T) {

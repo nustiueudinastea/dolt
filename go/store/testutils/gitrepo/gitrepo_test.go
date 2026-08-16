@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dolthub/dolt/go/store/blobstore"
+	"github.com/nustiueudinastea/dolt/go/store/blobstore"
 )
 
 func TestInitBareAndSetRefToTree(t *testing.T) {

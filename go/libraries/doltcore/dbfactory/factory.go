@@ -22,10 +22,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/dolthub/dolt/go/libraries/utils/earl"
-	"github.com/dolthub/dolt/go/store/datas"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/earl"
+	"github.com/nustiueudinastea/dolt/go/store/datas"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 const (

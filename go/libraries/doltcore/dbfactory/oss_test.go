@@ -21,7 +21,7 @@ import (
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"
 )
 
 func Test_readOssCredentialsFromFile(t *testing.T) {

@@ -27,8 +27,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // mixedArchive holds chunks under two dictionaries plus snappy chunks with no

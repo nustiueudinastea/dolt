@@ -19,7 +19,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 )
 
 // Tests in this file are a grab bag of DDL queries, many of them ported from older parts of the Dolt codebase

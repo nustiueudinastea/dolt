@@ -28,14 +28,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/src-d/go-errors.v1"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/durable"
-	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/durable"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/editor"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 func TestRenameTable(t *testing.T) {

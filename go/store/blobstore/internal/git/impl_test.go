@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dolthub/dolt/go/store/testutils/gitrepo"
+	"github.com/nustiueudinastea/dolt/go/store/testutils/gitrepo"
 )
 
 // TestMain allows the test binary to impersonate deterministic helper commands

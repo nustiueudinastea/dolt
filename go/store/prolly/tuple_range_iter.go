@@ -18,9 +18,9 @@ import (
 	"context"
 	"io"
 
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	"github.com/dolthub/dolt/go/store/skip"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/skip"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 type MapIter tree.KvIter[val.Tuple, val.Tuple]

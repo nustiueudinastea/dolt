@@ -23,11 +23,11 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands"
-	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
-	"github.com/dolthub/dolt/go/libraries/utils/argparser"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/argparser"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 type commandLineServerConfig struct {

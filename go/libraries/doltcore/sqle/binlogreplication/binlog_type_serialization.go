@@ -29,9 +29,9 @@ import (
 	"github.com/dolthub/vitess/go/mysql"
 	"github.com/dolthub/vitess/go/vt/proto/query"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // unwrapToBytes converts a value loaded from a tuple field (via tree.GetField) into a flat

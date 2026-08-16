@@ -28,7 +28,7 @@ import (
 	"google.golang.org/grpc/status"
 	"gopkg.in/go-jose/go-jose.v2/jwt"
 
-	"github.com/dolthub/dolt/go/libraries/utils/jwtauth"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/jwtauth"
 )
 
 const clusterRoleHeader = "x-dolt-cluster-role"

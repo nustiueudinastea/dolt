@@ -18,7 +18,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/durable"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/durable"
 
 	"github.com/dolthub/go-mysql-server/sql"
 )

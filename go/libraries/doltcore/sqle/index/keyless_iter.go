@@ -17,8 +17,8 @@ package index
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/store/prolly"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/prolly"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 func NewKeylessCardedMapIter(iter prolly.MapIter) prolly.MapIter {

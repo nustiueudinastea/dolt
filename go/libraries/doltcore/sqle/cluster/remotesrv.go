@@ -17,8 +17,8 @@ package cluster
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/remotesrv"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/remotesrv"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 type remotesrvStoreCache struct {

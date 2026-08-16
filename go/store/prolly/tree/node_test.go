@@ -25,12 +25,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/gen/fb/serial"
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/prolly/message"
-	"github.com/dolthub/dolt/go/store/types"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/message"
+	"github.com/nustiueudinastea/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 func TestRoundTripInts(t *testing.T) {

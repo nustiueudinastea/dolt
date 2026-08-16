@@ -22,11 +22,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	dherrors "github.com/dolthub/dolt/go/libraries/utils/errors"
-	"github.com/dolthub/dolt/go/store/blobstore"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/testutils/gitrepo"
-	"github.com/dolthub/dolt/go/store/types"
+	dherrors "github.com/nustiueudinastea/dolt/go/libraries/utils/errors"
+	"github.com/nustiueudinastea/dolt/go/store/blobstore"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/testutils/gitrepo"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 func TestNBS_GitBlobstore_EmptyRemote_OpenReturnsEmptyManifest(t *testing.T) {

@@ -23,8 +23,8 @@ import (
 	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/dolthub/go-mysql-server/testutils"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/rebase"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dprocedures"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/rebase"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dprocedures"
 )
 
 // editPauseMessageValidator validates edit pause message format

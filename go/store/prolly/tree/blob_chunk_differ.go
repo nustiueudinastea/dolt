@@ -18,7 +18,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // blobChunkDiffer is an implementation of chunkDiffer for chunked blob values.

@@ -23,12 +23,12 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb/gcctx"
-	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess/mutexmap"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/globalstate"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/globalstate/sequences"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/gcctx"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/ref"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess/mutexmap"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/globalstate"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/globalstate/sequences"
 )
 
 type LockMode int64

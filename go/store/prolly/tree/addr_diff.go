@@ -19,7 +19,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // AddrDiff is a pair of hash.Hash values representing the addresses of two nodes two different trees which are likely

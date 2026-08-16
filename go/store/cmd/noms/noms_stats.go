@@ -27,8 +27,8 @@ import (
 
 	"github.com/attic-labs/kingpin"
 
-	"github.com/dolthub/dolt/go/store/cmd/noms/util"
-	"github.com/dolthub/dolt/go/store/config"
+	"github.com/nustiueudinastea/dolt/go/store/cmd/noms/util"
+	"github.com/nustiueudinastea/dolt/go/store/config"
 )
 
 func nomsStats(ctx context.Context, noms *kingpin.Application) (*kingpin.CmdClause, util.KingpinHandler) {

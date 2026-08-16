@@ -25,11 +25,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 
-	"github.com/dolthub/dolt/go/gen/fb/serial"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/prolly/message"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/message"
 )
 
 type SerialMessage []byte

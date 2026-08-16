@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
 )
 
 // TestRegression10331 tests for the checksum error caused by concurrent executions of `dolt sql`

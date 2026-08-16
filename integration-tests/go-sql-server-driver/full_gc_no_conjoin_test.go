@@ -26,8 +26,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
-	"github.com/dolthub/dolt/go/store/hash"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // This test asserts that running a full gc into the old gen at the

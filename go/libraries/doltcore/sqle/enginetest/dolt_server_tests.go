@@ -28,11 +28,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/sqlserver"
-	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
-	"github.com/dolthub/dolt/go/libraries/utils/svcs"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/sqlserver"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/svcs"
 )
 
 // DoltBranchMultiSessionScriptTests contain tests that need to be run in a multi-session server environment

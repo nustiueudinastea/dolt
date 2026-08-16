@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
 
 	"github.com/stretchr/testify/require"
 )

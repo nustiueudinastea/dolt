@@ -18,7 +18,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dolthub/dolt/go/store/datas"
+	"github.com/nustiueudinastea/dolt/go/store/datas"
 )
 
 // InvalidBranchNameRegex is a list of patterns forbidden in a branch name.

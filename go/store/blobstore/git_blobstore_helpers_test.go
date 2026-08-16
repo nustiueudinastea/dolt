@@ -23,7 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	git "github.com/dolthub/dolt/go/store/blobstore/internal/git"
+	git "github.com/nustiueudinastea/dolt/go/store/blobstore/internal/git"
 )
 
 type fakeGitAPI struct {

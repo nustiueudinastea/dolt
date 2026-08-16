@@ -26,15 +26,15 @@ import (
 
 	goerrors "gopkg.in/src-d/go-errors.v1"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dbfactory"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
-	"github.com/dolthub/dolt/go/libraries/utils/argparser"
-	"github.com/dolthub/dolt/go/libraries/utils/concurrentmap"
-	"github.com/dolthub/dolt/go/libraries/utils/config"
-	"github.com/dolthub/dolt/go/libraries/utils/earl"
-	filesys2 "github.com/dolthub/dolt/go/libraries/utils/filesys"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dbfactory"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/ref"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/argparser"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/concurrentmap"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/config"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/earl"
+	filesys2 "github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 var NoRemote = Remote{}

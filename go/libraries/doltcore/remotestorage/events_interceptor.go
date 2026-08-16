@@ -19,7 +19,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/dolthub/dolt/go/libraries/events"
+	"github.com/nustiueudinastea/dolt/go/libraries/events"
 	eventsapi "github.com/dolthub/eventsapi_schema/dolt/services/eventsapi/v1alpha1"
 )
 

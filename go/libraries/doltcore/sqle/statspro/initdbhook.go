@@ -17,9 +17,9 @@ package statspro
 import (
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
 )
 
 func NewInitDatabaseHook(sc *StatsController) sqle.InitDatabaseHook {

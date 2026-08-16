@@ -19,13 +19,13 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands"
-	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/errhand"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/argparser"
 )
 
 // TODO: Update tag should be migrated to call the new dolt_update_column_tag() stored procedure

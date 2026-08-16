@@ -1130,7 +1130,7 @@ expect eof
 @test "sql-shell: dolt_thread_dump" {
     run dolt sql <<< "call dolt_thread_dump();"
     [ $status -eq 0 ]
-    [[ "$output" =~ "github.com/dolthub/dolt/go" ]] || false
+    [[ "$output" =~ "github.com/nustiueudinastea/dolt/go" ]] || false
     [[ "$output" =~ "github.com/dolthub/go-mysql-server" ]] || false
 }
 

@@ -17,8 +17,8 @@ package gcctx
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/libraries/utils/valctx"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/valctx"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 type ctxKey int

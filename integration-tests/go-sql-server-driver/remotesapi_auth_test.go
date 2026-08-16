@@ -29,8 +29,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	remotesapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	remotesapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
 )
 
 // TestRemotesAPIAuthentication asserts that the gRPC remotesapi endpoint of a

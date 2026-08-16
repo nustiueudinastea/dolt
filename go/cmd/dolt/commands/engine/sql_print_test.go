@@ -23,7 +23,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 )
 
 func TestSecondsSince(t *testing.T) {

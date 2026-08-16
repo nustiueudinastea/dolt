@@ -19,9 +19,9 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/globalstate/sequences"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/ref"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/globalstate/sequences"
 )
 
 // SequenceTrackerBase is the non-generic base interface for SequenceTracker

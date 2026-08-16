@@ -22,7 +22,7 @@ import (
 	"github.com/gocraft/dbr/v2"
 	"github.com/gocraft/dbr/v2/dialect"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 )
 
 type AutoResolveStrategy int

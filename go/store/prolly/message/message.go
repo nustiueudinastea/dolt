@@ -21,8 +21,8 @@ import (
 
 	fb "github.com/dolthub/flatbuffers/v23/go"
 
-	"github.com/dolthub/dolt/go/gen/fb/serial"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 const (

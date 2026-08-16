@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dbfactory"
-	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
-	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dbfactory"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/argparser"
 )
 
 const VerboseFlag = "verbose"

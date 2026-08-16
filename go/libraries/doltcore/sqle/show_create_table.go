@@ -21,9 +21,9 @@ import (
 	sqle "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/writer"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/writer"
 )
 
 // These functions cannot be in the sqlfmt package as the reliance on the sqle package creates a circular reference.

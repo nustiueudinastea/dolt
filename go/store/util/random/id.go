@@ -18,7 +18,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 
-	"github.com/dolthub/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/d"
 )
 
 var (

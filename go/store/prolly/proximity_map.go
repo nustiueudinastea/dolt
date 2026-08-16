@@ -24,11 +24,11 @@ import (
 	"github.com/dolthub/go-mysql-server/sql/expression/function/vector"
 	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/pool"
-	"github.com/dolthub/dolt/go/store/prolly/message"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/pool"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/message"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // ProximityMap wraps a tree.ProximityMap but operates on typed Tuples instead of raw bytestrings.

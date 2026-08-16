@@ -25,8 +25,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/dolthub/dolt/go/store/util/tempfiles"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/util/tempfiles"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // tupleSorter inputs a series of unsorted tuples and outputs a sorted list

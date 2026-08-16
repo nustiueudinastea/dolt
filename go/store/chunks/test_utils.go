@@ -25,8 +25,8 @@ import (
 	"context"
 	"sync/atomic"
 
-	"github.com/dolthub/dolt/go/store/d"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 type TestStorage struct {

@@ -24,8 +24,8 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/vitess/go/mysql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 const binlogPositionDirectory = ".doltcfg"

@@ -19,7 +19,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/overrides"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/overrides"
 )
 
 func init() {

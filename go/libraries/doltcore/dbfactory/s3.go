@@ -25,13 +25,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/memlimit"
-	"github.com/dolthub/dolt/go/libraries/utils/earl"
-	"github.com/dolthub/dolt/go/store/blobstore"
-	"github.com/dolthub/dolt/go/store/datas"
-	"github.com/dolthub/dolt/go/store/nbs"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/memlimit"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/earl"
+	"github.com/nustiueudinastea/dolt/go/store/blobstore"
+	"github.com/nustiueudinastea/dolt/go/store/datas"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 // S3Factory is a DBFactory implementation for databases backed by generic

@@ -17,7 +17,7 @@ package valutil
 import (
 	"testing"
 
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 func TestNilSafeEqCheck(t *testing.T) {

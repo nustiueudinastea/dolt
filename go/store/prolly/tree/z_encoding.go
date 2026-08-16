@@ -22,7 +22,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql/expression/function/spatial"
 	"github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // LexFloat maps the float64 into an uint64 representation in lexicographical order

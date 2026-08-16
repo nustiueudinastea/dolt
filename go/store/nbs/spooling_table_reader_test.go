@@ -28,8 +28,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	dherrors "github.com/dolthub/dolt/go/libraries/utils/errors"
-	"github.com/dolthub/dolt/go/store/blobstore"
+	dherrors "github.com/nustiueudinastea/dolt/go/libraries/utils/errors"
+	"github.com/nustiueudinastea/dolt/go/store/blobstore"
 )
 
 // wholeBlobBlobstore wraps an InMemoryBlobstore and advertises the spool capability.

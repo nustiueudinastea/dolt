@@ -25,13 +25,13 @@ import (
 	querypb "github.com/dolthub/vitess/go/vt/proto/query"
 	"github.com/dolthub/vitess/go/vt/sqlparser"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/overrides"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
-	"github.com/dolthub/dolt/go/libraries/utils/set"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/overrides"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/set"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 const singleQuote = `'`

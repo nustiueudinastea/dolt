@@ -20,7 +20,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql/plan"
 	"github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/merge"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/merge"
 )
 
 var SchemaChangeTestsForDataConflicts = []MergeScriptTest{

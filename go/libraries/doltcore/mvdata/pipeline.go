@@ -21,7 +21,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/table"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table"
 )
 
 // DataMoverPipeline is an errgroup based pipeline that reads rows from a reader and writes them to a destination with

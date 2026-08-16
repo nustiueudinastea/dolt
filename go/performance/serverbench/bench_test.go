@@ -27,13 +27,13 @@ import (
 	"github.com/gocraft/dbr/v2"
 	"golang.org/x/sync/errgroup"
 
-	srv "github.com/dolthub/dolt/go/cmd/dolt/commands/sqlserver"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
-	"github.com/dolthub/dolt/go/libraries/utils/svcs"
-	"github.com/dolthub/dolt/go/store/types"
+	srv "github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/sqlserver"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/svcs"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 type query string

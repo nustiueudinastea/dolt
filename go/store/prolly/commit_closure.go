@@ -22,13 +22,13 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dolthub/dolt/go/serial"
+	"github.com/nustiueudinastea/dolt/go/serial"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/pool"
-	"github.com/dolthub/dolt/go/store/prolly/message"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/pool"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/message"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 // Closure values are a long (8 bytes) followed by a hash (20 bytes, hash.ByteLen).

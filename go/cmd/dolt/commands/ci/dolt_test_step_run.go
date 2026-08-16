@@ -22,8 +22,8 @@ import (
 	"github.com/fatih/color"
 	"gopkg.in/yaml.v3"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions/dolt_ci"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env/actions/dolt_ci"
 )
 
 // runDoltTestStep evaluates a Dolt Test step per selection rules and requires all selected tests to PASS.

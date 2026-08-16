@@ -27,13 +27,13 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/google/uuid"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/row"
-	"github.com/dolthub/dolt/go/libraries/doltcore/rowconv"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table"
-	"github.com/dolthub/dolt/go/libraries/utils/set"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/row"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/rowconv"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/set"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 type typeInfoSet map[typeinfo.TypeInfo]struct{}

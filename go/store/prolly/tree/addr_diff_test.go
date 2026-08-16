@@ -22,7 +22,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 // Single layer trees are entirely root nodes - which are embedded in the table flatbuffer, so we don't

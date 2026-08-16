@@ -26,8 +26,8 @@ import (
 
 	filelocks "github.com/dolthub/file-locks"
 
-	"github.com/dolthub/dolt/go/libraries/utils/file"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/file"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // pruneProbePrefix names the zero-length file a grace prune drops in a
@@ -57,7 +57,7 @@ var ErrGracePruneUnsupported = errors.New("store does not support pruning unrefe
 // unlinks and a manifest update from overlapping; see unlinkCandidates.
 // Callers must size |grace| well above the window in which a writer can hold a
 // reference to a file it is no longer touching — see
-// [github.com/dolthub/dolt/go/cmd/dolt/cli.BackupPruneMinGracePeriod].
+// [github.com/nustiueudinastea/dolt/go/cmd/dolt/cli.BackupPruneMinGracePeriod].
 type GracePruner interface {
 	PruneUnreferencedWithGrace(ctx context.Context, grace time.Duration) (PruneStats, error)
 }

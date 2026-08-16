@@ -17,8 +17,8 @@ pkg_tar(
     ],
     mode = "0644",
     remap_paths = {
-        "dolt/services/remotesapi/v1alpha1/remotesapi_go_proto_/github.com/dolthub/dolt/go": "/",
-        "dolt/services/replicationapi/v1alpha1/replicationapi_go_proto_/github.com/dolthub/dolt/go": "/",
+        "dolt/services/remotesapi/v1alpha1/remotesapi_go_proto_/github.com/nustiueudinastea/dolt/go": "/",
+        "dolt/services/replicationapi/v1alpha1/replicationapi_go_proto_/github.com/nustiueudinastea/dolt/go": "/",
     },
     strip_prefix = "./",
 )

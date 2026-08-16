@@ -26,7 +26,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // A ChunkStore's |ExclusiveAccessMode| can indicate to a client what type of

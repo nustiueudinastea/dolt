@@ -18,7 +18,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 type Extended []byte

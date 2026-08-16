@@ -23,8 +23,8 @@ import (
 	"github.com/dolthub/go-mysql-server/sql/mysql_db"
 	"github.com/sirupsen/logrus"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
-	"github.com/dolthub/dolt/go/libraries/utils/jwtauth"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/jwtauth"
 )
 
 // authenticateDoltJWTPlugin is used to authenticate plaintext user plugins
