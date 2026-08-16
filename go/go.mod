@@ -61,7 +61,7 @@ require (
 	github.com/cockroachdb/apd/v3 v3.2.3
 	github.com/creasty/defaults v1.6.0
 	github.com/dolthub/aws-sdk-go-ini-parser v0.0.0-20250305001723-2821c37f6c12
-	github.com/dolthub/dolt-mcp v0.3.4
+	github.com/nustiueudinastea/dolt-mcp v0.3.5-0.20260816222919-54e442b0829e
 	github.com/dolthub/eventsapi_schema v0.0.0-20260715220557-d9b4a1c6b4d4
 	github.com/dolthub/file-locks v0.1.1
 	github.com/dolthub/flatbuffers/v23 v23.3.3-dh.2
@@ -162,7 +162,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.18.0
 	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
 	github.com/lestrrat-go/strftime v1.2.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect

@@ -25,9 +25,9 @@ import (
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/errgroup"
 
-	pkgmcp "github.com/dolthub/dolt-mcp/mcp/pkg"
-	mcpdb "github.com/dolthub/dolt-mcp/mcp/pkg/db"
-	"github.com/dolthub/dolt-mcp/mcp/pkg/toolsets"
+	pkgmcp "github.com/nustiueudinastea/dolt-mcp/mcp/pkg"
+	mcpdb "github.com/nustiueudinastea/dolt-mcp/mcp/pkg/db"
+	"github.com/nustiueudinastea/dolt-mcp/mcp/pkg/toolsets"
 	"github.com/nustiueudinastea/dolt/go/libraries/utils/svcs"
 )
 
