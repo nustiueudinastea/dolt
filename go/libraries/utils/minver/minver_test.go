@@ -19,7 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/libraries/utils/structwalk"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/structwalk"
 )
 
 type SubStruct struct {

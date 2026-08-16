@@ -22,7 +22,7 @@ import (
 	flatbuffers "github.com/dolthub/flatbuffers/v23/go"
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
 )
 
 const (

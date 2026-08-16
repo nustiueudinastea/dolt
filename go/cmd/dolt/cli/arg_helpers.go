@@ -18,7 +18,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/argparser"
 )
 
 var ErrEmptyDefTuple = errors.New("empty definition tuple")

@@ -21,7 +21,7 @@ import (
 
 	"github.com/tealeg/xlsx"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 )
 
 var ErrTableNameMatchSheetName = errors.New("table name must match excel sheet name.")

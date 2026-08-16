@@ -15,7 +15,7 @@
 package dtestutils
 
 import (
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 )
 
 // CreateSchema returns a schema from the columns given, panicking on any errors.

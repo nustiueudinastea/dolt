@@ -29,8 +29,8 @@ import (
 
 	"github.com/dolthub/fslock"
 
-	"github.com/dolthub/dolt/go/store/d"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // journalRec is a record in a chunk journal. Its serialization format uses

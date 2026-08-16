@@ -32,8 +32,8 @@ import (
 
 	"github.com/fatih/color"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/argparser"
 )
 
 var batseeDoc = cli.CommandDocumentationContent{

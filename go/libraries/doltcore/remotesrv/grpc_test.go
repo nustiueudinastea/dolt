@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
 
-	remotesapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
-	"github.com/dolthub/dolt/go/store/hash"
+	remotesapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 func TestGRPCSchemeSelection(t *testing.T) {

@@ -10,7 +10,7 @@ comparisons.
 Sample:
 ```bash
 go build \
-  github.com/dolthub/dolt/go/performance/import_benchmarker/cmd \
+  github.com/nustiueudinastea/dolt/go/performance/import_benchmarker/cmd \
   -test testdata/shuffle.yaml
 ```
 

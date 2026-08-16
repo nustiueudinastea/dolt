@@ -15,7 +15,7 @@
 package ci
 
 import (
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 )
 
 var Commands = cli.NewSubCommandHandler("ci", "Commands for working with Dolt continuous integration configuration.", []cli.Command{

@@ -28,9 +28,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	remotesapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/nbs"
+	remotesapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
 )
 
 func TestFetcherHashSetToReqsThread(t *testing.T) {

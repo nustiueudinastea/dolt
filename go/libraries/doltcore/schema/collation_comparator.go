@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 
 	"github.com/dolthub/go-mysql-server/sql"
 )

@@ -17,9 +17,9 @@ package remotesrv
 import (
 	"fmt"
 
-	remotesapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/types"
+	remotesapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 func validateRepoRequest(req repoRequest) error {

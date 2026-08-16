@@ -29,7 +29,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 
-	"github.com/dolthub/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/d"
 )
 
 // Histogram is a shameless and low-rent knock of the chromium project's

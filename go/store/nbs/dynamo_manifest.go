@@ -32,9 +32,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	dherrors "github.com/dolthub/dolt/go/libraries/utils/errors"
-	"github.com/dolthub/dolt/go/store/d"
-	"github.com/dolthub/dolt/go/store/hash"
+	dherrors "github.com/nustiueudinastea/dolt/go/libraries/utils/errors"
+	"github.com/nustiueudinastea/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 const (

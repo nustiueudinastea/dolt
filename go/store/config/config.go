@@ -29,7 +29,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/dolthub/dolt/go/store/spec"
+	"github.com/nustiueudinastea/dolt/go/store/spec"
 )
 
 // All configuration

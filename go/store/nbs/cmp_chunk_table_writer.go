@@ -26,7 +26,7 @@ import (
 
 	"github.com/golang/snappy"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // GenericTableWriter is an interface for writing table files regardless of the output format

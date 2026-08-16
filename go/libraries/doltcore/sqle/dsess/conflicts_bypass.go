@@ -17,7 +17,7 @@ package dsess
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 )
 
 // ConflictsBypassMarker propagates an already-validated decision to admit a

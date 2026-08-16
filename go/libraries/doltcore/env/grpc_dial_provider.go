@@ -30,11 +30,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	expcreds "google.golang.org/grpc/experimental/credentials"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/creds"
-	"github.com/dolthub/dolt/go/libraries/doltcore/dbfactory"
-	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
-	"github.com/dolthub/dolt/go/libraries/doltcore/grpcendpoint"
-	"github.com/dolthub/dolt/go/libraries/doltcore/remotesrv"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/creds"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dbfactory"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/grpcendpoint"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/remotesrv"
 )
 
 var defaultDialer = &net.Dialer{

@@ -22,9 +22,9 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/creds"
-	"github.com/dolthub/dolt/go/libraries/doltcore/dbfactory"
-	"github.com/dolthub/dolt/go/libraries/doltcore/grpcendpoint"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/creds"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dbfactory"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/grpcendpoint"
 )
 
 // We wrap the default environment dial provider. In the standby replication

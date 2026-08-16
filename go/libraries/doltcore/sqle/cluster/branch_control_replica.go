@@ -24,9 +24,9 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 
-	replicationapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1"
-	"github.com/dolthub/dolt/go/libraries/doltcore/branch_control"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	replicationapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/branch_control"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 )
 
 type branchControlReplication struct {

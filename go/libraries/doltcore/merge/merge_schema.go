@@ -24,11 +24,11 @@ import (
 	ast "github.com/dolthub/vitess/go/vt/sqlparser"
 	errorkinds "gopkg.in/src-d/go-errors.v1"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typecompatibility"
-	"github.com/dolthub/dolt/go/store/prolly/tree"
-	storetypes "github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typecompatibility"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
+	storetypes "github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 type conflictKind byte

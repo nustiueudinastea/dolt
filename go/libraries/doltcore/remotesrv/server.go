@@ -29,8 +29,8 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 
-	remotesapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	remotesapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 // disabledFeaturesEnvVar is an undocumented internal test hook. If

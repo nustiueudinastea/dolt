@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dolthub/dolt/go/store/prolly/message"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/message"
 )
 
 const PatchBufferSize = 1024

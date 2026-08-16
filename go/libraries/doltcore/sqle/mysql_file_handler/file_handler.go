@@ -24,7 +24,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/mysql_db"
 
-	"github.com/dolthub/dolt/go/libraries/utils/file"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/file"
 )
 
 var PermsFileMode os.FileMode = 0600

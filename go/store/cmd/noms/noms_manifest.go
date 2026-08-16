@@ -25,10 +25,10 @@ import (
 	"github.com/dustin/go-humanize"
 	flag "github.com/juju/gnuflag"
 
-	"github.com/dolthub/dolt/go/store/cmd/noms/util"
-	"github.com/dolthub/dolt/go/store/d"
-	"github.com/dolthub/dolt/go/store/nbs"
-	"github.com/dolthub/dolt/go/store/spec"
+	"github.com/nustiueudinastea/dolt/go/store/cmd/noms/util"
+	"github.com/nustiueudinastea/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/store/spec"
 )
 
 var nomsManifest = &util.Command{

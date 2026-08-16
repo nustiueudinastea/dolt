@@ -17,8 +17,8 @@ package diff
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/utils/set"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/set"
 )
 
 // DatabaseSchemaDelta represents a change in the set of database schemas between two roots

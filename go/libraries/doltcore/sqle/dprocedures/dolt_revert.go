@@ -20,11 +20,11 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/libraries/doltcore/branch_control"
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	revertpkg "github.com/dolthub/dolt/go/libraries/doltcore/revert"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/branch_control"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	revertpkg "github.com/nustiueudinastea/dolt/go/libraries/doltcore/revert"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
 )
 
 // doltRevertSchema matches the return schema for merge and cherry-pick to report

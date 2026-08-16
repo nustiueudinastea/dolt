@@ -25,8 +25,8 @@ package chunks
 import (
 	"bytes"
 
-	"github.com/dolthub/dolt/go/store/d"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // Chunk is a unit of stored data in noms

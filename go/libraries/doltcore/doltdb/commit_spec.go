@@ -18,7 +18,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/ref"
 )
 
 var hashRegex = regexp.MustCompile(`^[0-9a-v]{32}$`)

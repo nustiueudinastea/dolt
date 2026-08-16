@@ -31,8 +31,8 @@ import (
 
 	"github.com/dustin/go-humanize"
 
-	"github.com/dolthub/dolt/go/store/d"
-	"github.com/dolthub/dolt/go/store/util/writers"
+	"github.com/nustiueudinastea/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/util/writers"
 )
 
 // Clients can register a 'commenter' to return a comment that will get appended

@@ -31,10 +31,10 @@ import (
 	"github.com/gocraft/dbr/v2/dialect"
 	"golang.org/x/exp/constraints"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/overrides"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/overrides"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 const testsRunDefaultRowCount = 10

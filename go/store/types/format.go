@@ -17,7 +17,7 @@ package types
 import (
 	"errors"
 
-	"github.com/dolthub/dolt/go/store/constants"
+	"github.com/nustiueudinastea/dolt/go/store/constants"
 )
 
 type NomsBinFormat struct {

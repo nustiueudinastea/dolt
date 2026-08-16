@@ -18,7 +18,7 @@ import (
 	"github.com/fatih/color"
 	"golang.org/x/sys/unix"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 )
 
 const warningThreshold = 4096

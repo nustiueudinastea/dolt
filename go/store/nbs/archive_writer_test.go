@@ -23,7 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
 )
 
 func CountFilesInDir(t *testing.T, path string) int {

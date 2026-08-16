@@ -26,8 +26,8 @@ import (
 
 	"github.com/cockroachdb/apd/v3"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 func init() {

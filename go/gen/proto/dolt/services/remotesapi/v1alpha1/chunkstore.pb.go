@@ -2925,7 +2925,7 @@ const file_dolt_services_remotesapi_v1alpha1_chunkstore_proto_rawDesc = "" +
 	"\x06Commit\x120.dolt.services.remotesapi.v1alpha1.CommitRequest\x1a1.dolt.services.remotesapi.v1alpha1.CommitResponse\x12\x85\x01\n" +
 	"\x0eListTableFiles\x128.dolt.services.remotesapi.v1alpha1.ListTableFilesRequest\x1a9.dolt.services.remotesapi.v1alpha1.ListTableFilesResponse\x12\x94\x01\n" +
 	"\x13RefreshTableFileUrl\x12=.dolt.services.remotesapi.v1alpha1.RefreshTableFileUrlRequest\x1a>.dolt.services.remotesapi.v1alpha1.RefreshTableFileUrlResponse\x12\x82\x01\n" +
-	"\rAddTableFiles\x127.dolt.services.remotesapi.v1alpha1.AddTableFilesRequest\x1a8.dolt.services.remotesapi.v1alpha1.AddTableFilesResponseBSZQgithub.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1;remotesapib\x06proto3"
+	"\rAddTableFiles\x127.dolt.services.remotesapi.v1alpha1.AddTableFilesRequest\x1a8.dolt.services.remotesapi.v1alpha1.AddTableFilesResponseB\\ZZgithub.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1;remotesapib\x06proto3"
 
 var (
 	file_dolt_services_remotesapi_v1alpha1_chunkstore_proto_rawDescOnce sync.Once

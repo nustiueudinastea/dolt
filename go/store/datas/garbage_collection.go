@@ -17,7 +17,7 @@ package datas
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
 )
 
 func PruneTableFiles(ctx context.Context, db Database) error {

@@ -22,7 +22,7 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/store/prolly/tree"
+	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
 )
 
 type ThreeWayJsonDiffer struct {

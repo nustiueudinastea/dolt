@@ -33,7 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dherrors "github.com/dolthub/dolt/go/libraries/utils/errors"
+	dherrors "github.com/nustiueudinastea/dolt/go/libraries/utils/errors"
 )
 
 func randomChunks(t *testing.T, r *rand.Rand, sz int) [][]byte {

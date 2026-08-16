@@ -24,7 +24,7 @@ package datas
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // CommitSigner signs a commit payload and returns the signature bytes.

@@ -301,7 +301,7 @@ const file_dolt_services_replicationapi_v1alpha1_replication_proto_rawDesc = "" 
 	"\x12ReplicationService\x12\x9f\x01\n" +
 	"\x14UpdateUsersAndGrants\x12B.dolt.services.replicationapi.v1alpha1.UpdateUsersAndGrantsRequest\x1aC.dolt.services.replicationapi.v1alpha1.UpdateUsersAndGrantsResponse\x12\x9c\x01\n" +
 	"\x13UpdateBranchControl\x12A.dolt.services.replicationapi.v1alpha1.UpdateBranchControlRequest\x1aB.dolt.services.replicationapi.v1alpha1.UpdateBranchControlResponse\x12\x87\x01\n" +
-	"\fDropDatabase\x12:.dolt.services.replicationapi.v1alpha1.DropDatabaseRequest\x1a;.dolt.services.replicationapi.v1alpha1.DropDatabaseResponseB[ZYgithub.com/dolthub/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1;replicationapib\x06proto3"
+	"\fDropDatabase\x12:.dolt.services.replicationapi.v1alpha1.DropDatabaseRequest\x1a;.dolt.services.replicationapi.v1alpha1.DropDatabaseResponseBdZbgithub.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1;replicationapib\x06proto3"
 
 var (
 	file_dolt_services_replicationapi_v1alpha1_replication_proto_rawDescOnce sync.Once

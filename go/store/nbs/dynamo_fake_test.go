@@ -32,7 +32,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/constants"
+	"github.com/nustiueudinastea/dolt/go/store/constants"
 )
 
 type fakeDDB struct {

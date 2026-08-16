@@ -24,7 +24,7 @@ import (
 
 	"github.com/dolthub/sqllogictest/go/logictest"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/logictest/dolt"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/logictest/dolt"
 )
 
 var resultFormat = flag.String("r", "json", "format of parsed results")

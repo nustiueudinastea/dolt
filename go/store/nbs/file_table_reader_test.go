@@ -27,7 +27,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dolthub/dolt/go/libraries/utils/file"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/file"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -14,7 +14,7 @@
 
 package schema
 
-import "github.com/dolthub/dolt/go/gen/fb/serial"
+import "github.com/nustiueudinastea/dolt/go/gen/fb/serial"
 
 // Collation represents the collation of a string.
 type Collation uint16

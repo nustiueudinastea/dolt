@@ -22,8 +22,8 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/sqlserver"
-	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/sqlserver"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"
 )
 
 // TestDoltMultiSessionBehavior runs tests that exercise multi-session logic on a running SQL server. Statements

@@ -31,9 +31,9 @@ import (
 	querypb "github.com/dolthub/vitess/go/vt/proto/query"
 	"github.com/mohae/uvarint"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/pool"
-	"github.com/dolthub/dolt/go/store/val"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/pool"
+	"github.com/nustiueudinastea/dolt/go/store/val"
 )
 
 var ErrValueExceededMaxFieldSize = errors.New("value exceeded max field size of 65kb")

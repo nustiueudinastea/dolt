@@ -26,8 +26,8 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/binlogreplication"
-	doltenginetest "github.com/dolthub/dolt/go/libraries/doltcore/sqle/enginetest"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/binlogreplication"
+	doltenginetest "github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/enginetest"
 )
 
 var (

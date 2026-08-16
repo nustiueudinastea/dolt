@@ -33,7 +33,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 
-	git "github.com/dolthub/dolt/go/store/blobstore/internal/git"
+	git "github.com/nustiueudinastea/dolt/go/store/blobstore/internal/git"
 )
 
 const gitblobstorePartNameWidth = 4 // "0001"

@@ -15,8 +15,8 @@
 package admin
 
 import (
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/admin/createchunk"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/admin/createchunk"
 )
 
 var Commands = cli.NewHiddenSubCommandHandler("admin", "Commands for directly working with Dolt storage for purposes of testing or database recovery", []cli.Command{

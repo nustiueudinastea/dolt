@@ -21,7 +21,7 @@ import (
 	"log"
 	"os"
 
-	builder "github.com/dolthub/dolt/go/performance/utils/dolt_builder"
+	builder "github.com/nustiueudinastea/dolt/go/performance/utils/dolt_builder"
 )
 
 var profile = flag.String("profile", "", "path to profile used during build")

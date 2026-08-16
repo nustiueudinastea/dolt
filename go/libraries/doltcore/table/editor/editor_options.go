@@ -15,7 +15,7 @@
 package editor
 
 import (
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 const (

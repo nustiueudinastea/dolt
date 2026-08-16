@@ -18,7 +18,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // Geometry represents any of the types Point, LineString, or Polygon.

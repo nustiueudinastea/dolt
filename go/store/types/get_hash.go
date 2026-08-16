@@ -21,7 +21,7 @@
 
 package types
 
-import "github.com/dolthub/dolt/go/store/hash"
+import "github.com/nustiueudinastea/dolt/go/store/hash"
 
 func getHash(v Value, nbf *NomsBinFormat) (hash.Hash, error) {
 	val, err := EncodeValue(v, nbf)

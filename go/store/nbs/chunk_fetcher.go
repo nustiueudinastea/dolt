@@ -17,7 +17,7 @@ package nbs
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // A ChunkFetcher is a batching, stateful, potentially concurrent interface to

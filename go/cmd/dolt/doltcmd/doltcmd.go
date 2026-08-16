@@ -15,19 +15,19 @@
 package doltcmd
 
 import (
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/admin"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/ci"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/cnfcmds"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/credcmds"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/cvcmds"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/docscmds"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/indexcmds"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/schcmds"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/sqlserver"
-	"github.com/dolthub/dolt/go/cmd/dolt/commands/tblcmds"
-	"github.com/dolthub/dolt/go/cmd/dolt/doltversion"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/admin"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/ci"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/cnfcmds"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/credcmds"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/cvcmds"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/docscmds"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/indexcmds"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/schcmds"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/sqlserver"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/tblcmds"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/doltversion"
 )
 
 var dumpDocsCommand = &commands.DumpDocsCmd{}

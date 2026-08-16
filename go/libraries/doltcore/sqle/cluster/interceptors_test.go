@@ -35,7 +35,7 @@ import (
 	"gopkg.in/go-jose/go-jose.v2"
 	"gopkg.in/go-jose/go-jose.v2/jwt"
 
-	"github.com/dolthub/dolt/go/libraries/utils/jwtauth"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/jwtauth"
 )
 
 type server struct {

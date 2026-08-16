@@ -17,7 +17,7 @@ package message
 import (
 	"unsafe"
 
-	"github.com/dolthub/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
 )
 
 type offsetSize uint8

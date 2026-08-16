@@ -21,7 +21,7 @@ import (
 	"hash/crc32"
 	"io"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // indexRec is a record in a chunk journal index file. Index records

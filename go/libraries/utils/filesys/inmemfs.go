@@ -27,9 +27,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dolthub/dolt/go/libraries/utils/iohelp"
-	"github.com/dolthub/dolt/go/libraries/utils/lockutil"
-	"github.com/dolthub/dolt/go/libraries/utils/osutil"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/iohelp"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/lockutil"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/osutil"
 )
 
 // InMemNowFunc is a func() time.Time that can be used to supply the current time.  The default value gets the current

@@ -26,16 +26,16 @@ import (
 	"github.com/dolthub/vitess/go/sqltypes"
 	"github.com/fatih/color"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
-	"github.com/dolthub/dolt/go/libraries/doltcore/row"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/typed/json"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/typed/parquet"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped/csv"
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped/tabular"
-	"github.com/dolthub/dolt/go/libraries/utils/iohelp"
-	"github.com/dolthub/dolt/go/store/util/outputpager"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/row"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/typed/json"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/typed/parquet"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/untyped/csv"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/untyped/tabular"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/iohelp"
+	"github.com/nustiueudinastea/dolt/go/store/util/outputpager"
 )
 
 type PrintResultFormat byte

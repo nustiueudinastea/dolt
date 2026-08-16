@@ -15,8 +15,8 @@
 package remotestorage
 
 import (
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
 )
 
 // ChunkCache is an interface used for caching chunks and has presence that

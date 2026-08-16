@@ -27,7 +27,7 @@ import (
 	"gopkg.in/go-jose/go-jose.v2"
 	"gopkg.in/go-jose/go-jose.v2/jwt"
 
-	"github.com/dolthub/dolt/go/libraries/utils/set"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/set"
 )
 
 const (

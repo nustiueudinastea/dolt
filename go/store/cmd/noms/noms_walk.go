@@ -23,15 +23,15 @@ import (
 
 	flag "github.com/juju/gnuflag"
 
-	"github.com/dolthub/dolt/go/gen/fb/serial"
-	"github.com/dolthub/dolt/go/store/cmd/noms/util"
-	"github.com/dolthub/dolt/go/store/config"
-	"github.com/dolthub/dolt/go/store/d"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/nbs"
-	"github.com/dolthub/dolt/go/store/types"
-	"github.com/dolthub/dolt/go/store/util/outputpager"
-	"github.com/dolthub/dolt/go/store/util/verbose"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/store/cmd/noms/util"
+	"github.com/nustiueudinastea/dolt/go/store/config"
+	"github.com/nustiueudinastea/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
+	"github.com/nustiueudinastea/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/util/outputpager"
+	"github.com/nustiueudinastea/dolt/go/store/util/verbose"
 )
 
 var nomsWalk = &util.Command{

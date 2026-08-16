@@ -28,8 +28,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/dolthub/dolt/go/store/datas"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/datas"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // HashResolver resolves a commit hash to its CommitInfo. Implementations

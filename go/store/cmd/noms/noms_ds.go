@@ -28,10 +28,10 @@ import (
 
 	flag "github.com/juju/gnuflag"
 
-	"github.com/dolthub/dolt/go/store/cmd/noms/util"
-	"github.com/dolthub/dolt/go/store/config"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/util/verbose"
+	"github.com/nustiueudinastea/dolt/go/store/cmd/noms/util"
+	"github.com/nustiueudinastea/dolt/go/store/config"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/util/verbose"
 )
 
 var toDelete string

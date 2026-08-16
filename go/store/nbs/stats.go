@@ -24,7 +24,7 @@ package nbs
 import (
 	"fmt"
 
-	"github.com/dolthub/dolt/go/store/metrics"
+	"github.com/nustiueudinastea/dolt/go/store/metrics"
 )
 
 type Stats struct {

@@ -23,8 +23,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	replicationapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1"
-	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	replicationapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 type BranchControlPersistence interface {

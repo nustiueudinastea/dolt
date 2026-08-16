@@ -18,7 +18,7 @@ package dolt.services.remotesapi.v1alpha1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1;remotesapi";
+option go_package = "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1;remotesapi";
 
 service ChunkStoreService {
   rpc GetRepoMetadata(GetRepoMetadataRequest) returns (GetRepoMetadataResponse);

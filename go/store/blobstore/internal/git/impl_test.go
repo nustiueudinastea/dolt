@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dolthub/dolt/go/store/testutils/gitrepo"
+	"github.com/nustiueudinastea/dolt/go/store/testutils/gitrepo"
 )
 
 func testAuthor() *Identity {

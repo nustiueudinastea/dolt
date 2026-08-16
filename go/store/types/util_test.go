@@ -24,7 +24,7 @@ package types
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/d"
 )
 
 type iterator interface {

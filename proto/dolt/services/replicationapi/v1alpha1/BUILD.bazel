@@ -11,6 +11,6 @@ proto_library(
 go_proto_library(
     name = "replicationapi_go_proto",
     compilers = ["@rules_go//proto:go_grpc"],
-    importpath = "github.com/dolthub/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1",
+    importpath = "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/replicationapi/v1alpha1",
     proto = ":replicationapi_proto",
 )

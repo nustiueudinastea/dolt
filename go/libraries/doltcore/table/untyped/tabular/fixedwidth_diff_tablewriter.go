@@ -26,7 +26,7 @@ import (
 	computeDiff "github.com/kylelemons/godebug/diff"
 	"github.com/sergi/go-diff/diffmatchpatch"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/diff"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/diff"
 )
 
 // FixedWidthDiffTableWriter wraps a |FixedWidthTableWriter| to provide appropriate coloring and a leading diff type

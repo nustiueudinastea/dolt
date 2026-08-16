@@ -15,7 +15,7 @@
 package tblcmds
 
 import (
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 )
 
 var Commands = cli.NewSubCommandHandler("table", "Commands for copying, renaming, deleting, and exporting tables.", []cli.Command{

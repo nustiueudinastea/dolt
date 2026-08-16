@@ -17,7 +17,7 @@ package schema
 import (
 	"fmt"
 
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 // ColConstraint is an interface used for evaluating whether a columns value is valid

@@ -17,7 +17,7 @@ package dprocedures
 import (
 	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/dolthub/dolt/go/libraries/utils/goroutinedump"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/goroutinedump"
 )
 
 func doltThreadDump(ctx *sql.Context, args ...string) (sql.RowIter, error) {

@@ -45,12 +45,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 
-	dherrors "github.com/dolthub/dolt/go/libraries/utils/errors"
-	"github.com/dolthub/dolt/go/libraries/utils/valctx"
-	"github.com/dolthub/dolt/go/store/blobstore"
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/constants"
-	"github.com/dolthub/dolt/go/store/hash"
+	dherrors "github.com/nustiueudinastea/dolt/go/libraries/utils/errors"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/valctx"
+	"github.com/nustiueudinastea/dolt/go/store/blobstore"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/constants"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 var (
@@ -75,7 +75,7 @@ const (
 	defaultGitBlobstoreMaxPartSize uint64 = 50 * 1024 * 1024
 )
 
-var tracer = otel.Tracer("github.com/dolthub/dolt/go/store/nbs")
+var tracer = otel.Tracer("github.com/nustiueudinastea/dolt/go/store/nbs")
 
 type NBSCompressedChunkStore interface {
 	chunks.ChunkStore

@@ -34,7 +34,7 @@ import (
 	flag "github.com/juju/gnuflag"
 	goisatty "github.com/mattn/go-isatty"
 
-	"github.com/dolthub/dolt/go/store/d"
+	"github.com/nustiueudinastea/dolt/go/store/d"
 )
 
 var (

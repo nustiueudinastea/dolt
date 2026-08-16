@@ -150,7 +150,7 @@ const file_dolt_services_remotesapi_v1alpha1_credentials_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12#\n" +
 	"\remail_address\x18\x03 \x01(\tR\femailAddress2\x83\x01\n" +
 	"\x12CredentialsService\x12m\n" +
-	"\x06WhoAmI\x120.dolt.services.remotesapi.v1alpha1.WhoAmIRequest\x1a1.dolt.services.remotesapi.v1alpha1.WhoAmIResponseBSZQgithub.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1;remotesapib\x06proto3"
+	"\x06WhoAmI\x120.dolt.services.remotesapi.v1alpha1.WhoAmIRequest\x1a1.dolt.services.remotesapi.v1alpha1.WhoAmIResponseB\\ZZgithub.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1;remotesapib\x06proto3"
 
 var (
 	file_dolt_services_remotesapi_v1alpha1_credentials_proto_rawDescOnce sync.Once

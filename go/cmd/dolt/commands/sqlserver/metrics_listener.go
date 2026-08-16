@@ -27,9 +27,9 @@ import (
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/sirupsen/logrus"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/cluster"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/clusterdb"
-	"github.com/dolthub/dolt/go/libraries/utils/version"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/cluster"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/clusterdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/version"
 )
 
 const (

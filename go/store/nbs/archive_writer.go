@@ -28,9 +28,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/dolthub/dolt/go/cmd/dolt/doltversion"
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/doltversion"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 type stagedByteSpanSlice []byteSpan

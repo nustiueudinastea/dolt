@@ -18,9 +18,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
-	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/ref"
 )
 
 var ErrUnmergedWorkspaceDelete = errors.New("attempted to delete a workspace that is not fully merged into its parent; use `-f` to force")

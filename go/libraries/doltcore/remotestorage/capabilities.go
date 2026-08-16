@@ -15,7 +15,7 @@
 package remotestorage
 
 import (
-	remotesapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
+	remotesapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
 )
 
 // clientCapabilities is the set of capabilities this dolt client

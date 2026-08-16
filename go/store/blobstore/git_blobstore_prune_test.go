@@ -21,8 +21,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	git "github.com/dolthub/dolt/go/store/blobstore/internal/git"
-	"github.com/dolthub/dolt/go/store/testutils/gitrepo"
+	git "github.com/nustiueudinastea/dolt/go/store/blobstore/internal/git"
+	"github.com/nustiueudinastea/dolt/go/store/testutils/gitrepo"
 )
 
 // TestGitBlobstore_Prune_RemovesUnreferencedEntries writes several table file

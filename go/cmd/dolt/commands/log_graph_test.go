@@ -19,7 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/datas"
+	"github.com/nustiueudinastea/dolt/go/store/datas"
 )
 
 func TestMapCommitsWithChildrenAndPosition(t *testing.T) {

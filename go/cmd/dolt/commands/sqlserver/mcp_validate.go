@@ -20,8 +20,8 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/dconfig"
-	"github.com/dolthub/dolt/go/libraries/doltcore/servercfg"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"
 )
 
 // validateAndPrepareMCP performs coherence checks for MCP options and fails fast

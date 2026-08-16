@@ -15,9 +15,9 @@
 package actions
 
 import (
-	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
-	"github.com/dolthub/dolt/go/libraries/doltcore/creds"
-	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/errhand"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/creds"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env"
 )
 
 func NewCredsFile(dEnv *env.DoltEnv) (string, creds.DoltCreds, errhand.VerboseError) {

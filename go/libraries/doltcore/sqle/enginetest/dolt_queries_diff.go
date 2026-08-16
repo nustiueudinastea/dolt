@@ -22,8 +22,8 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
 
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtablefunctions"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtables"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dtablefunctions"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dtables"
 )
 
 var DiffSystemTableScriptTests = []queries.ScriptTest{

@@ -15,8 +15,8 @@
 package nbs
 
 import (
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // DecompBundle is a bundle of a dictionary and its raw bytes. This is necessary because we sometimes need to copy

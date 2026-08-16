@@ -20,9 +20,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/dolthub/dolt/go/performance/sysbench"
+	"github.com/nustiueudinastea/dolt/go/performance/sysbench"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
 )
 
 var run = flag.String("run", "", "the path to a test file")

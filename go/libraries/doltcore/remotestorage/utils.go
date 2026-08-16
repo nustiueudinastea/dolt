@@ -15,7 +15,7 @@
 package remotestorage
 
 import (
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 // HashesToSlices takes a list of hashes and converts each hash to a byte slice returning a slice of byte slices

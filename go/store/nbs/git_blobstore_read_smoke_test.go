@@ -23,10 +23,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dolthub/dolt/go/store/blobstore"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/testutils/gitrepo"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/blobstore"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/testutils/gitrepo"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 func TestGitBlobstoreReadSmoke_ManifestAndTableAccessPatterns(t *testing.T) {

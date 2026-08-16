@@ -15,7 +15,7 @@
 package mvdata
 
 import (
-	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped/csv"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/table/untyped/csv"
 )
 
 // CreateCSVInfo creates a CSVInfo object based on the provided options.

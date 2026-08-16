@@ -26,12 +26,12 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
-	remotesapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
-	"github.com/dolthub/dolt/go/libraries/doltcore/remotestorage/internal/pool"
-	"github.com/dolthub/dolt/go/libraries/doltcore/remotestorage/internal/ranges"
-	"github.com/dolthub/dolt/go/libraries/doltcore/remotestorage/internal/reliable"
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/nbs"
+	remotesapi "github.com/nustiueudinastea/dolt/go/gen/proto/dolt/services/remotesapi/v1alpha1"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/remotestorage/internal/pool"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/remotestorage/internal/ranges"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/remotestorage/internal/reliable"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/nbs"
 )
 
 // Local aliases for the deeply nested generated message types so the

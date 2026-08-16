@@ -24,7 +24,7 @@ package types
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 var NullValue Null

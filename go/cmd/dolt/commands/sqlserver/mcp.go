@@ -28,7 +28,7 @@ import (
 	pkgmcp "github.com/dolthub/dolt-mcp/mcp/pkg"
 	mcpdb "github.com/dolthub/dolt-mcp/mcp/pkg/db"
 	"github.com/dolthub/dolt-mcp/mcp/pkg/toolsets"
-	"github.com/dolthub/dolt/go/libraries/utils/svcs"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/svcs"
 )
 
 // MCPConfig encapsulates MCP-specific configuration for the sql-server

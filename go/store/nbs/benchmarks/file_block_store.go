@@ -29,8 +29,8 @@ import (
 
 	"github.com/dustin/go-humanize"
 
-	"github.com/dolthub/dolt/go/store/chunks"
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/chunks"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 type fileBlockStore struct {

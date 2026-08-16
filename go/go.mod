@@ -1,4 +1,4 @@
-module github.com/dolthub/dolt/go
+module github.com/nustiueudinastea/dolt/go
 
 require (
 	cloud.google.com/go/storage v1.50.0

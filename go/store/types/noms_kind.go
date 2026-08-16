@@ -22,7 +22,7 @@
 package types
 
 import (
-	"github.com/dolthub/dolt/go/gen/fb/serial"
+	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
 )
 
 // NomsKind allows a TypeDesc to indicate what kind of type is described.

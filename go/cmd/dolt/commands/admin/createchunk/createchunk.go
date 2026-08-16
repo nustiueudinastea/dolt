@@ -15,7 +15,7 @@
 package createchunk
 
 import (
-	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 )
 
 var Commands = cli.NewHiddenSubCommandHandler("createchunk", "Low-level commands for creating chunks", []cli.Command{

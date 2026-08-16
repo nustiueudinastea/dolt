@@ -15,9 +15,9 @@
 package row
 
 import (
-	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/utils/valutil"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/valutil"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 // Row is the original row interface used by noms valued rows. It's still used in some test code and in a few legacy

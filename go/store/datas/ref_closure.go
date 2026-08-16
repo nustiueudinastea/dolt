@@ -17,8 +17,8 @@ package datas
 import (
 	"context"
 
-	"github.com/dolthub/dolt/go/store/hash"
-	"github.com/dolthub/dolt/go/store/types"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/types"
 )
 
 // CommitClosure is a transitive closure of commit parents.

@@ -20,8 +20,8 @@ import (
 	"log"
 	"os"
 
-	driver "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
-	ib "github.com/dolthub/dolt/go/performance/import_benchmarker"
+	driver "github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils/sql_server_driver"
+	ib "github.com/nustiueudinastea/dolt/go/performance/import_benchmarker"
 )
 
 const (

@@ -22,7 +22,7 @@
 package types
 
 import (
-	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/nustiueudinastea/dolt/go/store/hash"
 )
 
 type kindAndHash interface {
