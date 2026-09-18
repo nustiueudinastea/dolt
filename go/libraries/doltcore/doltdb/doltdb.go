@@ -251,6 +251,17 @@ func (ddb *DoltDB) CommitRoot(ctx context.Context, current, last hash.Hash) (boo
 	return datas.ChunkStoreFromDatabase(ddb.db).Commit(ctx, current, last)
 }
 
+// SetCommitHeadsAtRoot validates and publishes an exact batch of commit-ref
+// dataset heads with one expected-root storage publication. It never retries or
+// rebases; callers must revalidate semantic assumptions after a conflict.
+func (ddb *DoltDB) SetCommitHeadsAtRoot(
+	ctx context.Context,
+	expectedRoot hash.Hash,
+	edits []datas.CommitHeadEdit,
+) (datas.CommitHeadBatchResult, error) {
+	return ddb.db.SetCommitHeadsAtRoot(ctx, expectedRoot, edits)
+}
+
 func (ddb *DoltDB) Has(ctx context.Context, h hash.Hash) (bool, error) {
 	return datas.ChunkStoreFromDatabase(ddb.db).Has(ctx, h)
 }

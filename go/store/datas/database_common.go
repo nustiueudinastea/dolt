@@ -131,6 +131,116 @@ func (db *database) Datasets(ctx context.Context) (DatasetsMap, error) {
 
 var ErrInvalidDatasetID = errors.New("Invalid dataset ID")
 
+var ErrExpectedHeadMismatch = errors.New("dataset head differs from expected head")
+
+// SetCommitHeadsAtRoot performs one expected-root batch publication of commit
+// heads. It deliberately does not use database.update: that helper retries an
+// optimistic conflict, while callers of this primitive must revalidate their
+// semantic assumptions against the new root before trying again.
+func (db *database) SetCommitHeadsAtRoot(
+	ctx context.Context,
+	expectedRoot hash.Hash,
+	edits []CommitHeadEdit,
+) (CommitHeadBatchResult, error) {
+	var result CommitHeadBatchResult
+	if expectedRoot.IsEmpty() {
+		return result, errors.New("expected storage root is empty")
+	}
+	if len(edits) == 0 {
+		return result, errors.New("commit-head batch is empty")
+	}
+	seen := make(map[string]struct{}, len(edits))
+	for _, edit := range edits {
+		if err := ValidateDatasetId(edit.DatasetID); err != nil {
+			return result, fmt.Errorf("%w: %s", err, edit.DatasetID)
+		}
+		if _, ok := seen[edit.DatasetID]; ok {
+			return result, fmt.Errorf("duplicate dataset edit: %s", edit.DatasetID)
+		}
+		seen[edit.DatasetID] = struct{}{}
+		if edit.TargetHead.IsEmpty() {
+			return result, fmt.Errorf("target commit head is empty: %s", edit.DatasetID)
+		}
+		target, err := db.ReadValue(ctx, edit.TargetHead)
+		if err != nil {
+			return result, err
+		}
+		if target == nil {
+			return result, fmt.Errorf("target commit head is missing: %s", edit.TargetHead)
+		}
+		head, err := newHead(ctx, target, edit.TargetHead)
+		if err != nil {
+			return result, err
+		}
+		if head.TypeName() != commitName {
+			return result, fmt.Errorf("target for %s is %s, not a commit", edit.DatasetID, head.TypeName())
+		}
+		isCommit, err := IsCommit(target)
+		if err != nil {
+			return result, err
+		}
+		if !isCommit {
+			return result, fmt.Errorf("target for %s is not a commit", edit.DatasetID)
+		}
+	}
+
+	currentRoot, err := db.rt.Root(ctx)
+	if err != nil {
+		return result, err
+	}
+	if currentRoot != expectedRoot {
+		return result, ErrOptimisticLockFailed
+	}
+	addressMap, err := db.loadDatasetsRefmap(ctx, expectedRoot)
+	if err != nil {
+		return result, err
+	}
+	for _, edit := range edits {
+		current, err := addressMap.Get(ctx, edit.DatasetID)
+		if err != nil {
+			return result, err
+		}
+		if current != edit.ExpectedHead {
+			return result, fmt.Errorf("%w: %s", ErrExpectedHeadMismatch, edit.DatasetID)
+		}
+		if !current.IsEmpty() {
+			value, err := db.ReadValue(ctx, current)
+			if err != nil {
+				return result, err
+			}
+			head, err := newHead(ctx, value, current)
+			if err != nil {
+				return result, err
+			}
+			if head.TypeName() != commitName {
+				return result, fmt.Errorf("existing head for %s is %s, not a commit", edit.DatasetID, head.TypeName())
+			}
+		}
+	}
+
+	editor := addressMap.Editor()
+	for _, edit := range edits {
+		if err := editor.Update(ctx, edit.DatasetID, edit.TargetHead); err != nil {
+			return result, err
+		}
+	}
+	updated, err := editor.Flush(ctx)
+	if err != nil {
+		return result, err
+	}
+	rootValue := storeroot_flatbuffer(updated)
+	rootRef, err := db.WriteValue(ctx, types.SerialMessage(rootValue))
+	if err != nil {
+		return result, err
+	}
+	result.EnteredPublication = true
+	if err := db.tryCommitChunks(ctx, rootRef.TargetHash(), expectedRoot); err != nil {
+		return result, err
+	}
+	result.Applied = true
+	return result, nil
+}
+
 func (db *database) GetDataset(ctx context.Context, datasetID string) (Dataset, error) {
 	// precondition checks
 	if err := ValidateDatasetId(datasetID); err != nil {

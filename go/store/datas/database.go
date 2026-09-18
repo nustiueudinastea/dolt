@@ -67,6 +67,11 @@ type Database interface {
 	// existed at the root hash given.
 	GetDatasetByRootHash(ctx context.Context, datasetID string, rootHash hash.Hash) (Dataset, error)
 
+	// SetCommitHeadsAtRoot validates and publishes a batch of commit-head edits
+	// against exactly expectedRoot. It performs one storage-root publication,
+	// never retries, and does not edit working sets or unlisted datasets.
+	SetCommitHeadsAtRoot(ctx context.Context, expectedRoot hash.Hash, edits []CommitHeadEdit) (CommitHeadBatchResult, error)
+
 	// BuildNewCommit creates a new Commit struct for the provided dataset,
 	// but does not modify the dataset. This allows the commit to be inspected
 	// if necessary before any update is performed.
@@ -178,6 +183,23 @@ type Database interface {
 	// level detail of the database that should infrequently be needed by
 	// clients.
 	chunkStore() chunks.ChunkStore
+}
+
+// CommitHeadEdit describes one exact dataset commit-head transition. An empty
+// ExpectedHead means the dataset must be absent. TargetHead must address an
+// existing commit value.
+type CommitHeadEdit struct {
+	DatasetID    string
+	ExpectedHead hash.Hash
+	TargetHead   hash.Hash
+}
+
+// CommitHeadBatchResult distinguishes validation refusal from errors returned
+// after the storage publication call was entered. Applied is true only when
+// that call returned success.
+type CommitHeadBatchResult struct {
+	EnteredPublication bool
+	Applied            bool
 }
 
 func NewDatabase(cs chunks.ChunkStore) Database {
