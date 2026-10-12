@@ -16,7 +16,11 @@
 
 package dbfactory
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"net/url"
+)
 
 func TeardownGitRemotes(ctx context.Context) {}
 
@@ -25,3 +29,8 @@ const GitRemoteCacheDirName = "git-remote-cache"
 
 // Browser builds have no native git remote stores to close.
 func CloseGitRemotesUnderRoot(root string) error { return nil }
+
+// GitRemoteCacheKey is unavailable with the browser's memory-only factories.
+func GitRemoteCacheKey(urlObj *url.URL, params map[string]interface{}) (string, error) {
+	return "", fmt.Errorf("git remote database schemes are not available in wasm")
+}
