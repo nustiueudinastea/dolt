@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	filelocks "github.com/dolthub/file-locks"
+	filelocks "github.com/nustiueudinastea/dolt/go/libraries/utils/filelocks"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/utils/file"
 	"github.com/nustiueudinastea/dolt/go/store/hash"

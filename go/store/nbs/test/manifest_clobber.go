@@ -26,7 +26,7 @@ import (
 	"log"
 	"os"
 
-	filelocks "github.com/dolthub/file-locks"
+	filelocks "github.com/nustiueudinastea/dolt/go/libraries/utils/filelocks"
 )
 
 func main() {

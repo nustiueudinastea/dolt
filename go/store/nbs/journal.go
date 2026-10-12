@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"time"
 
-	filelocks "github.com/dolthub/file-locks"
+	filelocks "github.com/nustiueudinastea/dolt/go/libraries/utils/filelocks"
 	"github.com/sirupsen/logrus"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"

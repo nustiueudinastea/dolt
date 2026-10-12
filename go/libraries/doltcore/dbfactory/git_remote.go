@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	filelocks "github.com/dolthub/file-locks"
+	filelocks "github.com/nustiueudinastea/dolt/go/libraries/utils/filelocks"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/memlimit"
 	"github.com/nustiueudinastea/dolt/go/libraries/utils/config"

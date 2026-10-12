@@ -19,11 +19,11 @@ import (
 	"errors"
 	"io/fs"
 
-	filelocks "github.com/dolthub/file-locks"
+	filelocks "github.com/nustiueudinastea/dolt/go/libraries/utils/filelocks"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 	eventsapi "github.com/dolthub/eventsapi_schema/dolt/services/eventsapi/v1alpha1"
+	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"
 )
 
 var (

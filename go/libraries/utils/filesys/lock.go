@@ -20,7 +20,7 @@ import (
 	"errors"
 	"sync/atomic"
 
-	filelocks "github.com/dolthub/file-locks"
+	filelocks "github.com/nustiueudinastea/dolt/go/libraries/utils/filelocks"
 )
 
 const unlockedStateValue int32 = 0

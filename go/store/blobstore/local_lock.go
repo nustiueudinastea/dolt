@@ -16,7 +16,7 @@
 
 package blobstore
 
-import filelocks "github.com/dolthub/file-locks"
+import filelocks "github.com/nustiueudinastea/dolt/go/libraries/utils/filelocks"
 
 func fLock(lockFilePath string) (localFileLock, error) {
 	lck, err := filelocks.New(lockFilePath)

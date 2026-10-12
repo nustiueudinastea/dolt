@@ -32,7 +32,7 @@ import (
 	"strings"
 	"time"
 
-	filelocks "github.com/dolthub/file-locks"
+	filelocks "github.com/nustiueudinastea/dolt/go/libraries/utils/filelocks"
 
 	dherrors "github.com/nustiueudinastea/dolt/go/libraries/utils/errors"
 	"github.com/nustiueudinastea/dolt/go/libraries/utils/file"
