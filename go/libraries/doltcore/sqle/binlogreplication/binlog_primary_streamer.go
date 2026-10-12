@@ -58,7 +58,6 @@ func (streamer *binlogStreamer) startStream(ctx *sql.Context, conn *mysql.Conn, 
 		WithField("executed_gtids", executedGtids).
 		Trace("starting binlog stream")
 
-	defer streamer.ticker.Stop()
 	streamer.currentLogFile, err = openBinlogFileForReading(logfile)
 	if err != nil {
 		return err
