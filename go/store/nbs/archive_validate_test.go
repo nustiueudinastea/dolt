@@ -24,7 +24,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dolthub/gozstd"
 	"github.com/stretchr/testify/require"
 
 	"github.com/nustiueudinastea/dolt/go/store/hash"
@@ -55,7 +54,7 @@ func buildValidateTestArchive(t *testing.T, n int) testArchive {
 	// ascending prefixes.
 	for i := 0; i < n; i++ {
 		h := hashWithPrefix(t, uint64(i+1))
-		bsId, err := aw.writeByteSpan(gozstd.CompressDict(nil, []byte(fmt.Sprintf("chunk number %d, with some data to compress", i)), defaultCDict))
+		bsId, err := aw.writeByteSpan(zstdCompressDict(nil, []byte(fmt.Sprintf("chunk number %d, with some data to compress", i)), defaultCDict))
 		require.NoError(t, err)
 		require.NoError(t, aw.stageZStdChunk(h, dId, bsId))
 	}
