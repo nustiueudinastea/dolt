@@ -19,3 +19,9 @@ package dbfactory
 import "context"
 
 func TeardownGitRemotes(ctx context.Context) {}
+
+// GitRemoteCacheDirName matches the native cache location used by shared env code.
+const GitRemoteCacheDirName = "git-remote-cache"
+
+// Browser builds have no native git remote stores to close.
+func CloseGitRemotesUnderRoot(root string) error { return nil }
