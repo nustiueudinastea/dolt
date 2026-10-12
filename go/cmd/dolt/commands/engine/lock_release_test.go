@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	filelocks "github.com/dolthub/file-locks"
+	filelocks "github.com/nustiueudinastea/dolt/go/libraries/utils/filelocks"
 	"github.com/stretchr/testify/require"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dbfactory"
