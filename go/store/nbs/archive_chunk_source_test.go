@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dolthub/gozstd"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
@@ -56,15 +55,15 @@ func buildMixedArchive(t *testing.T) mixedArchive {
 		for i, c := range chks {
 			samples[i] = c.Data()
 		}
-		raw := gozstd.BuildDict(samples, 2048)
-		cDict, err := gozstd.NewCDict(raw)
+		raw := zstdBuildDict(samples, 2048)
+		cDict, err := newZstdCDict(raw)
 		require.NoError(t, err)
 
-		dictId, err := aw.writeByteSpan(gozstd.Compress(nil, raw))
+		dictId, err := aw.writeByteSpan(zstdCompress(nil, raw))
 		require.NoError(t, err)
 
 		for _, chk := range chks {
-			dataId, err := aw.writeByteSpan(gozstd.CompressDict(nil, chk.Data(), cDict))
+			dataId, err := aw.writeByteSpan(zstdCompressDict(nil, chk.Data(), cDict))
 			require.NoError(t, err)
 			require.NoError(t, aw.stageZStdChunk(chk.Hash(), dictId, dataId))
 			all = append(all, chk)
