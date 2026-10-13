@@ -120,3 +120,32 @@ func lifecycleQuery(t *testing.T, se *SqlEngine, ctx *sql.Context, query string)
 	require.NoError(t, err, query)
 	return rows
 }
+
+// Real database resources are not independently safe to close twice. All callers
+// must join one engine-owned shutdown without cancelling the caller context.
+func TestSqlEngineRepeatedAndConcurrentCloseStopsWorkers(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		mrEnv, cfg := lifecycleEngineEnvironment(t, ctx, root, home)
+		cfg.BranchActivityTracking = true
+		se, err := NewSqlEngine(ctx, mrEnv, cfg)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, se.Close()) }()
+		sqlCtx, err := se.NewLocalContext(ctx)
+		require.NoError(t, err)
+		lifecycleQuery(t, se, sqlCtx, "CREATE DATABASE concurrent_close")
+		sql.SessionEnd(sqlCtx.Session)
+
+		start, errs := make(chan struct{}), make(chan error, 2)
+		for range 2 {
+			go func() { <-start; errs <- se.Close() }()
+		}
+		synctest.Wait()
+		close(start)
+		for range 2 {
+			require.NoError(t, <-errs)
+		}
+		require.NoError(t, se.Close())
+	})
+}

@@ -21,6 +21,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	gms "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/eventscheduler"
@@ -63,6 +64,8 @@ type SqlEngine struct {
 	fs                    filesys.Filesys
 	clusterController     *cluster.Controller
 	branchActivityTracker *doltdb.BranchActivityTracker
+	closeOnce             sync.Once
+	closeErr              error
 }
 
 type sessionFactory func(mysqlSess *sql.BaseSession, pro sql.DatabaseProvider) (*dsess.DoltSession, error)
@@ -516,26 +519,27 @@ func (se *SqlEngine) ClusterController() *cluster.Controller {
 }
 
 // Close releases the engine's resources and waits for its background goroutines.
-// It is safe to call more than once.
+// It is safe to call more than once or concurrently.
 func (se *SqlEngine) Close() error {
-	var err error
-	if se.engine != nil {
-		if se.engine.Analyzer.Catalog.BinlogReplicaController != nil {
-			dblr.DoltBinlogReplicaController.Close()
+	se.closeOnce.Do(func() {
+		if se.engine != nil {
+			if se.engine.Analyzer.Catalog.BinlogReplicaController != nil {
+				dblr.DoltBinlogReplicaController.Close()
+			}
+			if primary, ok := se.engine.Analyzer.Catalog.BinlogPrimaryController.(*dblr.DoltBinlogPrimaryController); ok {
+				primary.Close()
+			}
+			se.closeErr = se.engine.Close()
 		}
-		if primary, ok := se.engine.Analyzer.Catalog.BinlogPrimaryController.(*dblr.DoltBinlogPrimaryController); ok {
-			primary.Close()
+		if se.branchActivityTracker != nil {
+			se.branchActivityTracker.Close()
 		}
-		err = se.engine.Close()
-	}
-	if se.branchActivityTracker != nil {
-		se.branchActivityTracker.Close()
-	}
-	if se.provider != nil {
-		se.provider.Teardown(context.Background())
-		se.provider.Close()
-	}
-	return err
+		if se.provider != nil {
+			se.provider.Teardown(context.Background())
+			se.provider.Close()
+		}
+	})
+	return se.closeErr
 }
 
 // configureBinlogReplicaController configures the binlog replication controller with the |engine|.
