@@ -23,6 +23,7 @@ import (
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/durable"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/expranalysis"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/index"
 	"github.com/nustiueudinastea/dolt/go/store/prolly"
 	"github.com/nustiueudinastea/dolt/go/store/prolly/sort"
@@ -87,6 +88,9 @@ func BuildProllyIndexExternal(ctx *sql.Context, vrw types.ValueReadWriter, ns tr
 		if predicate != nil {
 			sqlRow, err := index.BuildRow(ctx, k, v, sch, ns)
 			if err != nil {
+				return nil, err
+			}
+			if err = expranalysis.ValidateExpression(ctx, predicate); err != nil {
 				return nil, err
 			}
 			result, err := predicate.Eval(ctx, sqlRow)

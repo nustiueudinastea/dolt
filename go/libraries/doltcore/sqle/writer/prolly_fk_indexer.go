@@ -20,6 +20,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/expranalysis"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/index"
 	"github.com/nustiueudinastea/dolt/go/store/prolly"
 	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
@@ -178,7 +179,7 @@ func (iter prollyFkPkRowIter) Next(ctx *sql.Context) (sql.Row, error) {
 				return nil, err
 			}
 		}
-		if err = sql.EvalProjections(ctx, iter.virtualExpressions, nextRow); err != nil {
+		if err = evalVirtualExpressions(ctx, iter.virtualExpressions, nextRow); err != nil {
 			return nil, err
 		}
 		return nextRow, nil
@@ -229,7 +230,7 @@ func (iter prollyFkKeylessRowIter) Next(ctx *sql.Context) (sql.Row, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = sql.EvalProjections(ctx, iter.virtualExpressions, nextRow); err != nil {
+	if err = evalVirtualExpressions(ctx, iter.virtualExpressions, nextRow); err != nil {
 		return nil, err
 	}
 	return nextRow, nil
@@ -249,4 +250,17 @@ var _ sql.Partition = fkDummyPartition{}
 // Key implements the interface sql.Partition.
 func (n fkDummyPartition) Key() []byte {
 	return nil
+}
+
+// Validate all projections before evaluating any of them. The expressions may have
+// been cached by a writer created under a different context.
+func evalVirtualExpressions(ctx *sql.Context, exprs []sql.Expression, row sql.Row) error {
+	for _, expr := range exprs {
+		if expr != nil {
+			if err := expranalysis.ValidateExpression(ctx, expr); err != nil {
+				return err
+			}
+		}
+	}
+	return sql.EvalProjections(ctx, exprs, row)
 }

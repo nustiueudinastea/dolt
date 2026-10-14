@@ -126,6 +126,9 @@ func (b SecondaryKeyBuilder) SecondaryKeyFromRow(ctx *sql.Context, k, v val.Tupl
 				return nil, err
 			}
 
+			if err = expranalysis.ValidateExpression(ctx, expr); err != nil {
+				return nil, err
+			}
 			value, err := expr.Eval(ctx, sqlRow)
 			if err != nil {
 				return nil, err

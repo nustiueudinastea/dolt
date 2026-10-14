@@ -26,6 +26,7 @@ import (
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/overrides"
 )
 
 // ParseCreateTableStatement will parse a CREATE TABLE ddl statement and use it to create a Dolt Schema. A RootValue
@@ -39,6 +40,10 @@ func ParseCreateTableStatement(ctx *sql.Context, root doltdb.RootValue, engine *
 	create, ok := parsed.(*plan.CreateTable)
 	if !ok {
 		return "", nil, fmt.Errorf("expected create table, found %T", create)
+	}
+
+	if err = overrides.ValidateSchemaExpressions(ctx, create.PkSchema().Schema, create.Checks()); err != nil {
+		return "", nil, err
 	}
 
 	// NOTE: We don't support setting a schema name here since this code is only intended to be used from the Dolt

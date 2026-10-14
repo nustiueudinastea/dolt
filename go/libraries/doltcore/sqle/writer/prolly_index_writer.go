@@ -28,6 +28,7 @@ import (
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/durable"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/expranalysis"
 	"github.com/nustiueudinastea/dolt/go/store/hash"
 	"github.com/nustiueudinastea/dolt/go/store/prolly"
 	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
@@ -341,6 +342,9 @@ func (m prollySecondaryIndexWriter) keyPartFromRow(ctx context.Context, to int, 
 			if !ok {
 				return nil, fmt.Errorf("expected *sql.Context for virtual column expression evaluation")
 			}
+			if err := expranalysis.ValidateExpression(sqlCtx, expr); err != nil {
+				return nil, err
+			}
 			return expr.Eval(sqlCtx, sqlRow)
 		}
 	}
@@ -357,6 +361,9 @@ func (m prollySecondaryIndexWriter) matchesPredicate(ctx context.Context, sqlRow
 	sqlCtx, ok := ctx.(*sql.Context)
 	if !ok {
 		return false, fmt.Errorf("expected *sql.Context for partial index predicate evaluation")
+	}
+	if err := expranalysis.ValidateExpression(sqlCtx, m.predicate); err != nil {
+		return false, err
 	}
 	result, err := m.predicate.Eval(sqlCtx, sqlRow)
 	return result.(bool), err

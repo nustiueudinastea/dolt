@@ -31,6 +31,23 @@ import (
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlfmt"
 )
 
+// WithExpressionValidator returns a copy of ctx carrying v. A nil validator disables validation.
+// The validator receives each resolved schema expression's complete tree, and must not evaluate it.
+// Validation may occur more than once, including when a cached expression is evaluated in a new context.
+func WithExpressionValidator(ctx *sql.Context, v func(*sql.Context, sql.Expression) error) *sql.Context {
+	return overrides.WithExpressionValidator(ctx, v)
+}
+
+// ExpressionValidatorFromContext returns the optional schema expression validator carried by ctx.
+func ExpressionValidatorFromContext(ctx *sql.Context) func(*sql.Context, sql.Expression) error {
+	return overrides.ExpressionValidatorFromContext(ctx)
+}
+
+// ValidateExpression applies the context's validator to a resolved schema expression before use.
+func ValidateExpression(ctx *sql.Context, expr sql.Expression) error {
+	return overrides.ValidateExpression(ctx, expr)
+}
+
 // ResolveDefaultExpression returns a sql.Expression for the column default or generated expression for the
 // column provided
 func ResolveDefaultExpression(ctx *sql.Context, tableName string, sch schema.Schema, col schema.Column) (sql.Expression, error) {
@@ -57,7 +74,8 @@ func ResolveDefaultExpression(ctx *sql.Context, tableName string, sch schema.Sch
 	return expr, nil
 }
 
-// ResolveSchema returns the sql.Schema for |sch| with its column default and generated expressions resolved.
+// ResolveSchema returns the sql.Schema for |sch| with its column expressions resolved.
+// All CHECK, DEFAULT, generated and ON UPDATE expressions are validated before returning the schema.
 func ResolveSchema(ctx *sql.Context, tableName string, sch schema.Schema) (sql.Schema, error) {
 	ct, err := parseCreateTable(ctx, tableName, sch)
 	if err != nil {
@@ -96,6 +114,12 @@ func ResolveExpression(ctx *sql.Context, tableName doltdb.TableName, predicateSt
 		return nil, err
 	}
 
+	// The analyzer can evaluate constant expressions. Validate the planbuilder's resolved
+	// expression first, while the original function tree is still available.
+	if err = validateProjection(ctx, parsed); err != nil {
+		return nil, err
+	}
+
 	sess, ok := ctx.Session.(SessionDbProvider)
 	if ok {
 		// field index in GetField is incorrect, it needs `fix_exec_indexes` analyzer rule
@@ -116,7 +140,22 @@ func ResolveExpression(ctx *sql.Context, tableName doltdb.TableName, predicateSt
 	if alias, ok := expr.(*expression.Alias); ok {
 		expr = alias.Child
 	}
+	if err = ValidateExpression(ctx, expr); err != nil {
+		return nil, err
+	}
 	return expr, nil
+}
+
+func validateProjection(ctx *sql.Context, node sql.Node) error {
+	// Avoid changing the no-validator path, including its analyzer diagnostics.
+	if ExpressionValidatorFromContext(ctx) == nil {
+		return nil
+	}
+	proj, ok := node.(*plan.Project)
+	if !ok {
+		return fmt.Errorf("expected *plan.Project parsing predicate, got %T", node)
+	}
+	return ValidateExpression(ctx, proj.Projections[len(proj.Projections)-1])
 }
 
 // queryTableName renders |tableName| for use in the FROM clause of a query built for the analyzer. The schema, where
@@ -161,6 +200,9 @@ func parseCreateTable(ctx *sql.Context, tableName string, sch schema.Schema) (*p
 	ct, ok := pseudoAnalyzedQuery.(*plan.CreateTable)
 	if !ok {
 		return nil, fmt.Errorf("expected a *plan.CreateTable node, but got %T", pseudoAnalyzedQuery)
+	}
+	if err = overrides.ValidateSchemaExpressions(ctx, ct.PkSchema().Schema, ct.Checks()); err != nil {
+		return nil, err
 	}
 	return ct, nil
 }

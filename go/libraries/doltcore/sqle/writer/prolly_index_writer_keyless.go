@@ -21,6 +21,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 
+	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/expranalysis"
 	"github.com/nustiueudinastea/dolt/go/store/hash"
 	"github.com/nustiueudinastea/dolt/go/store/prolly"
 	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"
@@ -216,6 +217,9 @@ func (writer prollyKeylessSecondaryWriter) keyPartFromRow(ctx context.Context, t
 			if !ok {
 				return nil, fmt.Errorf("expected *sql.Context for virtual column expression evaluation")
 			}
+			if err := expranalysis.ValidateExpression(sqlCtx, expr); err != nil {
+				return nil, err
+			}
 			return expr.Eval(sqlCtx, sqlRow)
 		}
 	}
@@ -248,6 +252,9 @@ func (writer prollyKeylessSecondaryWriter) ValidateKeyViolations(ctx context.Con
 // validateUniqueKeyViolation checks the mutable unique-index prefix for a conflicting keyless row.
 func (writer prollyKeylessSecondaryWriter) validateUniqueKeyViolation(ctx context.Context, sqlRow sql.Row) error {
 	if writer.predicate != nil {
+		if err := expranalysis.ValidateExpression(ctx.(*sql.Context), writer.predicate); err != nil {
+			return err
+		}
 		matches, err := writer.predicate.Eval(ctx.(*sql.Context), sqlRow)
 		if err != nil {
 			return err
@@ -327,6 +334,9 @@ func (writer prollyKeylessSecondaryWriter) Insert(ctx context.Context, sqlRow sq
 		performUniqueCheck := true
 		if writer.predicate != nil {
 			// do not unique check if predicate result is FALSE.
+			if err := expranalysis.ValidateExpression(ctx.(*sql.Context), writer.predicate); err != nil {
+				return err
+			}
 			res, err := writer.predicate.Eval(ctx.(*sql.Context), sqlRow)
 			if err != nil {
 				return err

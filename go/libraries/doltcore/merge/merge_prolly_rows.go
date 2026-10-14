@@ -759,6 +759,13 @@ func (cv checkValidator) validateDiff(ctx *sql.Context, diff tree.ThreeWayDiff) 
 		valueDesc = cv.tableMerger.leftSch.GetValueDescriptor(cv.tableMerger.ns)
 	}
 
+	// Validate cached checks in the evaluating context before remapping can evaluate defaults.
+	for _, check := range cv.checkExpressions {
+		if err := expranalysis.ValidateExpression(ctx, check.expr); err != nil {
+			return 0, err
+		}
+	}
+
 	// Remap the value into the final schema before checking. We skip keyless tables, since
 	// their value tuples require different mapping logic and we don't currently support merges
 	// to keyless tables that contain schema changes anyway.
@@ -1874,6 +1881,9 @@ func writeTupleExpression(
 		return err
 	}
 
+	if err = expranalysis.ValidateExpression(ctx, expr); err != nil {
+		return err
+	}
 	value, err := expr.Eval(ctx, row)
 	if err != nil {
 		return err
