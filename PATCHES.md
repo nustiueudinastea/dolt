@@ -213,3 +213,9 @@ the fix SLEEP ran once and vanished from the expression tree; after the fix the
 validator rejects it and the Eval count is zero, with upstream and local GMS.
 Existing schema tests assert coverage without requiring a single callback: G8 may
 validate an expression repeatedly during construction and analysis.
+
+The context inventory also covers raw SQL Context literals and allocations. It
+found the generic table row-iterator adapter constructing empty SQL contexts for
+Next and Close. The adapter now passes an existing SQL caller through directly,
+retaining its session and planning policies; plain contexts use sql.NewContext.
+`TestRowIteratorPreservesSQLContext` failed before this correction and passes after.

@@ -44,7 +44,7 @@ func NewRowIter(inner sql.RowIter) RowIter {
 
 // Next implements RowIter.
 func (i rowIterImpl) Next(ctx context.Context) (sql.Row, error) {
-	r, err := i.inner.Next(&sql.Context{Context: ctx})
+	r, err := i.inner.Next(sqlContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,15 @@ func (i rowIterImpl) Next(ctx context.Context) (sql.Row, error) {
 
 // Close implements RowIter.
 func (i rowIterImpl) Close(ctx context.Context) error {
-	return i.inner.Close(&sql.Context{Context: ctx})
+	return i.inner.Close(sqlContext(ctx))
+}
+
+// sqlContext preserves the SQL caller when adapting the generic iterator API.
+func sqlContext(ctx context.Context) *sql.Context {
+	if caller, ok := ctx.(*sql.Context); ok {
+		return caller
+	}
+	return sql.NewContext(ctx)
 }
 
 // NewTableIterator creates a RowIter that iterates sql.Row's from |idx|.
