@@ -39,6 +39,7 @@ import (
 	"golang.org/x/text/transform"
 	"gopkg.in/src-d/go-errors.v1"
 
+	eventsapi "github.com/dolthub/eventsapi_schema/dolt/services/eventsapi/v1alpha1"
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli/prompt"
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/engine"
@@ -50,7 +51,6 @@ import (
 	"github.com/nustiueudinastea/dolt/go/libraries/utils/iohelp"
 	"github.com/nustiueudinastea/dolt/go/libraries/utils/osutil"
 	"github.com/nustiueudinastea/dolt/go/store/val"
-	eventsapi "github.com/dolthub/eventsapi_schema/dolt/services/eventsapi/v1alpha1"
 )
 
 var sqlDocs = cli.CommandDocumentationContent{
@@ -1076,6 +1076,7 @@ func newCompleter(
 	subCtx, stop := signal.NotifyContext(ctx.Context, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	subCtx = ctx.WithContext(subCtx)
 	sqlCtx := sql.NewContext(subCtx, sql.WithSession(ctx.Session))
 
 	sqlCtx.Session.LockWarnings()

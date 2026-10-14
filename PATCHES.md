@@ -183,3 +183,18 @@ regression runs used detached worktrees inside this clone, with the relevant
 test files and the D3 API compatibility definitions described above. Local logs
 are retained in `.git/patch-evidence/`.
 No pushes, branch rewrites, or changes to other branches were made.
+
+### Review follow-up: caller contexts during resolution
+
+The base-session expression resolver derives its fresh SQL context from the caller,
+retaining D3 context values and G7/G8 policies when used with the Swarmion GMS fork.
+SQL completion and the SQL context factory preserve the SQL caller when adding
+signal cancellation or storage context validation. Other schema, replication and
+command helpers already pass the caller to `sql.NewContext`.
+
+`overrides.TestFreshContextInventory` classifies all production fresh-context calls
+outside test harnesses. Metadata, JSON serialization, independent login sessions
+and server initialization are exempt from caller expression execution. Scheduled
+event session factories are independent entry points. The base-session regression
+fails before the fix with local GMS, then observes the caller flag, D3 validator
+and G8 rejection. It skips when linked to upstream GMS without the optional API.

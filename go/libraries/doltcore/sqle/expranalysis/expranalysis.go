@@ -224,7 +224,7 @@ func parseQuery(ctx *sql.Context, query string) (sql.Node, error) {
 		catalog := analyzer.NewCatalog(mockProvider, engOverrides)
 		catalog.AuthHandler = sql.NoopAuthorizationHandler{}
 		// We need a new context for this operation
-		parseCtx := sql.NewEmptyContext()
+		parseCtx := sql.NewContext(ctx)
 		parseCtx.SetCurrentDatabase("mydb")
 
 		b = planbuilder.New(parseCtx, catalog, nil)

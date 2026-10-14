@@ -619,7 +619,12 @@ func configureEventScheduler(config *SqlEngineConfig, engine *gms.Engine, ctxFac
 
 // sqlContextFactory returns a contextFactory that creates a new sql.Context with the given session
 func sqlContextFactory(ctx context.Context, opts ...sql.ContextOption) *sql.Context {
-	ctx = valctx.WithContextValidation(ctx)
+	validatedCtx := valctx.WithContextValidation(ctx)
+	if caller, ok := ctx.(*sql.Context); ok {
+		ctx = caller.WithContext(validatedCtx)
+	} else {
+		ctx = validatedCtx
+	}
 	sqlCtx := sql.NewContext(ctx, opts...)
 	if sqlCtx.Session != nil {
 		valctx.SetContextValidation(ctx, dsess.DSessFromSess(sqlCtx.Session).Validate)
