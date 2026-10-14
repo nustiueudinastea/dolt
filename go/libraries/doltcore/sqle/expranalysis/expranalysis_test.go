@@ -288,7 +288,28 @@ func TestRejectSleepBeforeDefaultConstructor(t *testing.T) {
 	ddb := dtestutils.CreateTestEnv().DoltDB(ctx)
 	root, err := doltdb.EmptyRootValue(ctx, ddb.ValueReadWriter(), ddb.NodeStore())
 	require.NoError(t, err)
-	_, _, err = sqlutil.ParseCreateTableStatement(ctx, root, engine, "CREATE TABLE t(d DATETIME DEFAULT (`utc_timestamp`(SLEEP(0))))")
-	require.Zero(t, evals.Load())
-	require.ErrorIs(t, err, rejected)
+
+	def := schema.NewColumn("d", 0, storetypes.TimestampKind, false)
+	def.Default = "(`utc_timestamp`(SLEEP(0)))"
+	sch, err := schema.SchemaFromCols(schema.NewColCollection(def))
+	require.NoError(t, err)
+	base := expranalysis.WithExpressionValidator(sql.NewEmptyContext(), expranalysis.ExpressionValidatorFromContext(ctx))
+	for _, test := range []struct {
+		name    string
+		resolve func() error
+	}{
+		{"schema import", func() error {
+			_, _, err := sqlutil.ParseCreateTableStatement(ctx, root, engine, "CREATE TABLE t(d DATETIME DEFAULT (`utc_timestamp`(SLEEP(0))))")
+			return err
+		}},
+		{"session resolver", func() error { _, err := expranalysis.ResolveSchema(ctx, "t", sch); return err }},
+		{"base session resolver", func() error { _, err := expranalysis.ResolveSchema(base, "t", sch); return err }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			evals.Store(0)
+			err := test.resolve()
+			require.Zero(t, evals.Load())
+			require.ErrorIs(t, err, rejected)
+		})
+	}
 }

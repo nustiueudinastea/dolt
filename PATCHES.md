@@ -219,3 +219,13 @@ found the generic table row-iterator adapter constructing empty SQL contexts for
 Next and Close. The adapter now passes an existing SQL caller through directly,
 retaining its session and planning policies; plain contexts use sql.NewContext.
 `TestRowIteratorPreservesSQLContext` failed before this correction and passes after.
+
+The SLEEP regression covers schema-file import, session-backed ResolveSchema and
+base-session ResolveSchema separately. All three reject before constructor
+execution with upstream and local GMS. On the pre-fix source overlay, import and
+session resolution evaluate SLEEP once; base-session resolution incorrectly
+accepts the schema. The final changed-package checks include the generic table
+adapter and pass with both dependency configurations. Local-fork checks use a
+modfile under .git/patch-evidence/review-fixes; tracked module files are unchanged.
+All tests use -p 2, -count=1 and dolt_purego_zstd,gms_pure_go. Gofmt and whitespace
+checks pass; default identity and signing are retained.
