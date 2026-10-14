@@ -637,10 +637,17 @@ func threeWayDiffer(
 	)
 }
 
+// checkExpression retains schema order so CHECK evaluation and its first error
+// are independent of Go map iteration. All violations still get recorded.
+type checkExpression struct {
+	name string
+	expr sql.Expression
+}
+
 // checkValidator is responsible for inspecting three-way diff events, running any check constraint expressions
 // that need to be reevaluated, and reporting any check constraint violations.
 type checkValidator struct {
-	checkExpressions map[string]sql.Expression
+	checkExpressions []checkExpression
 	valueMerger      *valueMerger
 	tableMerger      *TableMerger
 	sch              schema.Schema
@@ -664,7 +671,7 @@ type checkValidator struct {
 // right and left sides of the merge, |sch| provides the final schema of the merge, and |edits| is used to write
 // constraint validation artifacts.
 func newCheckValidator(ctx *sql.Context, tm *TableMerger, vm *valueMerger, sch schema.Schema, edits *prolly.ArtifactsEditor) (checkValidator, error) {
-	checkExpressions := make(map[string]sql.Expression)
+	checkExpressions := make([]checkExpression, 0, len(sch.Checks().AllChecks()))
 
 	checks := sch.Checks()
 	for _, check := range checks.AllChecks() {
@@ -676,7 +683,7 @@ func newCheckValidator(ctx *sql.Context, tm *TableMerger, vm *valueMerger, sch s
 		if err != nil {
 			return checkValidator{}, err
 		}
-		checkExpressions[check.Name()] = expr
+		checkExpressions = append(checkExpressions, checkExpression{name: check.Name(), expr: expr})
 	}
 
 	srcHash, err := tm.rightSrc.HashOf()
@@ -791,8 +798,9 @@ func (cv checkValidator) validateDiff(ctx *sql.Context, diff tree.ThreeWayDiff) 
 		return 0, err
 	}
 
-	for checkName, checkExpression := range cv.checkExpressions {
-		result, err := checkExpression.Eval(ctx, row)
+	for _, check := range cv.checkExpressions {
+		checkName := check.name
+		result, err := check.expr.Eval(ctx, row)
 		if err != nil {
 			return 0, err
 		}
