@@ -17,6 +17,7 @@ package writer
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/dolthub/go-mysql-server/sql"
@@ -42,9 +43,10 @@ type AutoIncrementGetter interface {
 }
 
 type prollyTableWriter struct {
-	tbl       *doltdb.Table
-	primary   indexWriter
-	secondary map[string]indexWriter
+	tbl            *doltdb.Table
+	primary        indexWriter
+	secondary      map[string]indexWriter
+	secondaryOrder []string
 
 	dbName    string
 	tblName   doltdb.TableName
@@ -163,14 +165,16 @@ func (w *prollyTableWriter) Insert(ctx *sql.Context, sqlRow sql.Row) (err error)
 	if err = w.primary.ValidateKeyViolations(ctx, sqlRow); err != nil {
 		return err
 	}
-	for _, wr := range w.secondary {
+	for _, name := range w.secondaryNames() {
+		wr := w.secondary[name]
 		if err = wr.ValidateKeyViolations(ctx, sqlRow); err != nil {
 			if uke, ok := err.(secondaryUniqueKeyError); ok {
 				return w.primary.(primaryIndexErrBuilder).errForSecondaryUniqueKeyError(ctx, uke)
 			}
 		}
 	}
-	for _, wr := range w.secondary {
+	for _, name := range w.secondaryNames() {
+		wr := w.secondary[name]
 		if err = wr.Insert(ctx, sqlRow); err != nil {
 			if uke, ok := err.(secondaryUniqueKeyError); ok {
 				return w.primary.(primaryIndexErrBuilder).errForSecondaryUniqueKeyError(ctx, uke)
@@ -266,7 +270,8 @@ func sameColumnNames(left, right []string) bool {
 
 // Update implements TableWriter.
 func (w *prollyTableWriter) Update(ctx *sql.Context, oldRow sql.Row, newRow sql.Row) (err error) {
-	for _, wr := range w.secondary {
+	for _, name := range w.secondaryNames() {
+		wr := w.secondary[name]
 		if err := wr.Update(ctx, oldRow, newRow); err != nil {
 			if uke, ok := err.(secondaryUniqueKeyError); ok {
 				return w.primary.(primaryIndexErrBuilder).errForSecondaryUniqueKeyError(ctx, uke)
@@ -292,7 +297,8 @@ type UniqueKeyChangeReporter interface {
 
 // UpdateChangesUniqueKey implements UniqueKeyChangeReporter for the whole table by asking each secondary index.
 func (w *prollyTableWriter) UpdateChangesUniqueKey(oldRow sql.Row, newRow sql.Row) bool {
-	for _, wr := range w.secondary {
+	for _, name := range w.secondaryNames() {
+		wr := w.secondary[name]
 		r, ok := wr.(UniqueKeyChangeReporter)
 		if !ok || r.UpdateChangesUniqueKey(oldRow, newRow) {
 			return true
@@ -303,7 +309,8 @@ func (w *prollyTableWriter) UpdateChangesUniqueKey(oldRow sql.Row, newRow sql.Ro
 
 // Delete implements TableWriter.
 func (w *prollyTableWriter) Delete(ctx *sql.Context, sqlRow sql.Row) (err error) {
-	for _, wr := range w.secondary {
+	for _, name := range w.secondaryNames() {
+		wr := w.secondary[name]
 		if err := wr.Delete(ctx, sqlRow); err != nil {
 			return err
 		}
@@ -328,7 +335,8 @@ func (w *prollyTableWriter) DiscardChanges(ctx *sql.Context, errorEncountered er
 		w.errEncountered = errorEncountered
 	}
 	err := w.primary.Discard(ctx)
-	for _, secondary := range w.secondary {
+	for _, name := range w.secondaryNames() {
+		secondary := w.secondary[name]
 		sErr := secondary.Discard(ctx)
 		if sErr != nil && err == nil {
 			err = sErr
@@ -340,7 +348,8 @@ func (w *prollyTableWriter) DiscardChanges(ctx *sql.Context, errorEncountered er
 // StatementComplete implements TableWriter.
 func (w *prollyTableWriter) StatementComplete(ctx *sql.Context) error {
 	err := w.primary.Commit(ctx)
-	for _, secondary := range w.secondary {
+	for _, name := range w.secondaryNames() {
+		secondary := w.secondary[name]
 		sErr := secondary.Commit(ctx)
 		if sErr != nil && err == nil {
 			err = sErr
@@ -415,7 +424,8 @@ func (w *prollyTableWriter) VisitGCRoots(ctx context.Context, roots func(hash.Ha
 	if err != nil {
 		return err
 	}
-	for _, writer := range w.secondary {
+	for _, name := range w.secondaryNames() {
+		writer := w.secondary[name]
 		err = writer.VisitGCRoots(ctx, roots)
 		if err != nil {
 			return err
@@ -458,6 +468,12 @@ func (w *prollyTableWriter) Reset(ctx *sql.Context, tbl *doltdb.Table) error {
 	w.sqlSch = schState.PkSchema.Schema
 	w.primary = newPrimary
 	w.secondary = newSecondaries
+	// Match schema.AllIndexes: index names are stable across schema reloads.
+	w.secondaryOrder = make([]string, 0, len(newSecondaries))
+	for name := range newSecondaries {
+		w.secondaryOrder = append(w.secondaryOrder, name)
+	}
+	sort.Strings(w.secondaryOrder)
 	w.aiCol = schState.AutoIncCol
 	w.virtualExpressions = schState.VirtualExpressions
 
@@ -482,7 +498,8 @@ func (w *prollyTableWriter) table(ctx *sql.Context) (tbl *doltdb.Table, err erro
 		return nil, err
 	}
 
-	for _, secIdxWriter := range w.secondary {
+	for _, name := range w.secondaryNames() {
+		secIdxWriter := w.secondary[name]
 		var secMap prolly.MapInterface
 		secMap, err = secIdxWriter.Map(ctx)
 		if err != nil {
@@ -532,4 +549,16 @@ func (w *prollyTableWriter) flush(ctx *sql.Context) error {
 		return err
 	}
 	return w.Reset(ctx, tbl)
+}
+
+// secondaryNames returns index name order, matching schema.AllIndexes. Reset
+// precomputes this order; writers assembled directly use the same ordering.
+func (w *prollyTableWriter) secondaryNames() []string {
+	if w.secondaryOrder == nil && len(w.secondary) > 0 {
+		for name := range w.secondary {
+			w.secondaryOrder = append(w.secondaryOrder, name)
+		}
+		sort.Strings(w.secondaryOrder)
+	}
+	return w.secondaryOrder
 }
