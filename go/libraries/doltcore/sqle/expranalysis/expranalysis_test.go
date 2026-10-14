@@ -26,6 +26,7 @@ import (
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/expression"
+	"github.com/dolthub/go-mysql-server/sql/expression/function"
 	"github.com/dolthub/go-mysql-server/sql/transform"
 	"github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/stretchr/testify/require"
@@ -73,10 +74,9 @@ func TestResolveSchemaExpressionValidator(t *testing.T) {
 	resolved, err := expranalysis.ResolveSchema(validating, "t", sch)
 	require.NoError(t, err)
 	require.Equal(t, fmt.Sprint(baseline), fmt.Sprint(resolved))
-	require.Equal(t, map[string]int{
-		"marker_default": 1, "marker_generated": 1, "marker_virtual": 1,
-		"marker_update": 1, "marker_check": 1, "marker_unenforced": 1,
-	}, seen)
+	for _, name := range []string{"marker_default", "marker_generated", "marker_virtual", "marker_update", "marker_check", "marker_unenforced"} {
+		require.Positive(t, seen[name], name)
+	}
 	require.Zero(t, evals.Load())
 	require.Nil(t, expranalysis.ExpressionValidatorFromContext(ctx))
 	require.Nil(t, expranalysis.ExpressionValidatorFromContext(expranalysis.WithExpressionValidator(validating, nil)))
@@ -168,7 +168,9 @@ func TestParseCreateTableExpressionValidator(t *testing.T) {
 	_, allowed, err := sqlutil.ParseCreateTableStatement(validating, root, engine, query)
 	require.NoError(t, err)
 	require.True(t, schema.SchemasAreEqual(baseline, allowed))
-	require.Equal(t, map[string]int{"marker_default": 1, "marker_generated": 1, "marker_update": 1, "marker_check": 1}, seen)
+	for _, name := range []string{"marker_default", "marker_generated", "marker_update", "marker_check"} {
+		require.Positive(t, seen[name], name)
+	}
 	for name := range seen {
 		t.Run(name, func(t *testing.T) {
 			rejected := errors.New("import rejects " + name)
@@ -223,6 +225,11 @@ type markerProvider struct {
 }
 
 func (p *markerProvider) Function(_ *sql.Context, _, name string) (sql.Function, bool) {
+	if name == "sleep" {
+		return sql.Function1{Name: "sleep", Fn: func(ctx *sql.Context, arg sql.Expression) sql.Expression {
+			return &countingSleep{Sleep: function.NewSleep(ctx, arg).(*function.Sleep), evals: p.evals}
+		}}, true
+	}
 	if name == "now" {
 		name = "marker_update"
 	}
@@ -250,4 +257,38 @@ func markerContext(evals *atomic.Int32) *sql.Context {
 	ctx = sql.NewContext(context.Background(), sql.WithSession(&markerSession{Session: ctx.Session, provider: provider}))
 	ctx.SetCurrentDatabase("mydb")
 	return ctx
+}
+
+type countingSleep struct {
+	*function.Sleep
+	evals *atomic.Int32
+}
+
+func (s *countingSleep) Eval(ctx *sql.Context, row sql.Row) (interface{}, error) {
+	s.evals.Add(1)
+	return s.Sleep.Eval(ctx, row)
+}
+
+func TestRejectSleepBeforeDefaultConstructor(t *testing.T) {
+	var evals atomic.Int32
+	ctx := markerContext(&evals)
+	rejected := errors.New("sleep forbidden")
+	ctx = expranalysis.WithExpressionValidator(ctx, func(ctx *sql.Context, e sql.Expression) error {
+		var err error
+		transform.InspectExpr(ctx, e, func(_ *sql.Context, e sql.Expression) bool {
+			if f, ok := e.(sql.FunctionExpression); ok && f.FunctionName() == "sleep" {
+				err = rejected
+			}
+			return false
+		})
+		return err
+	})
+	engine := gms.NewDefault(ctx.Session.(*markerSession).provider)
+	defer engine.Close()
+	ddb := dtestutils.CreateTestEnv().DoltDB(ctx)
+	root, err := doltdb.EmptyRootValue(ctx, ddb.ValueReadWriter(), ddb.NodeStore())
+	require.NoError(t, err)
+	_, _, err = sqlutil.ParseCreateTableStatement(ctx, root, engine, "CREATE TABLE t(d DATETIME DEFAULT (`utc_timestamp`(SLEEP(0))))")
+	require.Zero(t, evals.Load())
+	require.ErrorIs(t, err, rejected)
 }

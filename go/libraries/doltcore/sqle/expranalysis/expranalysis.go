@@ -217,7 +217,7 @@ func parseQuery(ctx *sql.Context, query string) (sql.Node, error) {
 	if ok {
 		catalog := analyzer.NewCatalog(sess.GenericProvider(), engOverrides)
 		catalog.AuthHandler = sql.NoopAuthorizationHandler{}
-		b = planbuilder.New(ctx, catalog, nil)
+		b = planbuilder.New(overrides.PlanningContext(ctx), overrides.ValidatingCatalog(ctx, catalog), nil)
 	} else {
 		mockDatabase := memory.NewDatabase("mydb")
 		mockProvider := memory.NewDBProvider(mockDatabase)
@@ -227,7 +227,7 @@ func parseQuery(ctx *sql.Context, query string) (sql.Node, error) {
 		parseCtx := sql.NewContext(ctx)
 		parseCtx.SetCurrentDatabase("mydb")
 
-		b = planbuilder.New(parseCtx, catalog, nil)
+		b = planbuilder.New(overrides.PlanningContext(parseCtx), overrides.ValidatingCatalog(parseCtx, catalog), nil)
 	}
 
 	pseudoAnalyzedQuery, _, _, _, err := b.Parse(query, nil, false)

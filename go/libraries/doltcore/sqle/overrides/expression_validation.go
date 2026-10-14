@@ -68,3 +68,62 @@ func ValidateSchemaExpressions(ctx *sql.Context, sch sql.Schema, checks sql.Chec
 	}
 	return nil
 }
+
+// PlanningContext connects D3 to engines exposing planning validators, without
+// requiring that optional API from upstream GMS. Preserve both caller validators.
+func PlanningContext(ctx *sql.Context) *sql.Context {
+	if ExpressionValidatorFromContext(ctx) == nil {
+		return ctx
+	}
+	if original, ok := interface{}(ctx).(contextValidators); ok {
+		derived := ctx.WithContext(ctx.Context)
+		interface{}(derived).(contextValidators).SetValidators(func(_ *sql.Context, node sql.Node) error { return original.ValidateNode(node) }, func(got *sql.Context, expr sql.Expression) error {
+			if err := original.ValidateExpression(expr); err != nil {
+				return err
+			}
+			return ValidateExpression(got, expr)
+		})
+		return derived
+	}
+	return ctx
+}
+
+type contextValidators interface {
+	SetValidators(func(*sql.Context, sql.Node) error, func(*sql.Context, sql.Expression) error)
+	ValidateNode(sql.Node) error
+	ValidateExpression(sql.Expression) error
+}
+
+// ValidatingCatalog checks resolved function arguments before a constructor can
+// evaluate or discard them. Keeping this adapter here also supports upstream
+// engines without context validators.
+func ValidatingCatalog(ctx *sql.Context, catalog sql.Catalog) sql.Catalog {
+	if ExpressionValidatorFromContext(ctx) == nil {
+		return catalog
+	}
+	if _, ok := interface{}(ctx).(contextValidators); ok {
+		return catalog
+	}
+	return validatingCatalog{Catalog: catalog}
+}
+
+type validatingCatalog struct{ sql.Catalog }
+
+func (c validatingCatalog) Function(ctx *sql.Context, schema, name string) (sql.Function, bool) {
+	f, ok := c.Catalog.Function(ctx, schema, name)
+	if !ok {
+		return nil, false
+	}
+	return validatingFunction{Function: f}, true
+}
+
+type validatingFunction struct{ sql.Function }
+
+func (f validatingFunction) NewInstance(ctx *sql.Context, args []sql.Expression) (sql.Expression, error) {
+	for _, arg := range args {
+		if err := ValidateExpression(ctx, arg); err != nil {
+			return nil, err
+		}
+	}
+	return f.Function.NewInstance(ctx, args)
+}

@@ -198,3 +198,18 @@ and server initialization are exempt from caller expression execution. Scheduled
 event session factories are independent entry points. The base-session regression
 fails before the fix with local GMS, then observes the caller flag, D3 validator
 and G8 rejection. It skips when linked to upstream GMS without the optional API.
+
+### Review follow-up: validate before schema function construction
+
+D3 is connected to G8's planbuilder validation when the engine exposes that
+optional context API. The adapter copies the context and preserves both original
+G8 validators. Against upstream GMS, a catalog adapter validates resolved function
+arguments before their constructors run. Both the schema-file importer and all
+expranalysis parser entry points use these adapters, with the caller context.
+
+`TestRejectSleepBeforeDefaultConstructor` imports the review's
+`DEFAULT (utc_timestamp(SLEEP(0)))` through a counting SLEEP implementation. Before
+the fix SLEEP ran once and vanished from the expression tree; after the fix the
+validator rejects it and the Eval count is zero, with upstream and local GMS.
+Existing schema tests assert coverage without requiring a single callback: G8 may
+validate an expression repeatedly during construction and analysis.
