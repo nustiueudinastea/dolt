@@ -195,7 +195,7 @@ func computeProllyTreePatches(
 	if err != nil {
 		return nil, nil, err
 	}
-	artEditor := durable.ProllyMapFromArtifactIndex(ai).Editor()
+	artEditor := durable.ProllyMapFromArtifactIndex(ai).EditorWithMaxPending(tm.artifactPendingLimit)
 
 	keyless := schema.IsKeyless(tm.leftSch)
 
@@ -916,6 +916,9 @@ func newUniqValidator(ctx *sql.Context, sch schema.Schema, tm *TableMerger, vm *
 		if err != nil {
 			return uniqValidator{}, err
 		}
+		if tm.uniqueIndexPendingLimit > 0 {
+			u.secondary = u.secondary.WithMaxPending(tm.uniqueIndexPendingLimit)
+		}
 		uv.indexes = append(uv.indexes, u)
 	}
 	return uv, nil
@@ -1198,17 +1201,35 @@ func (idx uniqIndex) findCollisions(ctx *sql.Context, key, value val.Tuple, cb c
 		return nil // NULLs cannot cause unique violations
 	}
 
-	// This code uses the secondary index to iterate over all rows (key/value pairs) that have the same prefix.
-	// The prefix here is all the value columns this index is set up to track
+	// Iterate the full prefix range over the mutable secondary index so pending
+	// puts and tombstones merge accurately with persisted entries after flushes.
+	rng, err := prolly.PrefixRange(ctx, indexKey, idx.prefixDesc)
+	if err != nil {
+		return err
+	}
+	iter, err := idx.secondary.IterRange(ctx, rng)
+	if err != nil {
+		return err
+	}
 	collisions := make([]val.Tuple, 0)
-	err = idx.secondary.GetPrefix(ctx, indexKey, idx.prefixDesc, func(k, _ val.Tuple) (err error) {
-		if k != nil {
+	for {
+		k, _, err := iter.Next(ctx)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		cmp, err := idx.prefixDesc.Compare(ctx, k, indexKey)
+		if err != nil {
+			return err
+		}
+		if cmp == 0 {
 			collisions = append(collisions, k)
 		}
-		return
-	})
-	if err != nil || len(collisions) == 0 {
-		return err
+	}
+	if len(collisions) == 0 {
+		return nil
 	}
 
 	collisionDetected := false

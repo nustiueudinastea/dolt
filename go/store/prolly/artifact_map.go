@@ -182,6 +182,13 @@ func (m ArtifactMap) Pool() pool.BuffPool {
 }
 
 func (m ArtifactMap) Editor() *ArtifactsEditor {
+	return m.EditorWithMaxPending(artifactMapPendingBufferSize)
+}
+
+func (m ArtifactMap) EditorWithMaxPending(maxPending int) *ArtifactsEditor {
+	if maxPending <= 0 {
+		maxPending = artifactMapPendingBufferSize
+	}
 	artKD, artVD := m.Descriptors()
 	return &ArtifactsEditor{
 		srcKeyDesc: m.srcKeyDesc,
@@ -189,7 +196,7 @@ func (m ArtifactMap) Editor() *ArtifactsEditor {
 			tuples:     m.tuples.Mutate(),
 			keyDesc:    m.keyDesc,
 			valDesc:    m.valDesc,
-			maxPending: artifactMapPendingBufferSize,
+			maxPending: maxPending,
 			flusher:    ProllyFlusher{},
 		},
 		artKB: val.NewTupleBuilder(artKD, m.NodeStore()),

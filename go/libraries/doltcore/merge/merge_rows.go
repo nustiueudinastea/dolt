@@ -61,6 +61,12 @@ type MergeOpts struct {
 	// inspection. Returning tree.RowMergeDefer keeps the standard behaviour for
 	// that row.
 	RowMergePolicy RowMergePolicy
+	// ArtifactPendingLimit, when > 0, overrides the pending-edit flush
+	// threshold of the merge's artifact editor.
+	ArtifactPendingLimit int
+	// UniqueIndexPendingLimit, when > 0, overrides the pending-edit flush
+	// threshold of the merge's private unique-constraint validation indexes.
+	UniqueIndexPendingLimit int
 }
 
 // RowMergeInput describes one three-way row decision offered to a policy.
@@ -112,6 +118,9 @@ type TableMerger struct {
 	// exception is for the dolt_verify_constraints() stored procedure, which allows callers to
 	// only record constraint violations for a specified subset of tables.
 	recordViolations bool
+
+	artifactPendingLimit    int
+	uniqueIndexPendingLimit int
 }
 
 func (tm TableMerger) GetNewValueMerger(ctx context.Context, mergeSch schema.Schema, leftRows prolly.Map) *valueMerger {
@@ -304,13 +313,15 @@ func (rm *RootMerger) MakeTableMerger(ctx context.Context, tblName doltdb.TableN
 	}
 
 	tm := TableMerger{
-		name:             tblName,
-		rightSrc:         rm.rightSrc,
-		ancestorSrc:      rm.ancSrc,
-		vrw:              rm.vrw,
-		ns:               rm.ns,
-		recordViolations: recordViolations,
-		rowMergePolicy:   mergeOpts.RowMergePolicy,
+		name:                    tblName,
+		rightSrc:                rm.rightSrc,
+		ancestorSrc:             rm.ancSrc,
+		vrw:                     rm.vrw,
+		ns:                      rm.ns,
+		recordViolations:        recordViolations,
+		rowMergePolicy:          mergeOpts.RowMergePolicy,
+		artifactPendingLimit:    mergeOpts.ArtifactPendingLimit,
+		uniqueIndexPendingLimit: mergeOpts.UniqueIndexPendingLimit,
 	}
 
 	var err error

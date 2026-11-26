@@ -251,7 +251,7 @@ func (mut *GenericMutableMap[M, T]) IterRange(ctx context.Context, rng Range) (M
 	iter := &mutableMapIter[val.Tuple, val.Tuple, *val.TupleDesc]{
 		memory: memIter,
 		prolly: treeIter,
-		order:  rng.Desc,
+		order:  mut.keyDesc,
 	}
 
 	return filteredIter{iter: iter, rng: rng}, err
