@@ -189,6 +189,24 @@ func (artifactFlusher) GetDefaultSerializer(ctx context.Context, mut *GenericMut
 	return message.NewMergeArtifactSerializer(mut.keyDesc, mut.NodeStore().Pool())
 }
 
+func (f artifactFlusher) Map(ctx context.Context, mut *GenericMutableMap[Map, tree.StaticMap[val.Tuple, val.Tuple, *val.TupleDesc]]) (Map, error) {
+	s := f.GetDefaultSerializer(ctx, mut)
+	treeMap, err := f.ApplyMutationsWithSerializer(ctx, s, mut)
+	if err != nil {
+		return Map{}, err
+	}
+	return Map{
+		tuples:  treeMap,
+		keyDesc: mut.keyDesc,
+		valDesc: mut.valDesc,
+	}, nil
+}
+
+func (f artifactFlusher) ApplyMutations(ctx context.Context, mut *GenericMutableMap[Map, tree.StaticMap[val.Tuple, val.Tuple, *val.TupleDesc]]) (tree.StaticMap[val.Tuple, val.Tuple, *val.TupleDesc], error) {
+	s := f.GetDefaultSerializer(ctx, mut)
+	return f.ApplyMutationsWithSerializer(ctx, s, mut)
+}
+
 func (m ArtifactMap) Editor() *ArtifactsEditor {
 	return m.EditorWithMaxPending(artifactMapPendingBufferSize)
 }

@@ -77,7 +77,8 @@ func (v AdaptiveValue) outOfBandSize() int64 {
 	if v.IsOutOfBand() {
 		return int64(len(v))
 	}
-	_, lengthSize := uvarint.Uvarint(v)
+	var buf [9]byte
+	lengthSize := uvarint.Encode(buf[:], uint64(len(v)-1))
 	return int64(lengthSize) + hash.ByteLen // variable length + address
 }
 
