@@ -555,6 +555,9 @@ func mergeProllyTableData(ctx *sql.Context, tm *TableMerger, finalSch schema.Sch
 	}
 
 	finalArtifacts, err := conflicts.finalize(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// collect merged data in |finalTbl|
 	finalTbl, err := mergeTbl.UpdateRows(ctx, finalRows)
@@ -923,6 +926,7 @@ func newUniqValidator(ctx *sql.Context, sch schema.Schema, tm *TableMerger, vm *
 // constraint violations, in which case the violations returned may be a negative number.
 func (uv uniqValidator) validateDiff(ctx *sql.Context, diff tree.ThreeWayDiff) (violations int, err error) {
 	var value val.Tuple
+	var prevValue val.Tuple
 	switch diff.Op {
 	case tree.DiffOpRightAdd, tree.DiffOpRightModify:
 		value = diff.Right
@@ -930,6 +934,13 @@ func (uv uniqValidator) validateDiff(ctx *sql.Context, diff tree.ThreeWayDiff) (
 		if !uv.valueMerger.keyless && !uv.valueMerger.rightMapping.IsIdentityMapping() {
 			modifiedValue := remapTuple(value, uv.tm.rightSch.GetValueDescriptor(uv.valueMerger.ns), uv.valueMerger.rightMapping)
 			value = val.NewTuple(uv.valueMerger.syncPool, modifiedValue...)
+		}
+		if diff.Op == tree.DiffOpRightModify && diff.Base != nil {
+			prevValue = diff.Base
+			if !uv.valueMerger.keyless && !uv.valueMerger.baseMapping.IsIdentityMapping() {
+				modifiedValue := remapTuple(prevValue, uv.tm.ancSch.GetValueDescriptor(uv.valueMerger.ns), uv.valueMerger.baseMapping)
+				prevValue = val.NewTuple(uv.valueMerger.syncPool, modifiedValue...)
+			}
 		}
 	case tree.DiffOpLeftAdd, tree.DiffOpLeftModify:
 		value = diff.Left
@@ -942,15 +953,38 @@ func (uv uniqValidator) validateDiff(ctx *sql.Context, diff tree.ThreeWayDiff) (
 		// If we see a row deletion event from the right side, we grab the original/base value so that we can update our
 		// local copy of the secondary index.
 		value = diff.Base
+		if !uv.valueMerger.keyless && !uv.valueMerger.baseMapping.IsIdentityMapping() {
+			modifiedValue := remapTuple(value, uv.tm.ancSch.GetValueDescriptor(uv.valueMerger.ns), uv.valueMerger.baseMapping)
+			value = val.NewTuple(uv.valueMerger.syncPool, modifiedValue...)
+		}
+	case tree.DiffOpDivergentDeleteResolved:
+		// If the left side already deleted the row, our left-seeded unique index does not hold it.
+		// If the right side deleted the row while the left side only re-encoded it, remove the
+		// left-side row from our local unique index and clear any stale violation artifacts.
+		if diff.Right != nil {
+			return 0, nil
+		}
+		value = diff.Left
+		if !uv.valueMerger.keyless && !uv.valueMerger.leftMapping.IsIdentityMapping() {
+			modifiedValue := remapTuple(value, uv.tm.leftSch.GetValueDescriptor(uv.valueMerger.ns), uv.valueMerger.leftMapping)
+			value = val.NewTuple(uv.valueMerger.syncPool, modifiedValue...)
+		}
 	case tree.DiffOpDivergentModifyResolved:
 		value = diff.Merged
+		if diff.Left != nil {
+			prevValue = diff.Left
+			if !uv.valueMerger.keyless && !uv.valueMerger.leftMapping.IsIdentityMapping() {
+				modifiedValue := remapTuple(prevValue, uv.tm.leftSch.GetValueDescriptor(uv.valueMerger.ns), uv.valueMerger.leftMapping)
+				prevValue = val.NewTuple(uv.valueMerger.syncPool, modifiedValue...)
+			}
+		}
 	default:
 		return
 	}
 
 	// For a row deletion... we need to remove any unique constraint violations that were previously recorded for
 	// this row.
-	if diff.Op == tree.DiffOpRightDelete {
+	if diff.Op == tree.DiffOpRightDelete || diff.Op == tree.DiffOpDivergentDeleteResolved {
 		// First update the unique indexes to remove this row.
 		for _, idx := range uv.indexes {
 			err := idx.removeRow(ctx, diff.Key, value)
@@ -962,7 +996,37 @@ func (uv uniqValidator) validateDiff(ctx *sql.Context, diff tree.ThreeWayDiff) (
 		// Then clear any unique constraint violation artifacts for this row. If there is only one unique constraint
 		// violation artifact left, it will also be cleared by this function (since unique constraint violations
 		// must always occur with at least two rows reported).
-		return uv.clearArtifact(ctx, diff.Key, diff.Base)
+		return uv.clearArtifact(ctx, diff.Key, value)
+	}
+
+	// If a right-side or resolved modification changed an indexed unique column from its
+	// left-side value, remove the stale secondary key from our private index (and clear any
+	// stale violation artifacts for the old key) before checking collisions for the new value.
+	if prevValue != nil && len(uv.indexes) > 0 {
+		keyChanged := false
+		for _, idx := range uv.indexes {
+			oldSecKey, err := idx.secondaryBld.SecondaryKeyFromRow(ctx, diff.Key, prevValue)
+			if err != nil {
+				return violations, err
+			}
+			newSecKey, err := idx.secondaryBld.SecondaryKeyFromRow(ctx, diff.Key, value)
+			if err != nil {
+				return violations, err
+			}
+			if !bytes.Equal(oldSecKey, newSecKey) {
+				if err := idx.secondary.Delete(ctx, oldSecKey); err != nil {
+					return violations, err
+				}
+				keyChanged = true
+			}
+		}
+		if keyChanged {
+			cleared, err := uv.clearArtifact(ctx, diff.Key, prevValue)
+			if err != nil {
+				return violations, err
+			}
+			violations += cleared
+		}
 	}
 
 	if uv.tm.recordViolations {
@@ -972,27 +1036,25 @@ func (uv uniqValidator) validateDiff(ctx *sql.Context, diff tree.ThreeWayDiff) (
 				return uv.insertArtifact(ctx, k, v, idx.meta)
 			})
 			if err != nil {
-				break
+				return violations, err
 			}
 		}
 	}
 
 	// After detecting any unique constraint violations, we need to update our indexes with the updated row
-	if diff.Op != tree.DiffOpRightDelete {
-		for _, idx := range uv.indexes {
-			err := idx.insertRow(ctx, diff.Key, value)
-			if err != nil {
-				return violations, err
-			}
+	for _, idx := range uv.indexes {
+		err := idx.insertRow(ctx, diff.Key, value)
+		if err != nil {
+			return violations, err
+		}
 
-			err = idx.clustered.Put(ctx, diff.Key, value)
-			if err != nil {
-				return violations, err
-			}
+		err = idx.clustered.Put(ctx, diff.Key, value)
+		if err != nil {
+			return violations, err
 		}
 	}
 
-	return violations, err
+	return violations, nil
 }
 
 // deleteArtifact deletes all unique constraint violation artifacts for the row identified by |key| and returns whether
@@ -1021,16 +1083,24 @@ func (uv uniqValidator) clearArtifact(ctx *sql.Context, key val.Tuple, prevValue
 	for _, idx := range uv.indexes {
 		// TODO: Test with multiple unique indexes and constraint violations on different values
 		//       Multiple unique indexes won't work yet: https://github.com/dolthub/dolt/issues/6329
+		var remaining []val.Tuple
 		err := idx.findCollisions(ctx, key, prevValue, func(k, v val.Tuple) error {
-			deleted, err := uv.deleteArtifact(ctx, k)
-			if err != nil || !deleted {
-				return err
+			if !bytes.Equal(k, key) {
+				remaining = append(remaining, k)
 			}
-			violationCount = violationCount - 1
 			return nil
 		})
 		if err != nil {
-			break
+			return violationCount, err
+		}
+		if len(remaining) == 1 {
+			deleted, err := uv.deleteArtifact(ctx, remaining[0])
+			if err != nil {
+				return violationCount, err
+			}
+			if deleted {
+				violationCount = violationCount - 1
+			}
 		}
 	}
 
