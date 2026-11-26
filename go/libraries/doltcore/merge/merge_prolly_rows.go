@@ -277,6 +277,9 @@ func computeProllyTreePatches(
 			return nil, nil, err
 		}
 		err = tree.SendPatches(ctx, lDiff, rDiff, patchBuffer, func(left, right tree.Diff) (tree.Diff, bool) {
+			if mergeErr != nil {
+				return tree.Diff{}, false
+			}
 			var mergedRow val.Tuple
 			var resolved bool
 			policyDecided := false
@@ -318,7 +321,10 @@ func computeProllyTreePatches(
 					Left:  val.Tuple(left.To),
 					Right: val.Tuple(right.To),
 				}
-				err = conflicts.merge(ctx, conflictDiff, nil)
+				if cErr := conflicts.merge(ctx, conflictDiff, nil); cErr != nil {
+					mergeErr = cErr
+					return tree.Diff{}, false
+				}
 			}
 			if hasStoredGeneratedColumns(finalSch) {
 				defaults, err := resolveDefaults(ctx, tm.name.Name, finalSch, tm.rightSch)
@@ -2122,6 +2128,9 @@ func (m *valueMerger) processBaseColumn(ctx context.Context, i int, left, right,
 			return false, err
 		}
 		cmp, err := rightType.Compare(ctx, baseVal, rightVal)
+		if err != nil {
+			return false, err
+		}
 		// If values are unequal, this is a delete-modify conflict
 		return cmp != 0, nil
 	}
@@ -2137,7 +2146,7 @@ func (m *valueMerger) processBaseColumn(ctx context.Context, i int, left, right,
 		// This is a conflict if the value on the left changed.
 		// But if the left side only changed its representation (from ALTER COLUMN) and still has the same value,
 		// then this can be resolved.
-		leftType := m.rightSchema.GetNonPKCols().GetByIndex(leftColIdx).TypeInfo.ToSqlType()
+		leftType := m.leftSchema.GetNonPKCols().GetByIndex(leftColIdx).TypeInfo.ToSqlType()
 		baseVal, err := convert(ctx, m.baseVD, leftType, i, base, m.ns)
 		if err != nil {
 			return false, err
@@ -2147,6 +2156,9 @@ func (m *valueMerger) processBaseColumn(ctx context.Context, i int, left, right,
 			return false, err
 		}
 		cmp, err := leftType.Compare(ctx, baseVal, leftVal)
+		if err != nil {
+			return false, err
+		}
 		// If values are unequal, this is a delete-modify conflict
 		return cmp != 0, nil
 	}
