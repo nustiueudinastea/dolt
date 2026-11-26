@@ -181,6 +181,14 @@ func (m ArtifactMap) Pool() pool.BuffPool {
 	return m.tuples.NodeStore.Pool()
 }
 
+type artifactFlusher struct {
+	ProllyFlusher
+}
+
+func (artifactFlusher) GetDefaultSerializer(ctx context.Context, mut *GenericMutableMap[Map, tree.StaticMap[val.Tuple, val.Tuple, *val.TupleDesc]]) message.Serializer {
+	return message.NewMergeArtifactSerializer(mut.keyDesc, mut.NodeStore().Pool())
+}
+
 func (m ArtifactMap) Editor() *ArtifactsEditor {
 	return m.EditorWithMaxPending(artifactMapPendingBufferSize)
 }
@@ -197,7 +205,7 @@ func (m ArtifactMap) EditorWithMaxPending(maxPending int) *ArtifactsEditor {
 			keyDesc:    m.keyDesc,
 			valDesc:    m.valDesc,
 			maxPending: maxPending,
-			flusher:    ProllyFlusher{},
+			flusher:    artifactFlusher{},
 		},
 		artKB: val.NewTupleBuilder(artKD, m.NodeStore()),
 		artVB: val.NewTupleBuilder(artVD, m.NodeStore()),
