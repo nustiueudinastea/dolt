@@ -19,8 +19,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	sqlTypes "github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	sqlTypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dprocedures"

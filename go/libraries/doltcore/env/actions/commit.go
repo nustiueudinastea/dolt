@@ -19,8 +19,8 @@ import (
 	"io"
 	"strings"
 
-	gms "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/sql"
+	gms "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	goerrors "gopkg.in/src-d/go-errors.v1"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/diff"

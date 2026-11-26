@@ -17,7 +17,7 @@ package schema
 import (
 	"strings"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 type Check interface {

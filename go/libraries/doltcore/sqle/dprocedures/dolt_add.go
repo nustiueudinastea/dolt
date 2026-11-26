@@ -26,7 +26,7 @@ import (
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/resolve"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // doltAdd is the stored procedure version for the CLI command `dolt add`.

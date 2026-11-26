@@ -21,9 +21,9 @@ import (
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 
-	gms "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/sql"
-	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
+	gms "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	gmstypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 )
 
 const queryDiffDefaultRowCount = 100

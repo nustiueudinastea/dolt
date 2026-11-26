@@ -21,7 +21,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/memlimit"
 	"github.com/nustiueudinastea/dolt/go/store/chunks"

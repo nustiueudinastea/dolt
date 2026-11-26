@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/server"
+	"github.com/nustiueudinastea/go-mysql-server/server"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"

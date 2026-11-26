@@ -25,8 +25,8 @@ import (
 	"unsafe"
 
 	"github.com/cockroachdb/apd/v3"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
 	"github.com/nustiueudinastea/dolt/go/store/hash"

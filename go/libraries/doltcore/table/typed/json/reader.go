@@ -21,7 +21,7 @@ import (
 	"io"
 
 	"github.com/bcicen/jstream"
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 

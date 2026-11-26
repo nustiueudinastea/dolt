@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/Shopify/toxiproxy/v2"
 	toxiproxyclient "github.com/Shopify/toxiproxy/v2/client"

@@ -20,7 +20,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/mohae/uvarint"
 
 	"github.com/nustiueudinastea/dolt/go/store/hash"

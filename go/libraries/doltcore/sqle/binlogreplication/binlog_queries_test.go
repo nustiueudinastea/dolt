@@ -21,10 +21,10 @@ import (
 	"strings"
 	"testing"
 
-	gms "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/enginetest/queries"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/types"
+	gms "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/enginetest/queries"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/binlogreplication"
 	doltenginetest "github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/enginetest"

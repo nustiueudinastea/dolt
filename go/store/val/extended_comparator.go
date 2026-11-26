@@ -17,7 +17,7 @@ package val
 import (
 	"context"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // ExtendedTupleComparator is a comparator that properly handles extended types.

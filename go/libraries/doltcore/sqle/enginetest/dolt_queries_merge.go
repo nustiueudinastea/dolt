@@ -18,11 +18,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dolthub/go-mysql-server/enginetest/queries"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/plan"
-	"github.com/dolthub/go-mysql-server/sql/types"
-	"github.com/dolthub/go-mysql-server/testutils"
+	"github.com/nustiueudinastea/go-mysql-server/enginetest/queries"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/plan"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/testutils"
 	"gopkg.in/src-d/go-errors.v1"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/merge"

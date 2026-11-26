@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/cockroachdb/apd/v3"
-	sqle "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/sql"
+	sqle "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/dolthub/sqllogictest/go/logictest"
 	"github.com/dolthub/vitess/go/vt/proto/query"
 

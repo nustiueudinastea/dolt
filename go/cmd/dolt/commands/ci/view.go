@@ -18,7 +18,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"gopkg.in/yaml.v3"
 
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"

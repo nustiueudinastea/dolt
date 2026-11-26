@@ -18,11 +18,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	gmstypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	// Necessary for the empty context used by some functions to be initialized with system vars
-	_ "github.com/dolthub/go-mysql-server/sql/variables"
+	_ "github.com/nustiueudinastea/go-mysql-server/sql/variables"
 	"github.com/dolthub/vitess/go/sqltypes"
 )
 

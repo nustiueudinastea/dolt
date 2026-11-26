@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	gmstypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 	"github.com/dolthub/vitess/go/sqltypes"
 	"gopkg.in/src-d/go-errors.v1"
 

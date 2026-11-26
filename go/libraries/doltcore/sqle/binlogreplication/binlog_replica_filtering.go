@@ -19,8 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	gmsbinlogreplication "github.com/dolthub/go-mysql-server/sql/binlogreplication"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	gmsbinlogreplication "github.com/nustiueudinastea/go-mysql-server/sql/binlogreplication"
 	"github.com/dolthub/vitess/go/mysql"
 )
 

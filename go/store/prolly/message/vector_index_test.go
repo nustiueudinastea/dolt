@@ -17,7 +17,7 @@ package message
 import (
 	"testing"
 
-	"github.com/dolthub/go-mysql-server/sql/expression/function/vector"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression/function/vector"
 	"github.com/stretchr/testify/require"
 
 	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"

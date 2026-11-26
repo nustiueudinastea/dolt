@@ -20,7 +20,7 @@ import (
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/durable"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 var _ sql.Partition = SinglePartition{}

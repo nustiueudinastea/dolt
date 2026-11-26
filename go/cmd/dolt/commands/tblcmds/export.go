@@ -19,7 +19,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/fatih/color"
 
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"

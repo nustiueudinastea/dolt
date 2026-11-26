@@ -17,7 +17,7 @@ package dprocedures
 import (
 	"fmt"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
 	"github.com/nustiueudinastea/dolt/go/libraries/utils/errors"

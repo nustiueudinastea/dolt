@@ -19,9 +19,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/expression"
-	"github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
 	"github.com/dolthub/vitess/go/mysql"
 
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"

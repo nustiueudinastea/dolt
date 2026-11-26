@@ -19,8 +19,8 @@ import (
 	"math"
 	"math/bits"
 
-	"github.com/dolthub/go-mysql-server/sql/expression/function/spatial"
-	"github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression/function/spatial"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/nustiueudinastea/dolt/go/store/val"
 )

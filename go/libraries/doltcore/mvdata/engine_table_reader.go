@@ -18,8 +18,8 @@ import (
 	"context"
 	"fmt"
 
-	sqle "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/sql"
+	sqle "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/row"

@@ -22,7 +22,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"gopkg.in/yaml.v2"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/utils/filesys"

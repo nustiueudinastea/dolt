@@ -22,7 +22,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/dolthub/vitess/go/vt/sqlparser"
 	"github.com/fatih/color"
 

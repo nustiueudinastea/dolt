@@ -29,8 +29,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/analyzer"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/analyzer"
 	"github.com/pkg/profile"
 	"github.com/sirupsen/logrus"
 	textunicode "golang.org/x/text/encoding/unicode"

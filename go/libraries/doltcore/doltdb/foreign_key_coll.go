@@ -29,7 +29,7 @@ import (
 	"github.com/nustiueudinastea/dolt/go/store/hash"
 	"github.com/nustiueudinastea/dolt/go/store/types"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // ForeignKeyCollection represents the collection of foreign keys for a root value.

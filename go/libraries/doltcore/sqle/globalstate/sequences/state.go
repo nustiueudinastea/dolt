@@ -17,7 +17,7 @@ package sequences
 import (
 	"context"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // A SequenceState is an incrementing state that must be shared across all branches and transactions.

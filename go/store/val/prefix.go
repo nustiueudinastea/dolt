@@ -17,7 +17,7 @@ package val
 import (
 	"context"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // TrimValueToPrefixLength trims |value| to |prefixLength| if it is longer

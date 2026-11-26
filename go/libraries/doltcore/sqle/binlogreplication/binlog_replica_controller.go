@@ -22,10 +22,10 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	sqle "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/binlogreplication"
-	"github.com/dolthub/go-mysql-server/sql/mysql_db"
+	sqle "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/binlogreplication"
+	"github.com/nustiueudinastea/go-mysql-server/sql/mysql_db"
 )
 
 var DoltBinlogReplicaController = newDoltBinlogReplicaController()

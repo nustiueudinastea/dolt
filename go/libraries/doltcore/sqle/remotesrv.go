@@ -19,7 +19,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"google.golang.org/grpc"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"

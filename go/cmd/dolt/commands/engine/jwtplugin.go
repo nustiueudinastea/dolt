@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql/mysql_db"
+	"github.com/nustiueudinastea/go-mysql-server/sql/mysql_db"
 	"github.com/sirupsen/logrus"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/servercfg"

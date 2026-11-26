@@ -20,9 +20,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	sqltypes "github.com/dolthub/go-mysql-server/sql/types"
-	_ "github.com/dolthub/go-mysql-server/sql/variables"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	sqltypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
+	_ "github.com/nustiueudinastea/go-mysql-server/sql/variables"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/src-d/go-errors.v1"
 

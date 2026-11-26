@@ -19,8 +19,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/expression"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 	"github.com/nustiueudinastea/dolt/go/store/prolly"

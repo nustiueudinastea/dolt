@@ -17,9 +17,9 @@ package enginetest
 import (
 	"testing"
 
-	"github.com/dolthub/go-mysql-server/enginetest"
-	"github.com/dolthub/go-mysql-server/enginetest/queries"
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/enginetest"
+	"github.com/nustiueudinastea/go-mysql-server/enginetest/queries"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 func TestTagNameIndex(t *testing.T) {

@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/enginetest/queries"
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/enginetest/queries"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/gocraft/dbr/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

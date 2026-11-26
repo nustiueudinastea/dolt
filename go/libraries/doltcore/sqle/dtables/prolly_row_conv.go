@@ -17,7 +17,7 @@ package dtables
 import (
 	"context"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/rowconv"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"

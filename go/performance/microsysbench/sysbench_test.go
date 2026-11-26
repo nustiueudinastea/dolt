@@ -25,8 +25,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dolthub/go-mysql-server/server"
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/stretchr/testify/require"
 
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands"

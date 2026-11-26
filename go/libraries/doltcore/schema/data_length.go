@@ -15,8 +15,8 @@
 package schema
 
 import (
-	"github.com/dolthub/go-mysql-server/sql"
-	sqltypes "github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	sqltypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 )
 
 func SchemaAvgLength(schema sql.Schema) uint64 {

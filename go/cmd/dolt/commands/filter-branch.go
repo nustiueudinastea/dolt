@@ -20,9 +20,9 @@ import (
 	"io"
 	"strings"
 
-	sqle "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/analyzer"
+	sqle "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/analyzer"
 
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/engine"

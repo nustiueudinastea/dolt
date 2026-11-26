@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/dolthub/go-mysql-server/server"
+	"github.com/nustiueudinastea/go-mysql-server/server"
 )
 
 var theServer *server.Server

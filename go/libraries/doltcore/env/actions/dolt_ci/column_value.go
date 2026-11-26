@@ -19,7 +19,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/dolthub/vitess/go/sqltypes"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"

@@ -21,7 +21,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/dolthub/go-mysql-server/sql/expression/function/vector"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression/function/vector"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 	"github.com/nustiueudinastea/dolt/go/store/hash"

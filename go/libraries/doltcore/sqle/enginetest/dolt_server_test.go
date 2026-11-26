@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/stretchr/testify/require"
 
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/commands/sqlserver"

@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/sirupsen/logrus"
 

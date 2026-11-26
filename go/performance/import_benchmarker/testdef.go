@@ -29,8 +29,8 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/creasty/defaults"
-	sql2 "github.com/dolthub/go-mysql-server/sql"
-	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
+	sql2 "github.com/nustiueudinastea/go-mysql-server/sql"
+	gmstypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 	"github.com/dolthub/vitess/go/sqltypes"
 	ast "github.com/dolthub/vitess/go/vt/sqlparser"
 	"github.com/stretchr/testify/require"

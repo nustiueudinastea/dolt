@@ -18,8 +18,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	gmstypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"
 	"github.com/nustiueudinastea/dolt/go/store/types"

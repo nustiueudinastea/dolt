@@ -21,8 +21,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/mysql_db"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/mysql_db"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/utils/file"
 )

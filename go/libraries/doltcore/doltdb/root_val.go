@@ -25,7 +25,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	flatbuffers "github.com/dolthub/flatbuffers/v23/go"
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/durable"

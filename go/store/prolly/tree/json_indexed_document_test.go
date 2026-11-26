@@ -21,13 +21,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dolthub/go-mysql-server/sql/expression"
-	"github.com/dolthub/go-mysql-server/sql/expression/function/json"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression/function/json"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/expression/function/json/jsontests"
-	"github.com/dolthub/go-mysql-server/sql/types"
-	typetests "github.com/dolthub/go-mysql-server/sql/types/jsontests"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression/function/json/jsontests"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
+	typetests "github.com/nustiueudinastea/go-mysql-server/sql/types/jsontests"
 	"github.com/stretchr/testify/require"
 )
 

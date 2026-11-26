@@ -19,7 +19,7 @@ import (
 
 	"github.com/nustiueudinastea/dolt/go/store/hash"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // RootObject is an object that is located on the root, rather than inside another object (table, schema, etc.). This is

@@ -17,7 +17,7 @@ package overrides
 import (
 	"context"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // EngineOverridesFromContext returns the sql.EngineOverrides from the database provider by looking through the

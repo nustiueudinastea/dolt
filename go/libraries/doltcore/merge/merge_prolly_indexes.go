@@ -18,7 +18,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/durable"

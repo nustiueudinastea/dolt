@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"testing"
 
-	_ "github.com/dolthub/go-mysql-server/sql/variables"
+	_ "github.com/nustiueudinastea/go-mysql-server/sql/variables"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

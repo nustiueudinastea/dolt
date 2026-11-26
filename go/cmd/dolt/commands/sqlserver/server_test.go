@@ -23,7 +23,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gocraft/dbr/v2"
 	"github.com/stretchr/testify/assert"

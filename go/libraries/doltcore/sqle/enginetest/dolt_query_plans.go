@@ -15,7 +15,7 @@
 package enginetest
 
 import (
-	"github.com/dolthub/go-mysql-server/enginetest/queries"
+	"github.com/nustiueudinastea/go-mysql-server/enginetest/queries"
 )
 
 // DoltDiffPlanTests are tests that check our query plans for various operations on the dolt diff system tables

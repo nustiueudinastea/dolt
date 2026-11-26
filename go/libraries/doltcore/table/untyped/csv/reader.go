@@ -26,7 +26,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	textunicode "golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 

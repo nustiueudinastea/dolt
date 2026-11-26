@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/apd/v3"
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/sirupsen/logrus"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/branch_control"

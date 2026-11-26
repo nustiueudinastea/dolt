@@ -21,12 +21,12 @@ import (
 	"strings"
 	"testing"
 
-	gms "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/expression"
-	"github.com/dolthub/go-mysql-server/sql/planbuilder"
-	"github.com/dolthub/go-mysql-server/sql/rowexec"
-	"github.com/dolthub/go-mysql-server/sql/types"
+	gms "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression"
+	"github.com/nustiueudinastea/go-mysql-server/sql/planbuilder"
+	"github.com/nustiueudinastea/go-mysql-server/sql/rowexec"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dtestutils"

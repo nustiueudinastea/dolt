@@ -19,8 +19,8 @@ import (
 	"context"
 	"sort"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/stats"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/stats"
 
 	"github.com/nustiueudinastea/dolt/go/store/prolly"
 	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"

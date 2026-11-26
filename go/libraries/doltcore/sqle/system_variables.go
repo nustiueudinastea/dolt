@@ -18,9 +18,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/types"
-	_ "github.com/dolthub/go-mysql-server/sql/variables"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
+	_ "github.com/nustiueudinastea/go-mysql-server/sql/variables"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/env/actions"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"

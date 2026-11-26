@@ -19,7 +19,7 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/zeebo/xxh3"
 
 	"github.com/nustiueudinastea/dolt/go/store/pool"

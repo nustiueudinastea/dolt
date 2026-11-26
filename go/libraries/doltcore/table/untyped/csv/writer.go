@@ -24,8 +24,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/sqlutil"

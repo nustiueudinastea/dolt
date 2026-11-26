@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/ref"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/sqle/dsess"

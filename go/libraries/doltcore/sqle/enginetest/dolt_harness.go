@@ -22,12 +22,12 @@ import (
 	"testing"
 	"time"
 
-	gms "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/enginetest"
-	"github.com/dolthub/go-mysql-server/enginetest/scriptgen/setup"
-	"github.com/dolthub/go-mysql-server/memory"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/mysql_db"
+	gms "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/enginetest"
+	"github.com/nustiueudinastea/go-mysql-server/enginetest/scriptgen/setup"
+	"github.com/nustiueudinastea/go-mysql-server/memory"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/mysql_db"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 

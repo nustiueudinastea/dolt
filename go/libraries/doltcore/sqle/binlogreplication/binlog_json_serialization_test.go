@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"testing"
 
-	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
+	gmstypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/dolthub/vitess/go/mysql"
 	"github.com/stretchr/testify/require"

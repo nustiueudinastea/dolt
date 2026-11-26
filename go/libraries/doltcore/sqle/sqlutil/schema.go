@@ -18,11 +18,11 @@ import (
 	"fmt"
 	"strings"
 
-	sqle "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/expression/function/vector"
-	"github.com/dolthub/go-mysql-server/sql/plan"
-	"github.com/dolthub/go-mysql-server/sql/planbuilder"
+	sqle "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression/function/vector"
+	"github.com/nustiueudinastea/go-mysql-server/sql/plan"
+	"github.com/nustiueudinastea/go-mysql-server/sql/planbuilder"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"

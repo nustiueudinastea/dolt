@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"gopkg.in/src-d/go-errors.v1"
 
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"

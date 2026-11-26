@@ -17,7 +17,7 @@ package indexcmds
 import (
 	"context"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/cli"
 	"github.com/nustiueudinastea/dolt/go/cmd/dolt/errhand"

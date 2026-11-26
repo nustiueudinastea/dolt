@@ -61,11 +61,9 @@ require (
 	github.com/cockroachdb/apd/v3 v3.2.3
 	github.com/creasty/defaults v1.6.0
 	github.com/dolthub/aws-sdk-go-ini-parser v0.0.0-20250305001723-2821c37f6c12
-	github.com/nustiueudinastea/dolt-mcp v0.3.5-0.20260816222919-54e442b0829e
 	github.com/dolthub/eventsapi_schema v0.0.0-20260715220557-d9b4a1c6b4d4
 	github.com/dolthub/file-locks v0.1.1
 	github.com/dolthub/flatbuffers/v23 v23.3.3-dh.2
-	github.com/dolthub/go-mysql-server v0.20.1-0.20261013010327-d5acf30e8519
 	github.com/dolthub/gozstd v0.0.0-20240423170813-23a2903bca63
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/esote/minmaxheap v1.0.0
@@ -78,6 +76,8 @@ require (
 	github.com/kylelemons/godebug v1.1.0
 	github.com/lib/pq v1.10.7
 	github.com/mohae/uvarint v0.0.0-20160208145430-c3f9e62bf2b0
+	github.com/nustiueudinastea/dolt-mcp v0.3.5-0.20260816222919-54e442b0829e
+	github.com/nustiueudinastea/go-mysql-server v0.0.0-20261126064646-b409ffb1e79c
 	github.com/oracle/oci-go-sdk/v65 v65.55.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/procfs v0.16.1
@@ -102,6 +102,8 @@ require (
 	gopkg.in/go-jose/go-jose.v2 v2.6.3
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/dolthub/go-mysql-server v0.20.1-0.20260617190629-08b4d4af38db // indirect
 
 require (
 	cel.dev/expr v0.25.2 // indirect

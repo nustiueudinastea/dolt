@@ -22,8 +22,8 @@ import (
 	"math"
 	"unicode"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	gmstypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb/durable"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"

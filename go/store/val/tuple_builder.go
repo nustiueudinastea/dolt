@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/apd/v3"
-	"github.com/dolthub/go-mysql-server/sql/analyzer/analyzererrors"
+	"github.com/nustiueudinastea/go-mysql-server/sql/analyzer/analyzererrors"
 
 	"github.com/nustiueudinastea/dolt/go/store/hash"
 	"github.com/nustiueudinastea/dolt/go/store/pool"

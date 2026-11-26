@@ -19,7 +19,7 @@ import (
 	"io"
 	"slices"
 
-	"github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
 )
 
 type IndexedJsonDiffer struct {

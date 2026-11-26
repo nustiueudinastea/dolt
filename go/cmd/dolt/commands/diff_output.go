@@ -22,7 +22,7 @@ import (
 	"io"
 
 	textdiff "github.com/andreyvit/diff"
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
 

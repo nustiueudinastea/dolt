@@ -18,8 +18,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/types"
 )
 
 // getServerId returns the @@server_id global system variable value. If the value of @@server_id is 0 or is not a

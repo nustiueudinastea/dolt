@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // SetSystemVar sets the @@dolt_show_system_tables variable if necessary, and returns a function

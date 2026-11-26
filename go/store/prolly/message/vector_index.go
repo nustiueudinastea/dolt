@@ -21,7 +21,7 @@ import (
 	"math"
 
 	fb "github.com/dolthub/flatbuffers/v23/go"
-	"github.com/dolthub/go-mysql-server/sql/expression/function/vector"
+	"github.com/nustiueudinastea/go-mysql-server/sql/expression/function/vector"
 
 	"github.com/nustiueudinastea/dolt/go/gen/fb/serial"
 	"github.com/nustiueudinastea/dolt/go/store/hash"

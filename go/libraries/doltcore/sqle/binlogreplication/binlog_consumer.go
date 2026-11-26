@@ -15,9 +15,9 @@
 package binlogreplication
 
 import (
-	gms "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/sql"
-	gmsbin "github.com/dolthub/go-mysql-server/sql/binlogreplication"
+	gms "github.com/nustiueudinastea/go-mysql-server"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	gmsbin "github.com/nustiueudinastea/go-mysql-server/sql/binlogreplication"
 	"github.com/dolthub/vitess/go/mysql"
 )
 

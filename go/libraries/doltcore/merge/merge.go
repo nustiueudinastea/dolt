@@ -19,7 +19,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	goerrors "gopkg.in/src-d/go-errors.v1"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"

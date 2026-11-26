@@ -17,8 +17,8 @@ package sqle
 import (
 	"strings"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/information_schema"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/information_schema"
 )
 
 // informationSchemaDatabaseSchema is a DatabaseSchema implementation that provides access to the INFORMATION_SCHEMA tables. This is relevant only for Doltgres.

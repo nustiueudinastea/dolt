@@ -17,8 +17,8 @@ package dtables
 import (
 	"io"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	sqlTypes "github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	sqlTypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 	"github.com/dolthub/vitess/go/sqltypes"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"

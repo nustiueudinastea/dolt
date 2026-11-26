@@ -17,7 +17,7 @@ package typeinfo
 import (
 	"fmt"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/store/types"
 	"github.com/nustiueudinastea/dolt/go/store/val"

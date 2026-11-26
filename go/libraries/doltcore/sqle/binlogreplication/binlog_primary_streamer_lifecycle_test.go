@@ -24,7 +24,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/dolthub/vitess/go/mysql"
 	"github.com/stretchr/testify/require"
 

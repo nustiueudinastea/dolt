@@ -18,7 +18,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"github.com/zeebo/xxh3"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"

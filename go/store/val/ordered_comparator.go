@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // OrderedTupleComparator compares each field in the sort order it was defined with, wrapping a comparator that orders

@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/doltdb"

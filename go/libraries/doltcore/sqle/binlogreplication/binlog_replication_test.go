@@ -33,8 +33,8 @@ import (
 	"time"
 
 	toxiproxyclient "github.com/Shopify/toxiproxy/v2/client"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/binlogreplication"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/binlogreplication"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"

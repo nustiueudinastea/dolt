@@ -18,7 +18,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema/typeinfo"

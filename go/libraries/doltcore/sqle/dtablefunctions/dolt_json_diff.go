@@ -17,8 +17,8 @@ package dtablefunctions
 import (
 	"fmt"
 
-	"github.com/dolthub/go-mysql-server/sql"
-	gmstypes "github.com/dolthub/go-mysql-server/sql/types"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	gmstypes "github.com/nustiueudinastea/go-mysql-server/sql/types"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"
 	"github.com/nustiueudinastea/dolt/go/store/prolly/tree"

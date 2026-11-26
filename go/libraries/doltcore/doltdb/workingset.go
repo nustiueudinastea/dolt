@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/ref"
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/schema"

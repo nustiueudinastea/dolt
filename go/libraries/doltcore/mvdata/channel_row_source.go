@@ -17,7 +17,7 @@ package mvdata
 import (
 	"io"
 
-	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
 )
 
 // ChannelRowSource is a sql.Node that wraps a channel as a sql.RowIter.

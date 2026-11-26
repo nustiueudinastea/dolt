@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/cockroachdb/apd/v3"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/encodings"
+	"github.com/nustiueudinastea/go-mysql-server/sql"
+	"github.com/nustiueudinastea/go-mysql-server/sql/encodings"
 
 	"github.com/nustiueudinastea/dolt/go/libraries/doltcore/dconfig"
 	"github.com/nustiueudinastea/dolt/go/store/hash"
