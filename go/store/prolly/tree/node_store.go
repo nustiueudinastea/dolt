@@ -215,6 +215,8 @@ func (ns *nodeStore) BlobBuilder() *BlobBuilder {
 // PutBlobBuilder implements NodeStore.
 func (ns *nodeStore) PutBlobBuilder(bb *BlobBuilder) {
 	bb.Reset()
+	bb.ns = nil
+	bb.S = nil
 	ns.bbp.Put(bb)
 }
 

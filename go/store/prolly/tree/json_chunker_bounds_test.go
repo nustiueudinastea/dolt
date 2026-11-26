@@ -93,3 +93,38 @@ func TestJsonChunker_SingleLeafTopLevelString(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, doc.Val, got)
 }
+
+func TestJsonChunker_OversizedSingleLeafReturnsTypedError(t *testing.T) {
+	ctx := context.Background()
+	ns := NewTestNodeStore()
+
+	// A top-level JSON string near 16 MiB forms a single leaf whose Blob
+	// FlatBuffer would exceed serial.FinishMessage's 24-bit size field.
+	doc := types.JSONDocument{Val: strings.Repeat("a", (1<<24)-2)}
+	_, err := SerializeJsonToAddr(ctx, ns, doc)
+	require.ErrorIs(t, err, ErrJsonLeafTooLarge)
+
+	// A top-level JSON string at exact maxJsonLeafPayloadBytes succeeds without panicking.
+	okDoc := types.JSONDocument{Val: strings.Repeat("b", maxJsonLeafPayloadBytes-2)}
+	root, err := SerializeJsonToAddr(ctx, ns, okDoc)
+	require.NoError(t, err)
+	require.True(t, root.IsLeaf())
+	require.Equal(t, maxJsonLeafPayloadBytes, len(root.GetValue(0)))
+}
+
+func TestKeySplitter_HighLevelNoPanic(t *testing.T) {
+	s := newKeySplitter(20)
+	require.NotNil(t, s)
+	ks, ok := s.(*keySplitter)
+	require.True(t, ok)
+	require.Equal(t, saltFromLevel(21), ks.salt)
+}
+
+func TestPutBlobBuilder_DetachesNodeStore(t *testing.T) {
+	ns := NewTestNodeStore()
+	bb := ns.BlobBuilder()
+	require.NotNil(t, bb.ns)
+	ns.PutBlobBuilder(bb)
+	require.Nil(t, bb.ns)
+	require.Nil(t, bb.S)
+}

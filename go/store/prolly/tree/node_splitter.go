@@ -179,8 +179,14 @@ type keySplitter struct {
 }
 
 func newKeySplitter(level uint8) nodeSplitter {
+	var salt uint64
+	if int(level) < len(levelSalt) {
+		salt = levelSalt[level]
+	} else {
+		salt = saltFromLevel(level + 1)
+	}
 	return &keySplitter{
-		salt: levelSalt[level],
+		salt: salt,
 	}
 }
 
